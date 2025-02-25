@@ -1,5 +1,88 @@
 import pandas as pd
 import numpy as np
+import awkward as ak
+
+def broadcast(v, df):
+    for vi, ii in zip(v.index.names, df.index.names):
+        if vi != ii:
+            raise ValueError("Value index (%s) does not match index (%s)." % (str(vi), str(ii)))
+    if len(v.index.names) > len(df.index.names):
+        raise ValueError("Value index too long.")
+    if len(v.index.names) == len(df.index.names):
+        return v
+
+    rpt = df.groupby(level=list(range(v.index.nlevels))).size()
+    has_value = v.index.intersection(rpt.index)
+    v_rpt = np.repeat(v.loc[has_value].values, rpt)
+
+    return pd.Series(v_rpt, df.index).rename(v.name) 
+
+def multicol_concat(lhs, rhs):
+    # Fix the columns
+    lhs_col = lhs.columns
+    rhs_col = rhs.columns
+
+    nlevel = max(lhs_col.nlevels, rhs_col.nlevels)
+
+    def pad(c):
+       return tuple(list(c) + [""]*(nlevel - len(c))) 
+
+    lhs.columns = pd.MultiIndex.from_tuples([pad(c) for c in lhs_col])
+    rhs.columns = pd.MultiIndex.from_tuples([pad(c) for c in rhs_col])
+
+    return pd.concat([lhs, rhs], axis=1)
+
+def multicol_add(df, s, default=None, **panda_kwargs):
+    # if both the series and the df is one level, we can do a simple join()
+    if isinstance(s.name, str) and df.columns.nlevels == 1:
+        return df.join(s, **panda_kwargs)
+
+    if isinstance(s.name, str):
+        s.name = (s.name,)
+
+    nlevel = max(df.columns.nlevels, len(s.name))
+    def pad(col, c=""):
+       return tuple(list(col) + [c]*(nlevel - len(col))) 
+
+    if df.columns.nlevels < nlevel:
+        df.columns = pd.MultiIndex.from_tuples([pad(c) for c in df.columns])
+
+    setname = None
+    if len(s.name) < nlevel:
+        setname = pad(s.name)
+        s.name = pad(s.name, ".")
+
+    # Work around bugs in pandas
+
+    # Reindex s to match index of df
+    s = s.reindex(df.index)
+    # fill default
+    if default is not None:
+        s.fillna(default, inplace=True)
+
+    ret = df.join(s,  **panda_kwargs)
+    # Another pandas bug work around -- we can't pad with ""'s. So pad with "."'s and map "." -> ""
+    if setname is not None:
+        ret.columns = pd.MultiIndex.from_tuples([c if i != len(ret.columns) - 1 else setname for i,c in enumerate(ret.columns)])
+
+    return ret
+
+def multicol_merge(lhs, rhs, **panda_kwargs):
+    # Fix the columns
+    lhs_col = lhs.columns
+    rhs_col = rhs.columns
+
+    nlevel = max(lhs_col.nlevels, rhs_col.nlevels)
+
+    def pad(c):
+       nc = 1 if isinstance(c, str) else len(c)
+       c0 = [c] if isinstance(c, str) else list(c)
+       return tuple(c0 + [""]*(nlevel - nc)) 
+
+    lhs.columns = pd.MultiIndex.from_tuples([pad(c) for c in lhs_col])
+    rhs.columns = pd.MultiIndex.from_tuples([pad(c) for c in rhs_col])
+
+    return lhs.merge(rhs, **panda_kwargs)
 
 def detect_vectors(tree, branch):
     ret = []
@@ -9,82 +92,31 @@ def detect_vectors(tree, branch):
         lenbranch = subbranch + "..length"
         if lenbranch in tree.keys():
             ret.append(subbranch)
-
     return ret
 
 def idarray(ids, lens):
     return np.repeat(ids.values, lens.values)
 
-def flatten_with_indices(array, base_indices=()):
-    if isinstance(array, (list, pd.Series)) or hasattr(array, "__iter__"):  # Check if iterable
-        result = []
-        for i, sub_array in enumerate(array):
-            result.extend(flatten_with_indices(sub_array, base_indices + (i,)))
-        return result
-    elif hasattr(array, "to_pylist"):  # Handle Arrow or similar arrays
-        result = []
-        for i, sub_array in enumerate(array.to_pylist()):
-            result.extend(flatten_with_indices(sub_array, base_indices + (i,)))
-        return result
-    else:  # Return scalar value
-        return [(base_indices, array)]
-
-def process_arbitrary_dimension(df):
-    column_labels = df.columns.tolist()  # Get the list of column labels
-    all_results = []  # To store the processed DataFrames
-
-    for column_label in column_labels:
-        flattened_data = []
-        for row_index, array in enumerate(df[column_label]):
-            # Recursively flatten the array and store the indices
-            flattened_data.extend(flatten_with_indices(array, (row_index,)))    
-
-        # Extract indices and values
-        indices, values = zip(*flattened_data)
-
-        # Determine the number of dimensions dynamically
-        max_dim = max(len(idx) for idx in indices)
-        index_names = ['entry'] + [f"dim_{i}" for i in range(max_dim - 1)]
-
-        # Create a MultiIndex DataFrame for this column
-        multi_index = pd.MultiIndex.from_tuples(indices, names=index_names)
-        result_df = pd.DataFrame(values, index=multi_index, columns=[column_label])
-
-        # Add the result to the list
-        all_results.append(result_df)
-
-    # Concatenate all column results into a single DataFrame
-    final_result = pd.concat(all_results, axis=1)
-
-    return final_result
-
-def loadbranches(tree, branches):
+def loadbranches(tree, branches, **uprargs):
     vectors = []
-    for i, branch in enumerate(branches):
+    for i,branch in enumerate(branches):
         this_vectors = detect_vectors(tree, branch)
         if i == 0:
             vectors = this_vectors
-        elif len(this_vectors) == 0:  # This case is ok since it will automatically broadcast
+        elif len(this_vectors) == 0: # This case is ok since it will automatically broadcast
             pass
         # All the branches must have the same vector structure for this to work
         elif vectors != this_vectors:
-            raise ValueError(
-                f"Branches {branches[0]} and {branch} have different vector structures in the CAF."
-            )
+            raise ValueError("Branches %s and %s have different vector structures in the CAF." % (branches[0], branch))
 
-    lengths = [tree.arrays([v + "..length"], library="pd") for v in vectors]  
+    lengths = [ak.to_dataframe(tree.arrays([v+"..length"], library="ak", **uprargs), how="inner") for v in vectors]
+    data = ak.to_dataframe(tree.arrays(branches, library="ak", **uprargs), how=None)
 
-    for i in range(len(lengths)):
-        lengths[i] = process_arbitrary_dimension(lengths[i])
-    
-    data = tree.arrays(branches, library="pd")
-    
     # If there's no vectors, we can just return the top guy
     if len(lengths) == 0:
-        data.index.name = "entry"
-        df = data
+        df = data[0]
     else:
-        tomerge = lengths + [data]
+        tomerge = lengths + data
         # Otherwise, iteratively merge the branches
         df = tomerge[0]
         df.index.name = "entry"
@@ -93,10 +125,6 @@ def loadbranches(tree, branches):
         for i in range(1, len(tomerge)):
             thismerge = tomerge[i]
             v_ind = i - 1
-
-            column_labels = thismerge.columns.tolist()
-            if(not (len(column_labels) == 1 and "..length" in column_labels[0])):
-                thismerge =  process_arbitrary_dimension(thismerge)
 
             # Build the information in the right-hand table needed to do the join
             # The "upidx" will be matched to the index vector-by-vector
@@ -141,3 +169,5 @@ def loadbranches(tree, branches):
     df.columns = pd.MultiIndex.from_tuples([pad(b) for b in bsplit])
 
     return df
+
+

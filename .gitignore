@@ -1,0 +1,5 @@
+*.swp
+.python-version
+__pycache__/
+*.df
+*.root
