@@ -24,7 +24,7 @@ def main(output, inputs):
 if __name__ == "__main__":
     printhelp = len(sys.argv) < 4 or sys.argv[1] == "-h"
     if printhelp:
-        print("Usage: python rundf.py [config.py] [output.df] [inputs.root,]")
+        print("Usage: python run_df_maker.py [config.py] [output.df] [inputs.root,]")
     else:
         # Don't clog up the server you're running on -- let other processes take priority
         os.nice(10)
