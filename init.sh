@@ -17,7 +17,7 @@ spack load xrootd@5.6.1
 ######################################################
 # Define the Python version and virtual environment name
 #!/bin/bash
-
+cd envs
 # Define the Python version and virtual environment name
 PYTHON_VERSION=3.9.21
 VENV_NAME=venv_py39_cafpyana
@@ -37,13 +37,13 @@ source $VENV_NAME/bin/activate
 # Upgrade pip
 pip install --upgrade pip
 pip install wheel setuptools
-pip install -r ./data/requirements.txt
+pip install -r ./envs/pip_requirements.txt
 
 # Deactivate virtual environment
 echo "Virtual environment '$VENV_NAME' set up successfully with Python $PYTHON_VERSION and required packages installed."
 echo "If you want to exit from this virtual env, do $ deactivate"
 echo "If you want to activate this virtual evn again, do $ source '$VENV_NAME'/bin/activate"
-
+cd ..
 ######################################################
 
 ######################################################
@@ -51,6 +51,7 @@ echo "If you want to activate this virtual evn again, do $ source '$VENV_NAME'/b
 ###################################################### 
 OLDPATH=$PATH
 PATH=$PATH:$PWD
+cd envs
 ln -s /cvmfs/larsoft.opensciencegrid.org/products/cmake/v3_22_2/Linux64bit+3.10-2.17/bin/cmake cmake3
 which cmake3
 wget https://files.pythonhosted.org/packages/96/e9/32107ac154c33c6bafd53a5f8444290938c3557210276e5deabb82f74b8f/xrootd-5.6.1.tar.gz
@@ -58,7 +59,7 @@ tar -zxvf xrootd-5.6.1.tar.gz
 rm xrootd-5.6.1.tar.gz
 cd xrootd-5.6.1
 python setup.py install
-cd ..
+cd ../..
 PATH=$OLDPATH
 
 ###################################################### 
