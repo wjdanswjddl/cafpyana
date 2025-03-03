@@ -37,7 +37,7 @@ source $VENV_NAME/bin/activate
 # Upgrade pip
 pip install --upgrade pip
 pip install wheel setuptools
-pip install -r ./envs/pip_requirements.txt
+pip install -r pip_requirements.txt
 
 # Deactivate virtual environment
 echo "Virtual environment '$VENV_NAME' set up successfully with Python $PYTHON_VERSION and required packages installed."
