@@ -10,6 +10,7 @@ if [[ $machine == *icarus* ]]; then
   source /cvmfs/larsoft.opensciencegrid.org/spack-packages/setup-env.sh
 fi
 spack load hdf5@1.14.3
+spack load xrootd@5.6.1
 
 ######################################################
 #### setup virtual python env if it is not already set
@@ -26,7 +27,7 @@ if [ -d "$VENV_NAME" ]; then
     echo "Virtual environment '$VENV_NAME' already exists. Activating it."
 else
     # Create the virtual environment
-    python3 -m venv $VENV_NAME
+    python -m venv $VENV_NAME
     echo "Virtual environment '$VENV_NAME' created."
 fi
 
