@@ -44,5 +44,23 @@ echo "If you want to exit from this virtual env, do $ deactivate"
 echo "If you want to activate this virtual evn again, do $ source '$VENV_NAME'/bin/activate"
 
 ######################################################
+
+######################################################
+# Needed to install xrootd -- which, by the way, is super annoying
+###################################################### 
+OLDPATH=$PATH
+PATH=$PATH:$PWD
+ln -s /cvmfs/larsoft.opensciencegrid.org/products/cmake/v3_22_2/Linux64bit+3.10-2.17/bin/cmake cmake3
+which cmake3
+wget https://files.pythonhosted.org/packages/96/e9/32107ac154c33c6bafd53a5f8444290938c3557210276e5deabb82f74b8f/xrootd-5.6.1.tar.gz
+tar -zxvf xrootd-5.6.1.tar.gz
+rm xrootd-5.6.1.tar.gz
+cd xrootd-5.6.1
+python setup.py install
+cd ..
+PATH=$OLDPATH
+
+###################################################### 
+
 export PYTHONPATH=$PYTHONPATH:$PWD/..
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$VIRTUAL_ENV/lib/python3.9/site-packages/pyxrootd/lib64
+export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.9/site-packages/xrootd-5.6.1-py3.9-linux-x86_64.egg/pyxrootd:$LD_LIBRARY_PATH

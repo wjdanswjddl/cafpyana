@@ -1,4 +1,5 @@
-import glob
+#import glob
+import XRootD.client.glob_funcs as glob
 import numpy as np
 import uproot
 import pandas as pd
@@ -111,6 +112,7 @@ class NTupleGlob(object):
             thisglob = thisglob[:maxfile]
 
         if nproc == "auto":
+            print("CPU_COUNT : " + str(CPU_COUNT) + ", len(thisglob): " + str(len(thisglob)))
             nproc = min(CPU_COUNT, len(thisglob))
 
         ret = []
