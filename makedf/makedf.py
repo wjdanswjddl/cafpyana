@@ -3,10 +3,33 @@ from .branches import *
 from .util import *
 from . import numisyst, g4syst, geniesyst
 
-PROTON_MASS = 0.938272
-NEUTRON_MASS = 0.939565
-MUON_MASS = 0.105658
-PION_MASS = 0.139570
+PDG = {
+    "muon": [13, "muon", 0.105,],
+    "proton": [2212, "proton", 0.938272,],
+    "neutron": [2112, "neutron", 0.9395654,],
+    "pizero": [111, "pizero", 0.1349768],
+    "pipm": [211, "piplus", 0.13957039],
+    "argon": [1000180400, "argon", (18*0.938272 + 22*0.9395654)],
+    "gamma": [22, "gamma", 0 ],
+    "lambda": [3122, "lambda", 1.115683],
+    "kaon_p": [321, "kaon_p",  0.493677],
+    "sigma_p": [3222, "sigma_p", 1.18936],
+    "kaon_0": [311, "kaon_0", 0.497648],
+    "sigma_0": [3212, "sigma_0", 1.19246],
+    "lambda_p_c": [4122, "lambda_p_c", 2.28646],
+    "sigma_pp_c": [4222, "sigma_pp_c", 2.45397],
+    "electron": [11, "electron", 0.510998950],
+    "sigma_p_c": [4212, "sigma_p_c", 2.4529],
+}
+
+## == For additional column in mcdf with primary particle multiplicities
+## ==== "<column name>": ["<particle name>", <KE cut in GeV>]
+## ==== <particle name> is used to collect PID and mass from the "PDG" dictionary
+TRUE_KE_THRESHOLDS = {"nmu_20MeV": ["muon", 0.02],
+                      "np_20MeV": ["proton", 0.02],
+                      "np_50MeV": ["proton", 0.05],
+                      "npi_50MeV": ["pipm", 0.05],
+                      }
 
 def make_hdrdf(f):
     hdr = loadbranches(f["recTree"], hdrbranches).rec.hdr
@@ -104,7 +127,7 @@ def make_mcdf(f, branches=mcbranches, primbranches=mcprimbranches):
 
     mcprimdf.index = mcprimdf.index.rename(mcdf.index.names[:2] + mcprimdf.index.names[2:])
 
-    max_proton_KE = mcprimdf[np.abs(mcprimdf.pdg)==2212].genE.groupby(level=[0,1]).max() - PROTON_MASS
+    max_proton_KE = mcprimdf[np.abs(mcprimdf.pdg)==PDG["proton"][0]].genE.groupby(level=[0,1]).max() - PDG["proton"][2]
     mcdf = multicol_add(mcdf, max_proton_KE.rename("max_proton_ke"), default=0.)
 
     mcdf.max_proton_ke = mcdf.max_proton_ke.fillna(0.)
@@ -122,14 +145,9 @@ def make_mcdf(f, branches=mcbranches, primbranches=mcprimbranches):
     mcdf = multicol_add(mcdf, (np.abs(mcprimdf.pdg)==3222).groupby(level=[0,1]).sum().rename("nsp"))
 
     # particle counts w/ threshold
-    proton_KE = mcprimdf[np.abs(mcprimdf.pdg)==2212].genE - PROTON_MASS
-    muon_KE = mcprimdf[np.abs(mcprimdf.pdg)==13].genE - MUON_MASS
-    pion_KE = mcprimdf[np.abs(mcprimdf.pdg)==211].genE - PION_MASS
-    mcdf = multicol_add(mcdf, ((np.abs(mcprimdf.pdg)==2212) & (proton_KE > 0.05)).groupby(level=[0,1]).sum().rename("np_50MeV"))
-    mcdf = multicol_add(mcdf, ((np.abs(mcprimdf.pdg)==2212) & (proton_KE > 0.02)).groupby(level=[0,1]).sum().rename("np_20MeV"))
-    mcdf = multicol_add(mcdf, ((np.abs(mcprimdf.pdg)==13) & (muon_KE > 0.02)).groupby(level=[0,1]).sum().rename("nmu_20MeV"))
-    mcdf = multicol_add(mcdf, ((np.abs(mcprimdf.pdg)==211) & (pion_KE > 0.04)).groupby(level=[0,1]).sum().rename("npi_40MeV"))
-
+    for identifier, (particle, threshold) in TRUE_KE_THRESHOLDS.items():
+        this_KE = mcprimdf[np.abs(mcprimdf.pdg)==PDG[particle][0]].genE - PDG[particle][2]
+        mcdf = multicol_add(mcdf, ((np.abs(mcprimdf.pdg)==PDG[particle][0]) & (this_KE > threshold)).groupby(level=[0,1]).sum().rename(identifier))
  
     # lepton info
     mudf = mcprimdf[np.abs(mcprimdf.pdg)==13].sort_values(mcprimdf.index.names[:2] + [("genE", "")]).groupby(level=[0,1]).last()
