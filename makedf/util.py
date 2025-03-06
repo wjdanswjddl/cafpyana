@@ -59,8 +59,6 @@ def InFV(df, inzback, inx=10, iny=10, inzfront=10, det="ICARUS"):
     else:
         raise NameError("DETECTOR not valid, should be SBND or ICARUS")
 
-        
-
 def TrkInFV(df):
     return InFV(df, 15.)
 
