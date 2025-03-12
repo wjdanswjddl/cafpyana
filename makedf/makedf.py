@@ -1,6 +1,7 @@
 from pyanalib.pandas_helpers import *
 from .branches import *
 from .util import *
+from .calo import *
 from . import numisyst, g4syst, geniesyst
 
 PDG = {
@@ -25,10 +26,10 @@ PDG = {
 ## == For additional column in mcdf with primary particle multiplicities
 ## ==== "<column name>": ["<particle name>", <KE cut in GeV>]
 ## ==== <particle name> is used to collect PID and mass from the "PDG" dictionary
-TRUE_KE_THRESHOLDS = {"nmu_20MeV": ["muon", 0.02],
+TRUE_KE_THRESHOLDS = {"nmu_40MeV": ["muon", 0.04],
                       "np_20MeV": ["proton", 0.02],
                       "np_50MeV": ["proton", 0.05],
-                      "npi_50MeV": ["pipm", 0.05],
+                      "npi_30MeV": ["pipm", 0.03],
                       }
 
 def make_hdrdf(f):
@@ -46,11 +47,18 @@ def make_potdf(f):
 def make_mcnuwgtdf(f):
     return make_mcnudf(f, include_weights=True)
 
-def make_mcnudf(f, include_weights=False):
+def make_mcnuwgtdf_sbnd(f):
+    return make_mcnudf(f, include_weights=True, det="SBND")
+
+def make_mcnudf(f, include_weights=False, det="ICARUS"):
     mcdf = make_mcdf(f)
     mcdf["ind"] = mcdf.index.get_level_values(1)
     if include_weights:
-        wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
+        if det == "ICARUS":
+            wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
+        elif det == "SBND":
+            wgtdf = geniesyst.geniesyst_sbnd_gundam(f, mcdf.ind)
+
         mcdf = multicol_concat(mcdf, wgtdf)
     return mcdf
 
@@ -153,10 +161,14 @@ def make_mcdf(f, branches=mcbranches, primbranches=mcprimbranches):
     mudf = mcprimdf[np.abs(mcprimdf.pdg)==13].sort_values(mcprimdf.index.names[:2] + [("genE", "")]).groupby(level=[0,1]).last()
     mudf.columns = pd.MultiIndex.from_tuples([tuple(["mu"] + list(c)) for c in mudf.columns])
 
+    cpidf = mcprimdf[np.abs(mcprimdf.pdg)==211].sort_values(mcprimdf.index.names[:2] + [("genE", "")]).groupby(level=[0,1]).last()
+    cpidf.columns = pd.MultiIndex.from_tuples([tuple(["cpi"] + list(c)) for c in cpidf.columns])
+
     pdf = mcprimdf[mcprimdf.pdg==2212].sort_values(mcprimdf.index.names[:2] + [("genE", "")]).groupby(level=[0,1]).last()
     pdf.columns = pd.MultiIndex.from_tuples([tuple(["p"] + list(c)) for c in pdf.columns])
 
     mcdf = multicol_merge(mcdf, mudf, left_index=True, right_index=True, how="left", validate="one_to_one")
+    mcdf = multicol_merge(mcdf, cpidf, left_index=True, right_index=True, how="left", validate="one_to_one")
     mcdf = multicol_merge(mcdf, pdf, left_index=True, right_index=True, how="left", validate="one_to_one")
 
     return mcdf
@@ -288,23 +300,35 @@ def make_stubs(f, det="ICARUS"):
     stubdf["dedx_callo"] = stubdf.ke_callo / stubdf.length
     stubdf["dedx_calhi"] = stubdf.ke_calhi / stubdf.length
 
+    dqdx = stubdf.inc_sub_charge / stubdf.length
+    length = stubdf.length
+    hasstub = (length < 4.) & \
+        (((length > 0.) & (dqdx > 5.5e5)) |\
+        ((length > 0.5) & (dqdx > 3.5e5)) |\
+        ((length > 1) & (dqdx > 3e5)) |\
+        ((length > 2) & (dqdx > 2e5)))
+
+    stubdf['pass_proton_stub'] = hasstub
+    return stubdf
+
+    ## It seems there is a bug. First stub in each length is included for a slice...
     # only take collection plane
-    stubdf = stubdf[stubdf.plane == 2]
+    #stubdf = stubdf[stubdf.plane == 2]
 
-    stub_length_bins = [0, 0.5, 1, 2, 3]
-    stub_length_name = ["l0_5cm", "l1cm", "l2cm", "l3cm"]
-    tosave = ["dedx", "dedx_callo", "dedx_calhi", "Q", "length", "charge", "inc_charge"] 
+    #stub_length_bins = [0, 0.5, 1, 2, 3, 4]
+    #stub_length_name = ["l0_5cm", "l1cm", "l2cm", "l3cm", "l4cm"]
+    #tosave = ["dedx", "dedx_callo", "dedx_calhi", "Q", "length", "charge", "inc_charge"]
 
-    df_tosave = []
-    for blo, bhi, name in zip(stub_length_bins[:-1], stub_length_bins[1:], stub_length_name):
-        stub_tosave = stubdf.dedx[(stubdf.length > blo) & (stubdf.length < bhi)].groupby(level=[0,1]).idxmax()
-        for col in tosave:
-            s = stubdf.loc[stub_tosave, col]
-            s.name = ("stub", name, col, "", "", "")
-            s.index = s.index.droplevel(-1)
-            df_tosave.append(s)
+    #df_tosave = []
+    #for blo, bhi, name in zip(stub_length_bins[:-1], stub_length_bins[1:], stub_length_name):
+    #    stub_tosave = stubdf.dedx[(stubdf.length > blo) & (stubdf.length < bhi)].groupby(level=[0,1]).idxmax()
+    #    for col in tosave:
+    #        s = stubdf.loc[stub_tosave, col]
+    #        s.name = ("stub", name, col, "", "", "")
+    #        s.index = s.index.droplevel(-1)
+    #        df_tosave.append(s)
 
-    return pd.concat(df_tosave, axis=1)
+    #return pd.concat(df_tosave, axis=1)
 
 def make_spineslcdf(f):
     eslcdf = loadbranches(f["recTree"], eslcbranches)
