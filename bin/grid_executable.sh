@@ -25,8 +25,8 @@ spack find hdf5
 spack find xrootd
 echo "@@ check if there is util-linux"
 rpm -q util-linux 
-echo "@@ run init.sh"
-source init.sh
+echo "@@ run init_grid.sh"
+source ./bin/init_grid.sh
 echo "@@ ls -alh"
 ls -alh
 echo "@@ mkdir output"
