@@ -85,6 +85,7 @@ def run_grid(inputfiles):
                 cmd += ' ' + flist[i_f]
             else: 
                 cmd += ',' + flist[i_f]
+            #out.write('xrdcp ' + flist[i_f] + ' .\n') ## -- for checking auth
         out.write(cmd)
         out.close()
 
@@ -103,11 +104,11 @@ def run_grid(inputfiles):
 
     submitCMD = '''jobsub_submit \\
 -G sbnd \\
+--auth-methods="token,proxy" \\
 -e LC_ALL=C \\
 --role=Analysis \\
 --resource-provides="usage_model=DEDICATED,OPPORTUNISTIC" \\
--l '+SingularityImage=\\"/cvmfs/singularity.opensciencegrid.org/fermilab/fnal-wn-el9:latest\\"' \\
---lines '+FERMIHTC_AutoRelease=True' --lines '+FERMIHTC_GraceMemory=3000' --lines '+FERMIHTC_GraceLifetime=3600' \\
+--lines '+FERMIHTC_AutoRelease=True' --lines '+FERMIHTC_GraceMemory=1000' --lines '+FERMIHTC_GraceLifetime=3600' \\
 --append_condor_requirements='(TARGET.HAS_SINGULARITY=?=true)' \\
 --tar_file_name "dropbox://$(pwd)/bin_dir.tar" \\
 --email-to sungbin.oh555@gmail.com \\
