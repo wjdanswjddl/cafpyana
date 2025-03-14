@@ -100,7 +100,7 @@ def run_grid(inputfiles):
     os.system(cp_pyxrootd)
 
     os.chdir(MasterJobDir)
-    tar_cmd = 'tar cf bin_dir.tar *.sh'
+    tar_cmd = 'tar cf bin_dir.tar ./'
     os.system(tar_cmd)
 
     submitCMD = '''jobsub_submit \\
@@ -121,7 +121,7 @@ def run_grid(inputfiles):
 "%s"'''%(ngrid,OutputDir,args.output)
 
     print(submitCMD)
-    #os.system(submitCMD)
+    os.system(submitCMD)
     
     # go back to working dir
     os.chdir(CAFPYANA_WD)

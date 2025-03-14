@@ -50,40 +50,5 @@ echo "If you want to activate this virtual evn again, do $ source '$VENV_NAME'/b
 cd ..
 ######################################################
 
-######################################################
-# Needed to install xrootd -- which, by the way, is super annoying
-###################################################### 
-```
-OLDPATH=$PATH
-PATH=$PATH:$PWD
-cd envs
-ln -s /cvmfs/larsoft.opensciencegrid.org/products/cmake/v3_22_2/Linux64bit+3.10-2.17/bin/cmake cmake3
-which cmake3
-
-# install uuid first: grid node with latest el9 images does not have uuid...
-wget https://mirrors.edge.kernel.org/pub/linux/utils/util-linux/v2.39/util-linux-2.39.tar.xz
-tar -xf util-linux-2.39.tar.xz
-cd util-linux-2.39
-./configure --prefix="$(pwd)/local" --disable-all-programs --enable-libuuid
-make -j$(nproc)
-make install
-export LD_LIBRARY_PATH="$(pwd)/local/lib:$LD_LIBRARY_PATH"
-export C_INCLUDE_PATH="$(pwd)/local/include:$C_INCLUDE_PATH"
-export PKG_CONFIG_PATH="$(pwd)/local/lib/pkgconfig:$PKG_CONFIG_PATH"
-export CPLUS_INCLUDE_PATH="$(pwd)/local/include:$CPLUS_INCLUDE_PATH"
-cd ..
-
-# install xrootd now
-wget https://files.pythonhosted.org/packages/96/e9/32107ac154c33c6bafd53a5f8444290938c3557210276e5deabb82f74b8f/xrootd-5.6.1.tar.gz
-tar -zxvf xrootd-5.6.1.tar.gz
-rm xrootd-5.6.1.tar.gz
-cd xrootd-5.6.1
-python setup.py install -j1
-cd ../..
-PATH=$OLDPATH
-```
-###################################################### 
-
 export PYTHONPATH=$PYTHONPATH:$PWD/..
-#export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.9/site-packages/xrootd-5.6.1-py3.9-linux-x86_64.egg/pyxrootd:$LD_LIBRARY_PATH
 export CAFPYANA_WD=`pwd`

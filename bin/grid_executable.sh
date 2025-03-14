@@ -21,8 +21,9 @@ spack find cmake
 spack load cmake@3.27.7
 which cmake
 echo "@@ check if other spack packages"
-spack find hdf5
-spack find xrootd
+spack load hdf5
+spack load xrootd
+spack load ifdhc@2.7.2
 echo "@@ run init_grid.sh"
 source ./bin/init_grid.sh
 echo "@@ ls -alh"
@@ -36,7 +37,8 @@ filesFromSender=${CONDOR_DIR_INPUT}/bin_dir/
 echo "@@ Setup xrootd"
 cp -r ${filesFromSender}/XRootD $VIRTUAL_ENV/lib/python3.9/site-packages/
 cp -r ${filesFromSender}/pyxrootd $VIRTUAL_ENV/lib/python3.9/site-packages/
-export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.9/site-packages/xrootd-5.6.1-py3.9-linux-x86_64.egg/pyxrootd:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.9/site-packages/pyxrootd:$LD_LIBRARY_PATH
+#export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.9/site-packages/xrootd-5.6.1-py3.9-linux-x86_64.egg/pyxrootd:$LD_LIBRARY_PATH
 
 export IFDH_CP_MAXRETRIES=2
 
