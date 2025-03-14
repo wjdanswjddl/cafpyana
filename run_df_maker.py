@@ -152,6 +152,7 @@ if __name__ == "__main__":
         ### check if it is grid mode for pool mode
         if args.NGridJobs == 0:
             print("Runing Pool mode");
+            exec(open(sys.argv[1]).read())
             run_pool(args.output, InputSamples)
 
         elif args.NGridJobs > 0:
