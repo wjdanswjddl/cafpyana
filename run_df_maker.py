@@ -34,20 +34,18 @@ parser.add_argument('-l', dest='inputfilelist', default="", help="a file of list
 parser.add_argument('-ngrid', dest='NGridJobs', default=0, type=int)
 args = parser.parse_args()
 
-#def main(output, inputs):
-#    ntuples = NTupleGlob(inputs, None)
-#
-#    dfs = ntuples.dataframes(nproc="auto", fs=DFS)
-#    with pd.HDFStore(output) as hdf:
-#        for k,df in zip(reversed(NAMES), reversed(dfs)): # go in reverse order so we can delete along the way
-#            try:
-#                hdf.put(key=k, value=df, format="fixed")
-#            except Exception as e:
-#                print("Table %s failed to save, skipping. Exception: %s" % (k, str(e)))
+def run_pool(output, inputs):
+    ntuples = NTupleGlob(inputs, None)
 
-#            del df
+    dfs = ntuples.dataframes(nproc="auto", fs=DFS)
+    with pd.HDFStore(output) as hdf:
+        for k,df in zip(reversed(NAMES), reversed(dfs)): # go in reverse order so we can delete along the way
+            try:
+                hdf.put(key=k, value=df, format="fixed")
+            except Exception as e:
+                print("Table %s failed to save, skipping. Exception: %s" % (k, str(e)))
 
-#def main_grid(output, inputs):
+            del df
 
 def run_grid(inputfiles):
     # 1) dir/file name style
@@ -154,16 +152,7 @@ if __name__ == "__main__":
         ### check if it is grid mode for pool mode
         if args.NGridJobs == 0:
             print("Runing Pool mode");
-            #os.nice(10)
-            #exec(open(arg.config).read())
-            #if "NAMES" not in globals() or "DFS" not in globals():
-            #    print("ERROR: config file must define <NAMES> and <DFS>")
-            #    exit(1)
-            #if len(NAMES) != len(DFS):
-            #    print("ERROR: <NAMES> and <DFS> must have same length")
-            #    exit(1)
-
-            #main(arg.output, InputSamples)
+            run_pool(args.output, InputSamples)
 
         elif args.NGridJobs > 0:
             print("Runing Grid mode");

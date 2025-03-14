@@ -4,6 +4,9 @@ outDir=$1
 echo "@@ outDir : ${outDir}"
 DFPREFIX=$2
 
+nProcess=$PROCESS
+echo "@@ nProcess : "${nProcess}
+
 source /cvmfs/larsoft.opensciencegrid.org/spack-packages/setup-env.sh
 
 echo "@@ pwd"
@@ -33,6 +36,8 @@ mkdir output
 echo "@@ Done!"
 thisOutputCreationDir=`pwd`
 filesFromSender=${CONDOR_DIR_INPUT}/bin_dir/
+echo "@@ check filesFromSender dir"
+ls -alh ${filesFromSender}
 
 echo "@@ Setup xrootd"
 cp -r ${filesFromSender}/XRootD $VIRTUAL_ENV/lib/python3.9/site-packages/
@@ -47,7 +52,12 @@ echo "@@ ifdh  mkdir_p "${outDir}
 ifdh  mkdir_p ${outDir}
 
 echo "@@ source ${filesFromSender}/run_"${nProcess}".sh "
-source ${filesFromSender}/run_${nProcess}.sh &> log_${nProcess}.log
+ls -alh
+pwd
+
+cp ${filesFromSender}/run_${nProcess}.sh ./
+source run_${nProcess}.sh  &> log_${nProcess}.log
+ls -alh
 echo "@@ Check output : ${DFPREFIX}_${nProcess}.df"
 ls -alh ${DFPREFIX}_${nProcess}.df
 
@@ -59,6 +69,7 @@ if [ -f "$outFILE" ]; then
   ifdh cp ${thisOutputCreationDir}/log_${nProcess}.log ${outDir}/log_${nProcess}.log
   echo "@@ Done!"
 else
+  ifdh cp ${thisOutputCreationDir}/log_${nProcess}.log ${outDir}/log_${nProcess}.log
   echo "File not exist"
 fi
 
