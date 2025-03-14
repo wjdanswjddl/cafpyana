@@ -53,6 +53,7 @@ cd ..
 ######################################################
 # Needed to install xrootd -- which, by the way, is super annoying
 ###################################################### 
+```
 OLDPATH=$PATH
 PATH=$PATH:$PWD
 cd envs
@@ -77,12 +78,12 @@ wget https://files.pythonhosted.org/packages/96/e9/32107ac154c33c6bafd53a5f84442
 tar -zxvf xrootd-5.6.1.tar.gz
 rm xrootd-5.6.1.tar.gz
 cd xrootd-5.6.1
-python setup.py install
+python setup.py install -j1
 cd ../..
 PATH=$OLDPATH
-
+```
 ###################################################### 
 
 export PYTHONPATH=$PYTHONPATH:$PWD/..
-export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.9/site-packages/xrootd-5.6.1-py3.9-linux-x86_64.egg/pyxrootd:$LD_LIBRARY_PATH
+#export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.9/site-packages/xrootd-5.6.1-py3.9-linux-x86_64.egg/pyxrootd:$LD_LIBRARY_PATH
 export CAFPYANA_WD=`pwd`

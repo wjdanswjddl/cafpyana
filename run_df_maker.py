@@ -91,6 +91,14 @@ def run_grid(inputfiles):
         out.close()
 
     os.system('cp ./bin/grid_executable.sh %s' %MasterJobDir)
+
+    # 5) prepare a package for xrootd
+    CAFPYANA_WD = os.environ['CAFPYANA_WD']
+    cp_XRootD = "cp -r " + CAFPYANA_WD + "/envs/xrootd-5.6.1/build/lib.linux-x86_64-3.9/XRootD " + MasterJobDir
+    cp_pyxrootd = "cp -r " + CAFPYANA_WD + "/envs/xrootd-5.6.1/build/lib.linux-x86_64-3.9/pyxrootd " + MasterJobDir
+    os.system(cp_XRootD)
+    os.system(cp_pyxrootd)
+
     os.chdir(MasterJobDir)
     tar_cmd = 'tar cf bin_dir.tar *.sh'
     os.system(tar_cmd)
@@ -101,7 +109,7 @@ def run_grid(inputfiles):
 --role=Analysis \\
 --resource-provides="usage_model=DEDICATED,OPPORTUNISTIC" \\
 -l '+SingularityImage=\\"/cvmfs/singularity.opensciencegrid.org/fermilab/fnal-wn-el9:latest\\"' \\
---lines '+FERMIHTC_AutoRelease=True' --lines '+FERMIHTC_GraceMemory=1000' --lines '+FERMIHTC_GraceLifetime=3600' \\
+--lines '+FERMIHTC_AutoRelease=True' --lines '+FERMIHTC_GraceMemory=3000' --lines '+FERMIHTC_GraceLifetime=3600' \\
 --append_condor_requirements='(TARGET.HAS_SINGULARITY=?=true)' \\
 --tar_file_name "dropbox://$(pwd)/bin_dir.tar" \\
 --email-to sungbin.oh555@gmail.com \\
@@ -113,10 +121,9 @@ def run_grid(inputfiles):
 "%s"'''%(ngrid,OutputDir,args.output)
 
     print(submitCMD)
-    os.system(submitCMD)
+    #os.system(submitCMD)
     
     # go back to working dir
-    CAFPYANA_WD = os.environ['CAFPYANA_WD']
     os.chdir(CAFPYANA_WD)
     
 if __name__ == "__main__":
