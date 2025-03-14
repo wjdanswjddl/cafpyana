@@ -38,6 +38,7 @@ def run_pool(output, inputs):
     ntuples = NTupleGlob(inputs, None)
 
     dfs = ntuples.dataframes(nproc="auto", fs=DFS)
+    output = output + ".df"
     with pd.HDFStore(output) as hdf:
         for k,df in zip(reversed(NAMES), reversed(dfs)): # go in reverse order so we can delete along the way
             try:
