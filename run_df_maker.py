@@ -142,14 +142,14 @@ if __name__ == "__main__":
             for line in lines:
                 if "#" in line:
                     continue
-            line = line.strip('\n')
-            InputSamples.append(line)
-            StringForHash += line
+                line = line.strip('\n')
+                InputSamples.append(line)
+                StringForHash += line
         else:
             split_inputfiles = args.inputfiles.split(",")
             for split_inputfile in split_inputfiles:
                 InputSamples.append(split_inputfile)
-            StringForHash += args.inputfiles
+                StringForHash += args.inputfiles
 
         ### check if it is grid mode for pool mode
         if args.NGridJobs == 0:
