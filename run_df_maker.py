@@ -31,7 +31,8 @@ parser.add_argument('-c', dest='config', default="", help="Path to the data fram
 parser.add_argument('-o', dest='output', default="", help="output data frame name prefix")
 parser.add_argument('-i', dest='inputfiles', default="", help="input root file path, you can submit multiple files using comma, i.e.) -i input_0.root,input_1.root")
 parser.add_argument('-l', dest='inputfilelist', default="", help="a file of list for input root files")
-parser.add_argument('-ngrid', dest='NGridJobs', default=0, type=int)
+parser.add_argument('-ngrid', dest='NGridJobs', default=0, type=int, help="Number of grid jobs. Default = 0, no grid submission.")
+parser.add_argument('-nfile', dest='NFiles', default=0, type=int, help="Number of files to run. Default = 0, run all input files.")
 args = parser.parse_args()
 
 def run_pool(output, inputs):
@@ -151,6 +152,9 @@ if __name__ == "__main__":
                 InputSamples.append(split_inputfile)
                 StringForHash += args.inputfiles
 
+        if(args.NFiles > 0 and len(InputSamples) > args.NFiles):
+            InputSamples = InputSamples[:args.NFiles]
+                
         ### check if it is grid mode for pool mode
         if args.NGridJobs == 0:
             print("Runing Pool mode");
