@@ -289,7 +289,7 @@ def make_stubs(f, det="ICARUS"):
         stubdf["ke_callo"] = np.nan # Q2KE_mc_callo(stubdf.Q)
         stubdf["ke_calhi"] = np.nan # Q2KE_mc_calhi(stubdf.Q)
     else:
-        stubdf["ke"] = Q2KE_data(stubdf.Q)
+        stubdf["ke"] = Q2KE_mc(stubdf.Q) ## FIXME
         stubdf["ke_callo"] = np.nan
         stubdf["ke_calhi"] = np.nan
 
