@@ -36,6 +36,7 @@ parser.add_argument('-nfile', dest='NFiles', default=0, type=int, help="Number o
 args = parser.parse_args()
 
 def run_pool(output, inputs):
+    os.nice(10)
     ntuples = NTupleGlob(inputs, None)
 
     dfs = ntuples.dataframes(nproc="auto", fs=DFS)

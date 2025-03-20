@@ -1,7 +1,7 @@
 #!/bin/bash 
 
 export machine=${HOSTNAME}
-if [[ $machine == *sbnd* ]]; then
+if [[ $machine == *sbnd* || $machine == *jupyter* ]]; then
   echo "working on a sbnd machine"
   source /cvmfs/larsoft.opensciencegrid.org/spack-packages/setup-env.sh
   export CAFPYANA_GRID_OUT_DIR="/pnfs/sbnd/scratch/users/$USER/cafpyana_out"

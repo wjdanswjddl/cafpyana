@@ -210,7 +210,7 @@ def make_cohpidf(f):
 
     try :
         nuint_categ = pd.Series(8, index=nudf.index)
-        print(f"done init nuint_categ")
+        #print(f"done init nuint_categ")
     except Exception as e:
         print(f"Error init nuint_categ")
         return
