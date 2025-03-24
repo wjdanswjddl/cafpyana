@@ -51,6 +51,17 @@ cd ..
 ######################################################
 
 ######################################################
+# Install DUNE plot style, https://github.com/DUNE/dune_plot_style/blob/main/README.md#standalone-python-setup
+######################################################
+#cd envs
+#export DUNE_PLOT_STYLE_LATEST_TAG=`curl --silent "https://api.github.com/repos/DUNE/dune_plot_style/releases" | jq -r 'map(select(.prerelease == false)) | first | .tag_name'`
+#wget --no-check-certificate https://github.com/DUNE/dune_plot_style/archive/refs/tags/${DUNE_PLOT_STYLE_LATEST_TAG}.tar.gz -O dune_plot_style.tar.gz
+#tar -xvzf dune_plot_style.tar.gz
+#cd dune_plot_style-01_01/
+#python3 -m pip install .
+#cd ../..
+
+######################################################
 # Needed to install xrootd -- which, by the way, is super annoying
 ###################################################### 
 OLDPATH=$PATH
