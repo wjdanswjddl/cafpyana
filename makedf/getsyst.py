@@ -99,7 +99,12 @@ def getsyst_gundam(f, systematics, nuind):
             this_systs.append(s_morph)
 
         elif systdf.type[isyst] == 3 and systdf.nuniv[isyst] > 1: # +/- sigma unisim
-            s_nsigma = wgtdf[wgtdf.isyst == isyst].wgt.groupby(level=[0,1]).agg(lambda x: list(x))
+            def insert_middle(lst, value):
+                mid = len(lst) // 2
+                return lst[:mid] + [value] + lst[mid:]
+            s_nsigma = wgtdf[wgtdf.isyst == isyst].wgt.groupby(level=[0,1]).agg(
+                lambda x: insert_middle(list(x), 1.)
+            )
             s_nsigma.name = (s)
             this_systs.append(s_nsigma)
 
@@ -114,6 +119,6 @@ def getsyst_gundam(f, systematics, nuind):
         for syst in this_systs:
             systs.append(syst)
 
-        systs = pd.DataFrame(systs).T
-
-        return systs
+    systs = pd.DataFrame(systs).T
+    systs.columns = pd.MultiIndex.from_tuples([(col, '', '') for col in systs.columns])
+    return systs
