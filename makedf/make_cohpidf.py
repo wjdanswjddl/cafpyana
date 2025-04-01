@@ -225,10 +225,11 @@ def make_cohpidf(f):
     nuint_categ[is_fv & is_cc & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10) & ((w > 2.0) | (genie_mode == 2))] = 6  # DIS
     nuint_categ[is_fv & is_cc & ((1.4 < w) & (w < 2.0) & (genie_mode != 1) & (genie_mode != 2) & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10))] = 7  # INEL
 
+    nudf = pd.DataFrame(index=nudf.index)
+
     nudf['nuint_categ'] = nuint_categ
     nudf['is_true_fv'] = is_fv
     nudf['is_true_signal'] = is_signal
-    is_cccoh = CCCOH(nudf)
 
     ## 2) slc df
     slcdf = loadbranches(f["recTree"], slcbranches)
