@@ -228,8 +228,6 @@ def make_cohpidf(f):
     nudf = pd.DataFrame(index=nudf.index)
 
     nudf['nuint_categ'] = nuint_categ
-    nudf['is_true_fv'] = is_fv
-    nudf['is_true_signal'] = is_signal
 
     ## 2) slc df
     slcdf = loadbranches(f["recTree"], slcbranches)
