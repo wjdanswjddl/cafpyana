@@ -130,14 +130,14 @@ class NTupleGlob(object):
         ret = [pd.concat([dfs[i] for dfs in ret], axis=0, ignore_index=False) for i in range(len(fs))] 
 
         # Fix the index So that we don't need __ntuple
-        for i in range(len(ret)):
-            sub_index = ret[i].index.names[2:]
-            ret[i] = ret[i].reset_index()
-            ret[i].entry = ret[i].groupby(["__ntuple", "entry"]).ngroup()
-            ret[i].set_index(["entry"] + sub_index, inplace=True, verify_integrity=True)
-            ret[i].sort_index(inplace=True)
-            if not savemeta:
-                del ret[i]["__ntuple"]
+        #for i in range(len(ret)):
+        #    sub_index = ret[i].index.names[2:]
+        #    ret[i] = ret[i].reset_index()
+        #    ret[i].entry = ret[i].groupby(["__ntuple", "entry"]).ngroup()
+        #    ret[i].set_index(["entry"] + sub_index, inplace=True, verify_integrity=True)
+        #    ret[i].sort_index(inplace=True)
+        #    if not savemeta:
+        #        del ret[i]["__ntuple"]
 
         return ret
 
