@@ -47,10 +47,14 @@ def make_potdf(f):
 def make_mcnuwgtdf(f):
     return make_mcnudf(f, include_weights=True)
 
-def make_mcnuwgtdf_sbnd(f):
-    return make_mcnudf(f, include_weights=True, det="SBND")
+def make_mcnudf(f, include_weights=False):
+    # ----- sbnd or icarus? -----
+    det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+    if (1 == det.unique()):
+        det = "SBND"
+    else:
+        det = "ICARUS"
 
-def make_mcnudf(f, include_weights=False, det="ICARUS"):
     mcdf = make_mcdf(f)
     mcdf["ind"] = mcdf.index.get_level_values(1)
     if include_weights:
