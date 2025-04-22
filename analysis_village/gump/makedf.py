@@ -4,6 +4,11 @@ import pandas as pd
 import numpy as np
 from makedf.makedf import *
 
+PROTON_MASS = 0.938272
+NEUTRON_MASS = 0.939565
+MUON_MASS = 0.105658
+PION_MASS = 0.139570
+
 def make_spine_evtdf(f):
     # load slices and particles
     partdf = make_epartdf(f)
@@ -59,12 +64,12 @@ def make_pandora_evtdf(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=True
     mcdf = make_mcdf(f)
     trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
     slcdf = make_slcdf(f)
-    stubdf = make_stubs(f, det=DETECTOR)
+
+    # stubdf = make_stubs(f, det=DETECTOR)
+    # load stubs
+    # slcdf = multicol_merge(slcdf, stubdf, left_index=True, right_index=True)
     
     # ----- merge dfs -----
-    # load stubs
-    slcdf.columns = pd.MultiIndex.from_tuples([tuple(list(c) +[""]) for c in slcdf.columns])
-    slcdf = slcdf.join(stubdf)
     # load pfps
     # slcdf = multicol_merge(slcdf, trkdf, left_index=True, right_index=True, how="right", validate="one_to_many")
 
