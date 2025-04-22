@@ -57,7 +57,7 @@ def make_mcnudf(f, include_weights=False, det="ICARUS"):
         if det == "ICARUS":
             wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
         elif det == "SBND":
-            wgtdf = geniesyst.geniesyst_sbnd_gundam(f, mcdf.ind)
+            wgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
 
         mcdf = multicol_concat(mcdf, wgtdf)
     return mcdf

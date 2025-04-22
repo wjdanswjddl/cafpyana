@@ -115,6 +115,3 @@ def geniesyst_icarus(f, nuind):
 
 def geniesyst_sbnd(f, nuind):
     return getsyst.getsyst(f, regen_systematics_sbnd, nuind)
-
-def geniesyst_sbnd_gundam(f, nuind):
-    return getsyst.getsyst_gundam(f, regen_systematics_sbnd, nuind)
