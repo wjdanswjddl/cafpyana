@@ -47,17 +47,21 @@ def make_potdf(f):
 def make_mcnuwgtdf(f):
     return make_mcnudf(f, include_weights=True)
 
-def make_mcnuwgtdf_sbnd(f):
-    return make_mcnudf(f, include_weights=True, det="SBND")
+def make_mcnudf(f, include_weights=False):
+    # ----- sbnd or icarus? -----
+    det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+    if (1 == det.unique()):
+        det = "SBND"
+    else:
+        det = "ICARUS"
 
-def make_mcnudf(f, include_weights=False, det="ICARUS"):
     mcdf = make_mcdf(f)
     mcdf["ind"] = mcdf.index.get_level_values(1)
     if include_weights:
         if det == "ICARUS":
             wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
         elif det == "SBND":
-            wgtdf = geniesyst.geniesyst_sbnd_gundam(f, mcdf.ind)
+            wgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
 
         mcdf = multicol_concat(mcdf, wgtdf)
     return mcdf
