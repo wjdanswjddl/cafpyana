@@ -83,7 +83,9 @@ def dist_pfptrk_vertex(df):
 def Avg(df, pid, drop_0=True):  # average score of 3 planes, exclude value if 0
     if drop_0:
         df = df.replace(0, np.nan)
-    average = df[[("chi2pid", "I0", "chi2_"+pid), ("chi2pid", "I1", "chi2_"+pid), ("chi2pid", "I2", "chi2_"+pid)]].mean(skipna=drop_0, axis=1)
+    #average = df[[("chi2pid", "I0", "chi2_"+pid), ("chi2pid", "I1", "chi2_"+pid), ("chi2pid", "I2", "chi2_"+pid)]].mean(skipna=drop_0, axis=1)
+    # let's just use only the collectin planes
+    average = df[("chi2pid", "I2", "chi2_"+pid)]
     return average
 
 def reco_t(n_trk_mupid, dir_x, dir_y, dir_z, range_P_muon, range_P_pion, mu_pid_pass):
