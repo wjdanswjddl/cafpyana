@@ -1,4 +1,4 @@
-from analysis_villiage.gump import *
+from analysis_village.gump.makedf import *
 
-DFS = [make_pandora_evtdf, make_hdrdf, make_mcnudf]
+DFS = [make_pandora_evtdf, make_hdrdf, make_mcnuwgtdf]
 NAMES = ["evt", "hdr", "mcnu"]

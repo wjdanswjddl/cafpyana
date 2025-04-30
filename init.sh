@@ -62,6 +62,25 @@ cd ..
 #cd ../..
 
 ######################################################
+# need to install uuid in the EAF
+######################################################
+if [[ $machine == *jupyter* ]]; then
+    echo "Installing uuid for since you are in EAF"
+    wget https://www.kernel.org/pub/linux/utils/util-linux/v2.39/util-linux-2.39.3.tar.xz
+    tar xvf util-linux-2.39.3.tar.xz
+    rm util-linux-2.39.3.tar.xz
+    cd util-linux-2.39.3
+    ./configure --prefix="$(pwd)/local" --disable-all-programs --enable-libuuid
+    make -j$(nproc)
+    make install
+    export C_INCLUDE_PATH="$(pwd)/local/include:$C_INCLUDE_PATH"
+    export CPLUS_INCLUDE_PATH="$(pwd)/local/include:$CPLUS_INCLUDE_PATH"
+    export LD_LIBRARY_PATH="$(pwd)/local/lib:$LD_LIBRARY_PATH"
+    export PKG_CONFIG_PATH="$(pwd)/local/lib/pkgconfig:$PKG_CONFIG_PATH"
+    cd ../
+fi
+
+######################################################
 # Needed to install xrootd -- which, by the way, is super annoying
 ###################################################### 
 OLDPATH=$PATH

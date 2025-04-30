@@ -23,7 +23,7 @@ Examples:
   $ python run_df_maker.py -ngrid 2 -c ./configs/cohpi_slcdf.py -o test_cohpi_slcdf -i input_0.root,input_1.root,...
 
   -- Note!!
-  Output df files are sent to /pnfs/<exp>/scratch/users/<User>/cafpyana_out
+  Output df files are sent to /pnfs/<exp>/scratch/users/<User>/cafpyana_out in Grid mode
 """,
     formatter_class=argparse.RawTextHelpFormatter  # Ensures line breaks are preserved
 )
