@@ -1,5 +1,5 @@
 from makedf.makedf import *
-from makedf.make_cohpidf import *
+from makedf.make_cohpidf_v2 import *
 
-DFS = [make_cohpidf, make_hdrdf, make_mcnuwgtdf]
+DFS = [make_cohpidf_v2, make_hdrdf, make_cohpi_nudf]
 NAMES = ["cohpi", "hdr", "mcnuwgt"]
