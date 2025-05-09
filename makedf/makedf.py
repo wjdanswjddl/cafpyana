@@ -177,6 +177,10 @@ def make_mcdf(f, branches=mcbranches, primbranches=mcprimbranches):
 
     return mcdf
 
+def make_mcprimdf(f):
+    mcprimdf = loadbranches(f["recTree"], mcprimbranches)
+    return mcprimdf
+
 def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, **trkArgs):
     # load
     trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
