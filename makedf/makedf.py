@@ -40,7 +40,11 @@ def make_mchdrdf(f):
     hdr = loadbranches(f["recTree"], mchdrbranches).rec.hdr
     return hdr
 
-def make_potdf(f):
+def make_potdf_sbnd(f):
+    pot = loadbranches(f["recTree"], sbndpotbranches).rec.hdr.bnbinfo
+    return pot
+
+def make_potdf_icarus(f):
     pot = loadbranches(f["recTree"], potbranches).rec.hdr.numiinfo
     return pot
 
