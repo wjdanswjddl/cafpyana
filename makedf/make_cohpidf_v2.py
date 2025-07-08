@@ -30,6 +30,34 @@ def pass_slc_with_n_pfps(df, n = 2):
 
     return filtered_df
 
+def apply_dir_z_cut(df):
+    if '_trk_rank' in df.columns:
+        df = df.drop(columns=[('_trk_rank', '', '', '', '', '')])
+
+    df = df.sort_index()
+    # Grouping by MultiIndex index levels
+    group_keys = ['entry', 'rec.slc..index']  # passed as strings for MultiIndex levels
+
+    # MultiIndex column names
+    trk_dirz_col = ('pfp', 'trk', 'dir', 'z', '', '')
+    trk_len_col  = ('pfp', 'trk', 'len', '', '', '')
+
+    # Step 1: Rank track length descending per SLC group
+    df['_trk_rank'] = df.groupby(level=group_keys)[[trk_len_col]] \
+                        .rank(method='first', ascending=False)
+
+    # Step 2: Apply cuts
+    sel_longest  = (df['_trk_rank'] == 1) & (df[trk_dirz_col] > 0.7)
+    sel_2nd_long = (df['_trk_rank'] == 2) & (df[trk_dirz_col] > 0.5)
+
+    # Step 3: Keep only desired rows
+    df = df[sel_longest | sel_2nd_long].drop(columns=['_trk_rank']).copy()
+
+    if '_trk_rank' in df.columns:
+        df = df.drop(columns=[('_trk_rank', '', '', '', '', '')])
+
+    return df
+
 def Avg(df, pid, drop_0=True):  # average score of 3 planes, exclude value if 0
     if drop_0:
         df = df.replace(0, np.nan)
@@ -180,8 +208,12 @@ def make_cohpidf_v2(f):
     pandora_df = pandora_df[(pandora_df.pfp.trk.chi2pid.I2.chi2_muon < 25.) & (pandora_df.pfp.trk.chi2pid.I2.chi2_proton > 100.)]
     pandora_df = pass_slc_with_n_pfps(pandora_df)
 
+    #### (6) dir Z cut
+    pandora_df = apply_dir_z_cut(pandora_df)
+    pandora_df = pass_slc_with_n_pfps(pandora_df)
+
     #### (6) Nuscore > 0.65
-    pandora_df = pandora_df[pandora_df.slc.nu_score > 0.65]
+    #pandora_df = pandora_df[pandora_df.slc.nu_score > 0.65]
 
     #### (7) Cosine of the opening angle between the two track should be greater than 0.2
     opening_angle_series = pandora_df.groupby(['entry', 'rec.slc..index']).apply(measure_opening_angle)
@@ -189,7 +221,7 @@ def make_cohpidf_v2(f):
         pandora_df[('slc', 'opening_angle', '', '', '', '')] = pd.Series(dtype='float')
     else:
         pandora_df[('slc', 'opening_angle', '', '', '', '')] = opening_angle_series
-    pandora_df = pandora_df[pandora_df.slc.opening_angle > 0.2]
+    pandora_df = pandora_df[pandora_df.slc.opening_angle > 0.5]
 
     #### (8) collect only slc variables of interest
     ######## (8) - a: reco momentum/angle of the two tracks
