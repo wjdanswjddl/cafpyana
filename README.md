@@ -10,3 +10,6 @@ Current `main` branch is based on python v3.9.15.
 It is for running the repository without any issue at gpvm servers with the `spack`.
 There is no need to open an SL7 image.
 If python version is updated in gpvm servers, compatibility issue should be revisited.
+
+# for the dune plotting style, follow the instructions here
+https://github.com/DUNE/dune_plot_style.git
