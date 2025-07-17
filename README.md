@@ -13,3 +13,6 @@ If python version is updated in gpvm servers, compatibility issue should be revi
 
 # for the dune plotting style, follow the instructions here
 https://github.com/DUNE/dune_plot_style.git
+
+# to run the df maker
+python run_df_maker.py -c configs/pandora.py -l data/sample_lists/sbnd/prod_2025B/data_MCP2025B_02_DevSample_bnblight_v10_06_00_02_flatcaf_sbnd.txt -o /exp/sbnd/data/users/apapadop/dfs/v10_06_00_02/test_data_beamon_2025B -nfile 100
