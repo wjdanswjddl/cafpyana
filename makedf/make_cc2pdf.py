@@ -3,8 +3,7 @@ from pyanalib.pandas_helpers import *
 from .util import *
 
 import sys, os
-sys.path.insert(0, os.path.abspath('../examples/cc2p_analysis'))
-import cc2p_reco_var as cc2preco
+import pyanalib.cc2p_reco_var as cc2preco
 
 ## -- data fram maker for cc2p analysis
 def make_cc2pdf(f):
@@ -14,6 +13,7 @@ def make_cc2pdf(f):
     #### (1) FV cut
     pandora_df = pandora_df[InFV(df = pandora_df.slc.vertex, inzback = 0, det = "SBND")]
 
+    
     #### (2) Not clear cosmic cut
     pandora_df = pandora_df[pandora_df.slc.is_clear_cosmic == 0]
     #pandora_df = pandora_df[pandora_df[('slc', 'is_clear_cosmic', '', '', '', '')] == 0]
@@ -27,34 +27,33 @@ def make_cc2pdf(f):
     #### (4) The three tracks should have track score > 0.5
     #### since they are track-like objects
     pandora_df = pandora_df[pandora_df.pfp.trackScore > 0.5]
-    pandora_df = pass_slc_with_n_pfps(pandora_df)
+    pandora_df = cc2preco.pass_slc_with_n_pfps(pandora_df)
 
     #### (5) Nuscore > 0.65
     #pandora_df = pandora_df[pandora_df.slc.nu_score > 0.65]
 
     #### (6) The three tracks should satisfy chi2 pid cut 
-    #### muon candidate: track length > 50 cm, chi2_muon < 25., and chi2_proton > 100.
+    #### muon candidate: chi2_muon < 25., and chi2_proton > 100.
     #### proton candidates: if not muon candidates and chi2_proton < 90
-    
+        
     #### first classify as muon or proton candidate
-    pid_result_series = pandora_df.apply(get_pid_result, axis=1)
+    pid_result_series = pandora_df.apply(cc2preco.get_pid_result, axis=1)
     pandora_df[('pfp', 'trk', 'chi2pid', 'I2', 'reco_pid', '')] = pid_result_series
     #### then add the muon and proton counters
-    pandora_df = get_n_recopid_per_slc(pandora_df)
+    pandora_df = cc2preco.get_n_recopid_per_slc(pandora_df)
     
-    pandora_df = mc_reco_df[mc_reco_df["muon_counter"] == 1]
-    pandora_df = mc_reco_df[mc_reco_df["proton_counter"] == 2]
+    pandora_df = pandora_df[pandora_df["muon_counter"] == 1]
+    pandora_df = pandora_df[pandora_df["proton_counter"] == 2]
     #pandora_df = pass_slc_with_n_pfps(pandora_df)
     
     #### (7) demand track containement
-    add_contained_col(pandora_df)
+    cc2preco.add_contained_col(pandora_df)
     pandora_df = pandora_df[pandora_df.pfp.contained]
     #pandora_df = pass_slc_with_n_pfps(pandora_df)
     
     #### series
-    reco_deltapt_series = pandora_df.groupby(['__ntuple', 'entry', 'rec.slc..index']).apply(measure_reco_deltapt)
-
-
+    #reco_deltapt_series = pandora_df.groupby(['__ntuple', 'entry', 'rec.slc..index']).apply(measure_reco_deltapt)
+    
     #### (8) collect only slc variables of interest
     range_p_mu_series = pandora_df.pfp.trk.rangeP.p_muon
     range_p_mu_series = range_p_mu_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)
@@ -67,17 +66,17 @@ def make_cc2pdf(f):
 
     cos_theta_proton_series = pandora_df.pfp.trk.dir.z
     cos_theta_proton_series = cos_theta_proton_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)
-
-    ######## (8) - b: reco |t|
+    
+    # ######## (8) - output data frame
     if pandora_df.empty:
         empty_index = pd.MultiIndex(
-            levels=[[], []],
-            codes=[[], []],
-            names=['entry', 'rec.slc..index']
+        levels=[[], []],
+        codes=[[], []],
+        names=['entry', 'rec.slc..index']
         )
-        reco_deltapt_series = pd.Series(dtype='float', name='reco_deltapt', index=empty_index)
-    else:
-        reco_deltapt_series = pandora_df.groupby(['entry', 'rec.slc..index']).apply(measure_reco_deltapt)
+    #     reco_deltapt_series = pd.Series(dtype='float', name='reco_deltapt', index=empty_index)
+    # else:
+    #     reco_deltapt_series = pandora_df.groupby(['entry', 'rec.slc..index']).apply(measure_reco_deltapt)
 
     ######## (8) - c: slc.tmatch.idx for truth matching
     tmatch_idx_series = pandora_df.slc.tmatch.idx
@@ -89,12 +88,11 @@ def make_cc2pdf(f):
         'range_p_proton': range_p_proton_series,
         'cos_theta_mu': cos_theta_mu_series,
         'cos_theta_proton': cos_theta_proton_series,
-        'reco_deltapt': reco_deltapt_series,
         'tmatch_idx': tmatch_idx_series
     })
 
-    #print(slcdf.columns)
     return slcdf
+    
     
 def make_cc2p_nudf(f):
 
@@ -102,15 +100,14 @@ def make_cc2p_nudf(f):
     nudf["ind"] = nudf.index.get_level_values(1)
     wgtdf = geniesyst.geniesyst_sbnd(f, nudf.ind)
     
-    is_fv = InFV(df = nudf.position)
-    is_signal = Signal(nudf)
+    is_fv = InFV(df = nudf.position, inzback = 0, det = "SBND")
+    is_signal = cc2preco.Signal(nudf)
     is_cc = nudf.iscc
     genie_mode = nudf.genie_mode
     w = nudf.w
 
     try :
         nuint_categ = pd.Series(8, index=nudf.index)
-        #print(f"done init nuint_categ")
     except Exception as e:
         print(f"Error init nuint_categ")
         return
@@ -119,17 +116,16 @@ def make_cc2p_nudf(f):
     nuint_categ[is_fv & ~is_cc] = 0  # NC
     nuint_categ[is_fv & is_cc & is_signal] = 1  # Signal
     nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode == 3)] = 2  # Non-signal CCCOH
-    nuint_categ[is_fv & is_cc & (genie_mode == 0)] = 3  # CCQE
-    nuint_categ[is_fv & is_cc & (genie_mode == 10)] = 4  # 2p2h
-    nuint_categ[is_fv & is_cc & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10) & ((w < 1.4) | (genie_mode == 1))] = 5  # RES
-    nuint_categ[is_fv & is_cc & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10) & ((w > 2.0) | (genie_mode == 2))] = 6  # DIS
-    nuint_categ[is_fv & is_cc & ((1.4 < w) & (w < 2.0) & (genie_mode != 1) & (genie_mode != 2) & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10))] = 7  # INEL
+    nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode == 0)] = 3  # Non-signal CCQE
+    nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode == 10)] = 4  # Non-signal 2p2h
+    nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode == 1)] = 5  # Non-signal RES
+    nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode == 2)] = 6  # Non-signal DIS
 
     #nudf = pd.DataFrame(index=nudf.index)
     #print(nuint_categ)
     nudf['nuint_categ'] = nuint_categ
     
-    true_deltapt_series = nudf.groupby(['entry', 'rec.mc.nu..index']).apply(get_true_deltapt)
+    #true_deltapt_series = nudf.groupby(['entry', 'rec.mc.nu..index']).apply(get_true_deltapt)
 
     mu_p_series = magdf(nudf.mu.genp)
     p_p_series = magdf(nudf.p.genp)
@@ -139,16 +135,13 @@ def make_cc2p_nudf(f):
 
     this_nudf = pd.DataFrame({
         'p_mu': mu_p_series,
-        'p_proton': cpi_p_series,
+        'p_proton': p_p_series,
         'cos_theta_mu': mu_cos_theta_series,
-        'cos_theta_pi': cpi_cos_theta_series,
-        'true_deltapt': true_t_series,
+        'cos_theta_pi': p_cos_theta_series,
+        #'true_deltapt': true_t_series,
         'nuint_categ': nuint_categ
     })
     this_nudf.columns = pd.MultiIndex.from_tuples([(col, '') for col in this_nudf.columns])
-    
-    print(this_nudf.columns)
-    print(wgtdf.columns)
     
     this_nudf = multicol_concat(this_nudf, wgtdf)
 
