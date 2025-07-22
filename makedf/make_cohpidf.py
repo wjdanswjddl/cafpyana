@@ -296,9 +296,22 @@ def make_cohpidf(f):
     )
     matchdf[('rec', 'n_trk_vtxdist', '', '')] = n_pass_vtxdist
 
+    ###### -- multiplicity of pfp track score cut
+    cut_trk_score = pfpdf.trackScore  > 0.5
+    cut_trk_score = cut_vtx_dist & cut_trk_score
+    pfpdf[('trk', 'trackScore', 'pass')] = cut_trk_score
+    n_pass_trk_score = cut_trk_score.reset_index(name='track_score')
+    n_pass_trk_score = (
+        n_pass_trk_score[n_pass_trk_score['track_score'] == True]
+        .groupby(['entry', 'rec.slc..index'])
+        .size()
+        .reindex(all_combinations.index, fill_value=0)
+    )
+    matchdf[('rec', 'n_trk_track_score', '', '')] = n_pass_trk_score
+
     ###### -- multiplicity of pfp track chi2 pid cut
     cut_pidscore = (Avg(pfpdf, "muon", drop_0=True) < 25) & (Avg(pfpdf, "proton", drop_0=True) > 100)
-    cut_pidscore = cut_pidscore & cut_trk_len & cut_vtx_dist
+    cut_pidscore = cut_pidscore & cut_trk_score
     pfpdf[('trk', 'mu_pid_pass', '')] = cut_pidscore
     n_pass_mupid_df = cut_pidscore.reset_index(name='pidscore')
     n_pass_mupid_df = (
@@ -308,6 +321,19 @@ def make_cohpidf(f):
         .reindex(all_combinations.index, fill_value=0)
     )
     matchdf[('rec', 'n_trk_mupid', '', '')] = n_pass_mupid_df
+
+    ###### -- multiplicity of pfp track that are contained in FV
+    cut_contained = (InFV(pfpdf.trk.start, inzback = 0, det = "SBND")) & (InFV(pfpdf.trk.end, inzback = 0, det = "SBND"))
+    cut_contained = cut_contained & cut_pidscore
+    pfpdf[('trk', 'contained', '')] = cut_contained
+    n_contained_df = cut_contained.reset_index(name='contained')
+    n_contained_df = (
+        n_contained_df[n_contained_df['contained'] == True]
+        .groupby(['entry', 'rec.slc..index'])
+        .size()
+        .reindex(all_combinations.index, fill_value=0)
+    )
+    matchdf[('rec', 'n_trk_contained', '', '')] = n_contained_df
 
     ###### -- reco t
     masterdf = pd.merge(matchdf.rec, pfpdf, left_index=True, right_index=True, how="inner")

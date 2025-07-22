@@ -22,6 +22,7 @@ hdrbranches = [
     "rec.hdr.proc",
     "rec.hdr.cluster",
     "rec.hdr.fno",
+    "rec.hdr.noffbeambnb",
 
     # "rec.hdr.triggerinfo.trigger_id",
     # "rec.hdr.triggerinfo.gate_id",
@@ -32,7 +33,7 @@ hdrbranches = [
     # "rec.hdr.triggerinfo.prev_global_trigger_time",
 ]
 
-icaruspotbranches = [
+numipotbranches = [
     "rec.hdr.numiinfo.spill_time_s",
     "rec.hdr.numiinfo.spill_time_ns",
     "rec.hdr.numiinfo.TRTGTD",
@@ -40,7 +41,7 @@ icaruspotbranches = [
     "rec.hdr.numiinfo.daq_gates",
 ]
 
-sbndpotbranches = [
+bnbpotbranches = [
     "rec.hdr.bnbinfo.TOR860",
     "rec.hdr.bnbinfo.TOR875",
 ]
