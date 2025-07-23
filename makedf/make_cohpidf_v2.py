@@ -321,8 +321,8 @@ def make_cohpi_nudf(f):
     })
     this_nudf.columns = pd.MultiIndex.from_tuples([(col, '') for col in this_nudf.columns])
     
-    print(this_nudf.columns)
-    print(wgtdf.columns)
+    #print(this_nudf.columns)
+    #print(wgtdf.columns)
     
     this_nudf = multicol_concat(this_nudf, wgtdf)
 
