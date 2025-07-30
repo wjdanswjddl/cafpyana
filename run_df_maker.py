@@ -34,7 +34,7 @@ parser.add_argument('-i', dest='inputfiles', default="", help="input root file p
 parser.add_argument('-l', dest='inputfilelist', default="", help="a file of list for input root files")
 parser.add_argument('-ngrid', dest='NGridJobs', default=0, type=int, help="Number of grid jobs. Default = 0, no grid submission.")
 parser.add_argument('-nfile', dest='NFiles', default=0, type=int, help="Number of files to run. Default = 0, run all input files.")
-arser.add_argument('-split', dest='SplitSize', default=1.0, type=float, help="Split size in GB before writing to HDF5. Default = 1.0 GB.")
+parser.add_argument('-split', dest='SplitSize', default=1.0, type=float, help="Split size in GB before writing to HDF5. Default = 1.0 GB.")
 
 args = parser.parse_args()
 
@@ -66,7 +66,7 @@ def run_pool(output, inputs):
                 # Concatenate and save accumulated DataFrames
                 for k, buffer in df_buffers.items():
                     if buffer:  # only if buffer has data
-                        concat_df = pd.concat(buffer, ignore_index=True)
+                        concat_df = pd.concat(buffer, ignore_index=False)
                         this_key = k + "_" + str(k_idx)
                         try:
                             hdf_pd.put(key=this_key, value=concat_df, format="fixed")
@@ -81,7 +81,7 @@ def run_pool(output, inputs):
 
         for k, buffer in df_buffers.items():
             if buffer:
-                concat_df = pd.concat(buffer, ignore_index=True)
+                concat_df = pd.concat(buffer, ignore_index=False)
                 this_key = k + "_" + str(k_idx)
                 try:
                     hdf_pd.put(key=this_key, value=concat_df, format="fixed")
