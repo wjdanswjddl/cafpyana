@@ -49,7 +49,7 @@ def make_potdf_numi(f):
     return pot
 
 def make_mcnuwgtdf(f):
-    return make_mcnudf(f, include_weights=True)
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000)
 
 def make_mcnudf(f, include_weights=False, multisim_nuniv=250):
     # ----- sbnd or icarus? -----
