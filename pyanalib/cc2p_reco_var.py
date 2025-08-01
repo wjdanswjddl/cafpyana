@@ -59,6 +59,10 @@ def pass_slc_with_n_pfps(df, n = 3):
 
     # Apply the mask to original DataFrame
     filtered_df = df.loc[df.index.droplevel('rec.slc.reco.pfp..index').isin(valid_slices)]
+    
+    filtered_df = get_n_recopid_per_slc(filtered_df)
+    
+    filtered_df = filtered_df[ (filtered_df["muon_counter"] == 1) & (filtered_df["proton_counter"] == 2) & (filtered_df["pion_counter"] == 0)]    
 
     return filtered_df
 
@@ -70,14 +74,18 @@ def Avg(df, pid, drop_0=True):  # exclude value if 0
     return average
 
 def get_pid_result(row):
+    
     chi2_muon = row[('pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon', '')]
     chi2_proton = row[('pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton', '')]
+    len = row[('pfp', 'trk', 'len', '', '', '')]
 
     if chi2_muon < 25. and chi2_proton > 100.:
         return 13  # muon
+    elif chi2_proton < 90.:
+        return 2212  # proton
     else:
-        return 2212  # proton   
-    
+        return 211  # charged pion   
+        
 def add_n_slice_col(reco_df):
     df_reset = reco_df.reset_index()
     slc_counts = (
@@ -97,25 +105,31 @@ def add_n_slice_col(reco_df):
     return df_reset     
 
 def get_n_recopid_per_slc(df):
-    pid_series = df.pfp.trk.chi2pid.I2.reco_pid
+    
+    pid_series = df.pfp.trk.reco_pid
     this_df = pid_series.reset_index()
 
     muons = this_df[this_df["reco_pid"] == 13]
     protons = this_df[this_df["reco_pid"] == 2212]
+    pions = this_df[this_df["reco_pid"] == 211]    
 
     muon_counts = muons.groupby(["entry", "rec.slc..index"]).size().rename("n_mu")
     proton_counts = protons.groupby(["entry", "rec.slc..index"]).size().rename("n_proton")
+    pion_counts = pions.groupby(["entry", "rec.slc..index"]).size().rename("n_pion")    
 
     this_df = this_df.merge(muon_counts, on=["entry", "rec.slc..index"], how="left")
     this_df = this_df.merge(proton_counts, on=["entry", "rec.slc..index"], how="left")
+    this_df = this_df.merge(pion_counts, on=["entry", "rec.slc..index"], how="left")    
 
     this_df["n_mu"] = this_df["n_mu"].fillna(0).astype(int)
     this_df["n_proton"] = this_df["n_proton"].fillna(0).astype(int)
+    this_df["n_pion"] = this_df["n_pion"].fillna(0).astype(int)    
 
     this_df.set_index(["entry", "rec.slc..index", "rec.slc.reco.pfp..index"], inplace=True)
 
     df[('muon_counter', '', '', '', '', '')] = this_df.n_mu
     df[('proton_counter', '', '', '', '', '')] = this_df.n_proton
+    df[('pion_counter', '', '', '', '', '')] = this_df.n_pion    
 
     return df
 
@@ -123,32 +137,34 @@ def add_contained_col(df):
     contained = InFV(df.pfp.trk.start) & InFV(df.pfp.trk.end)
     df[('pfp', 'contained', '', '', '', '')] = contained
     
-def reco_deltapt(dir_x, dir_y, dir_z, range_P_muon, range_P_proton):
-    # -- assume first particle is muon and the others are the protons
-    p_mu = range_P_muon.iloc[0]
-    # leading proton
-    p_p_l = range_P_proton.iloc[0]
-    # recoil proton
-    p_p_r = range_P_proton.iloc[1]
-    # -- if second proton is more energetic, swap the proton momentum assumption
-    if(range_P_proton.iloc[0] < range_P_proton.iloc[1]):
-        p_l = range_P_proton.iloc[1]
-        p_r = range_P_proton.iloc[0]
+def reco_deltapt(muon_dir_x, muon_dir_y, muon_dir_z, range_P_muon, 
+                 proton_dir_x, proton_dir_y, proton_dir_z, range_P_proton):
 
-    # -- each term
-    px_sq = np.power(range_P_muon.iloc[0] * dir_x.iloc[0] + range_P_proton.iloc[1] * dir_x.iloc[1] + range_P_proton.iloc[2] * dir_x.iloc[2], 2.)
-    py_sq = np.power(range_P_muon.iloc[0] * dir_y.iloc[0] + range_P_proton.iloc[1] * dir_y.iloc[1] + range_P_proton.iloc[2] * dir_y.iloc[2], 2.)
+    # # -- each term
+    px_sq = np.power(muon_dir_x * range_P_muon + proton_dir_x * range_P_proton, 2.)
+    py_sq = np.power(muon_dir_y * range_P_muon + proton_dir_y * range_P_proton, 2.)
     deltapt = np.sqrt(px_sq + py_sq)
     
     #print(deltapt)
     return deltapt
 
 def measure_reco_deltapt(group):
-    dir_x = group[('pfp', 'trk', 'dir', 'x', '', '')]
-    dir_y = group[('pfp', 'trk', 'dir', 'y', '', '')]
-    dir_z = group[('pfp', 'trk', 'dir', 'z', '', '')]
+    
+    muons = group[group.pfp.trk.reco_pid == 13]
+    protons = group[group.pfp.trk.reco_pid == 2212]    
+    
+    muon_dir_x = muons[('pfp', 'trk', 'dir', 'x', '', '')]
+    muon_dir_y = muons[('pfp', 'trk', 'dir', 'y', '', '')]
+    muon_dir_z = muons[('pfp', 'trk', 'dir', 'z', '', '')]
+    muon_range = muons[('pfp', 'trk', 'rangeP', 'p_muon', '', '')]
+    
+    proton_dir_x = protons[('pfp', 'trk', 'dir', 'x', '', '')]
+    proton_dir_y = protons[('pfp', 'trk', 'dir', 'y', '', '')]
+    proton_dir_z = protons[('pfp', 'trk', 'dir', 'z', '', '')]
+    proton_range = protons[('pfp', 'trk', 'rangeP', 'p_proton', '', '')]    
+    
     range_P_muon = group[('pfp', 'trk', 'rangeP', 'p_muon', '', '')]
     range_P_proton = group[('pfp', 'trk', 'rangeP', 'p_proton', '', '')]
 
     # Call reco_deltapt function
-    return reco_deltapt(dir_x, dir_y, dir_z, range_P_muon, range_P_proton)  
+    return reco_deltapt(muon_dir_x, muon_dir_y, muon_dir_z, muon_range, proton_dir_x, proton_dir_y, proton_dir_z, proton_range)  

@@ -33,6 +33,7 @@ def make_cc2p_ttree_mc(dfname):
     recodf = pd.concat([recodf, recodf_wgt_out], axis = 1)
     
     ## Work for the true df
+    print(mcnuwgtdf.keys())
     print("mcnuwgtdf.nuint_categ")
     print(mcnuwgtdf.nuint_categ.value_counts())
     mcnuwgtdf = mcnuwgtdf[mcnuwgtdf.nuint_categ == 1]

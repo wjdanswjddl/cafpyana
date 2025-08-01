@@ -51,7 +51,7 @@ python run_df_maker.py -c configs/pandora.py -l data/sample_lists/sbnd/prod_2025
 python run_df_maker.py -c configs/pandora_cc2p.py -l data/sample_lists/sbnd/prod_2025B/data_MCP2025B_02_DevSample_bnblight_v10_06_00_02_flatcaf_sbnd_35ms.txt -o /exp/sbnd/data/users/apapadop/dfs/v10_06_00_02/data_MCP2025B_02_DevSample_bnblight_v10_06_00_02_flatcaf_sbnd_35ms_cc2p [-nfile 100]
 
 #mc bnb
-python run_df_maker.py -c configs/pandora_cc2p.py -l data/sample_lists/sbnd/prod_2025B/mc_MCP2025B_5e18_02_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd.txt -o /exp/sbnd/data/users/apapadop/dfs/v10_06_00_02/mc_MCP2025B_5e18_02_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_cc2
+python run_df_maker.py -c configs/pandora_cc2p.py -l data/sample_lists/sbnd/prod_2025B/mc_MCP2025B_5e18_02_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd.txt -o /exp/sbnd/data/users/apapadop/dfs/v10_06_00_02/mc_MCP2025B_5e18_02_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_cc2p
 
 #mc intime cosmics
 python run_df_maker.py -c configs/pandora_cc2p.py -l data/sample_lists/sbnd/prod_2025B/mc_MCP2025B_5e18_02_prodcorsika_proton_intime_sbnd_CV_caf_flat_caf_sbnd.txt -o /exp/sbnd/data/users/apapadop/dfs/v10_06_00_02/mc_MCP2025B_5e18_02_prodcorsika_proton_intime_sbnd_CV_caf_flat_caf_sbnd_100files_cc2p -nfile 100
