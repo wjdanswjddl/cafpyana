@@ -1,19 +1,31 @@
-from .makedf import *
+from makedf.makedf import *
 from pyanalib.pandas_helpers import *
-from .util import *
+from makedf.util import *
+
+def InFV_nohiyz(data):
+    xmin = 10.
+    xmax = 190.
+    zmin = 10.
+    zmax = 450.
+    ymax_highz = 100.
+    pass_xz = (np.abs(data.x) > xmin) & (np.abs(data.x) < xmax) & (data.z > zmin) & (data.z < zmax)
+    pass_y = ((data.z < 250) & (np.abs(data.y) < 190.)) | ((data.z > 250) & (data.y > -190.) & (data.y < ymax_highz))
+    return pass_xz & pass_y
+
+def InFV_nohiyz_trk(data):
+    xmax = 190.
+    zmin = 10.
+    zmax = 450.
+    ymax_highz = 100.
+    pass_xz = (np.abs(data.x) < xmax) & (data.z > zmin) & (data.z < zmax)
+    pass_y = ((data.z < 250) & (np.abs(data.y) < 190.)) | ((data.z > 250) & (data.y > -190.) & (data.y < ymax_highz))
+    return pass_xz & pass_y
+
 ## -- truth level flags
 def Signal(df): # definition
-    is_fv = InFV(df.position, inzback = 0, det = "SBND")
-    is_numu = (df.pdg == 14) | (df.pdg == -14)
-    is_cc = (df.iscc == 1)
-    is_coh = (df.genie_mode == 3)
-    is_1pi0p = (df.nmu_40MeV == 1) & (df.npi_30MeV == 1) & (df.np_50MeV == 0) & (df.npi0 == 0)
-    return is_fv & is_numu & is_cc & is_1pi0p & is_coh
-
-def CCCOH(df):
-    is_cc = df.iscc
-    genie_mode = df.genie_mode
-    return is_cc & (genie_mode == 3)
+    is_fv = InFV_nohiyz(df.position)
+    is_1pi0p = (df.nmu_27MeV == 1) & (df.npi_30MeV == 1) & (df.np_20MeV == 0) & (df.npi0 == 0) & (df.true_t < 0.1)
+    return is_fv & is_1pi0p
 
 ## -- reco level flags
 def pass_slc_with_n_pfps(df, n = 2):
@@ -30,6 +42,34 @@ def pass_slc_with_n_pfps(df, n = 2):
 
     return filtered_df
 
+def apply_dir_z_cut(df):
+    if '_trk_rank' in df.columns:
+        df = df.drop(columns=[('_trk_rank', '', '', '', '', '')])
+
+    df = df.sort_index()
+    # Grouping by MultiIndex index levels
+    group_keys = ['entry', 'rec.slc..index']  # passed as strings for MultiIndex levels
+
+    # MultiIndex column names
+    trk_dirz_col = ('pfp', 'trk', 'dir', 'z', '', '')
+    trk_len_col  = ('pfp', 'trk', 'len', '', '', '')
+
+    # Step 1: Rank track length descending per SLC group
+    df['_trk_rank'] = df.groupby(level=group_keys)[[trk_len_col]] \
+                        .rank(method='first', ascending=False)
+
+    # Step 2: Apply cuts
+    sel_longest  = (df['_trk_rank'] == 1) & (df[trk_dirz_col] > 0.5)
+    sel_2nd_long = (df['_trk_rank'] == 2) & (df[trk_dirz_col] > 0.5)
+
+    # Step 3: Keep only desired rows
+    df = df[sel_longest | sel_2nd_long].drop(columns=['_trk_rank']).copy()
+
+    if '_trk_rank' in df.columns:
+        df = df.drop(columns=[('_trk_rank', '', '', '', '', '')])
+
+    return df
+
 def Avg(df, pid, drop_0=True):  # average score of 3 planes, exclude value if 0
     if drop_0:
         df = df.replace(0, np.nan)
@@ -39,8 +79,8 @@ def Avg(df, pid, drop_0=True):  # average score of 3 planes, exclude value if 0
     return average
 
 def add_contained_col(df):
-    containd = InFV(df.pfp.trk.start) & InFV(df.pfp.trk.end)
-    df[('pfp', 'containd', '', '', '', '')] = containd
+    containd = InFV_nohiyz_trk(df.pfp.trk.start) & InFV_nohiyz_trk(df.pfp.trk.end)
+    df['containd'] = containd
 
 def reco_t(dir_x, dir_y, dir_z, range_P_muon, range_P_pion):
     # -- assume first particle is muon and the other is pion
@@ -127,32 +167,9 @@ def measure_beam_totp_angle(group):
     # Call reco_t function
     return beam_totp_angle(n_trk_mupid, dir_x, dir_y, dir_z, range_P_muon, range_P_pion, mu_pid_pass)
 
-
-def true_t(this_nuint_categ, E_nu, E_mu, px_mu, py_mu, pz_mu, E_pi, px_pi, py_pi, pz_pi):
-    #print(this_nuint_categ)
-    if this_nuint_categ.iloc[0] != 1:
-        return -999.
-    else:
-        t = np.power(E_nu.iloc[0] - E_mu.iloc[0] - E_pi.iloc[0], 2.) - np.power(E_nu.iloc[0] - pz_mu.iloc[0] - pz_pi.iloc[0], 2.)
-        - np.power(py_mu.iloc[0] - py_pi.iloc[0], 2.) - np.power(px_mu.iloc[0] - px_pi.iloc[0], 2.)
-        t = np.fabs(t)
-        return t
-
-def get_true_t(group):
-    this_nuint_categ = group[('nuint_categ', '', '')]
-    E_nu = group[('E', '', '')]
-
-    E_mu = group[('mu', 'genE', '')]
-    px_mu = group[('mu', 'genp', 'x')]
-    py_mu = group[('mu', 'genp', 'y')]
-    pz_mu = group[('mu', 'genp', 'z')]
-
-    E_pi = group[('cpi', 'genE', '')]
-    px_pi = group[('cpi', 'genp', 'x')]
-    py_pi = group[('cpi', 'genp', 'y')]
-    pz_pi = group[('cpi', 'genp', 'z')]    
-
-    return true_t(this_nuint_categ, E_nu, E_mu, px_mu, py_mu, pz_mu, E_pi, px_pi, py_pi, pz_pi)
+def get_true_t(df):
+    t = (df.E - df.mu.genE - df.cpi.genE)**2 - (df.momentum.x - df.mu.genp.x - df.cpi.genp.x)**2 - (df.momentum.y - df.mu.genp.y - df.cpi.genp.y)**2 - (df.momentum.z - df.mu.genp.z - df.cpi.genp.z)**2
+    return np.abs(t)
 
 ## -- data fram maker for cohpi analysis
 def make_cohpidf_v2(f):
@@ -160,7 +177,7 @@ def make_cohpidf_v2(f):
     pandora_df = make_pandora_df(f)
     
     #### (1) FV cut
-    pandora_df = pandora_df[InFV(df = pandora_df.slc.vertex, inzback = 0, det = "SBND")]
+    pandora_df = pandora_df[InFV_nohiyz(pandora_df.slc.vertex)]
 
     #### (2) Not clear cosmic cut
     pandora_df = pandora_df[pandora_df.slc.is_clear_cosmic == 0]
@@ -180,19 +197,28 @@ def make_cohpidf_v2(f):
     pandora_df = pandora_df[(pandora_df.pfp.trk.chi2pid.I2.chi2_muon < 25.) & (pandora_df.pfp.trk.chi2pid.I2.chi2_proton > 100.)]
     pandora_df = pass_slc_with_n_pfps(pandora_df)
 
-    #### (6) Nuscore > 0.65
-    pandora_df = pandora_df[pandora_df.slc.nu_score > 0.65]
+    #### (6) dir Z cut
+    pandora_df = apply_dir_z_cut(pandora_df)
+    pandora_df = pass_slc_with_n_pfps(pandora_df)
 
-    #### (7) Cosine of the opening angle between the two track should be greater than 0.2
+    #### (6) Nuscore > 0.65 -> not applied
+    #pandora_df = pandora_df[pandora_df.slc.nu_score > 0.65]
+
+    #### (7) Cosine of the opening angle between the two track should be greater than 0.5
     opening_angle_series = pandora_df.groupby(['entry', 'rec.slc..index']).apply(measure_opening_angle)
     if pandora_df.empty:
         pandora_df[('slc', 'opening_angle', '', '', '', '')] = pd.Series(dtype='float')
     else:
         pandora_df[('slc', 'opening_angle', '', '', '', '')] = opening_angle_series
-    pandora_df = pandora_df[pandora_df.slc.opening_angle > 0.2]
+    pandora_df = pandora_df[pandora_df.slc.opening_angle > 0.5]
 
-    #### (8) collect only slc variables of interest
-    ######## (8) - a: reco momentum/angle of the two tracks
+    #### (8) Tracks are contained
+    add_contained_col(pandora_df)
+    pandora_df = pandora_df[pandora_df.containd]
+    pandora_df = pass_slc_with_n_pfps(pandora_df)
+
+    #### (9) collect only slc variables of interest
+    ######## (9) - a: reco momentum/angle of the two tracks
     long_trk_df = pandora_df.sort_values(by=("pfp", "trk", "len", "", "", ""), ascending=False).groupby(level=[0,1]).nth(0)
     short_trk_df = pandora_df.sort_values(by=("pfp", "trk", "len", "", "", ""), ascending=False).groupby(level=[0,1]).nth(1)
 
@@ -208,7 +234,7 @@ def make_cohpidf_v2(f):
     cos_theta_pi_series = short_trk_df.pfp.trk.dir.z
     cos_theta_pi_series = cos_theta_pi_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)
 
-    ######## (8) - b: reco |t|
+    ######## (9) - b: reco |t|
     if pandora_df.empty:
         empty_index = pd.MultiIndex(
             levels=[[], []],
@@ -221,11 +247,11 @@ def make_cohpidf_v2(f):
         reco_t_series = pandora_df.groupby(['entry', 'rec.slc..index']).apply(measure_reco_t)
     #reco_t_series = reco_t_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)
 
-    ######## (8) - c: slc.tmatch.idx for truth matching
+    ######## (9) - c: slc.tmatch.idx for truth matching
     tmatch_idx_series = pandora_df.slc.tmatch.idx
     tmatch_idx_series = tmatch_idx_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)
     
-    ## (9) creat a slice-based reco df
+    ## (10) creat a slice-based reco df
     slcdf = pd.DataFrame({
         'range_p_mu': range_p_mu_series,
         'range_p_pi': range_p_pi_series,
@@ -239,12 +265,15 @@ def make_cohpidf_v2(f):
     return slcdf
     
 def make_cohpi_nudf(f):
-    #nudf = make_mcdf(f)
+    
     nudf = make_mcdf(f)
     nudf["ind"] = nudf.index.get_level_values(1)
-    wgtdf = geniesyst.geniesyst_sbnd(f, nudf.ind)
+    wgtdf = pd.concat([bnbsyst.bnbsyst(f, nudf.ind), geniesyst.geniesyst_sbnd(f, nudf.ind)], axis=1)
+
+    true_t = get_true_t(nudf).fillna(999999)
+    nudf['true_t'] = true_t
     
-    is_fv = InFV(df = nudf.position, inzback = 0, det = "SBND")
+    is_fv = InFV_nohiyz_trk(nudf.position)
     is_signal = Signal(nudf)
     is_cc = nudf.iscc
     genie_mode = nudf.genie_mode
@@ -252,26 +281,22 @@ def make_cohpi_nudf(f):
 
     try :
         nuint_categ = pd.Series(8, index=nudf.index)
-        #print(f"done init nuint_categ")
     except Exception as e:
         print(f"Error init nuint_categ")
         return
 
     nuint_categ[~is_fv] = -1  # Out of FV
-    nuint_categ[is_fv & ~is_cc] = 0  # NC
-    nuint_categ[is_fv & is_cc & is_signal] = 1  # Signal
+    nuint_categ[is_fv & is_signal] = 1 # Signal
+    nuint_categ[is_fv & ~is_cc & ~is_signal] = 0  # NC
     nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode == 3)] = 2  # Non-signal CCCOH
-    nuint_categ[is_fv & is_cc & (genie_mode == 0)] = 3  # CCQE
-    nuint_categ[is_fv & is_cc & (genie_mode == 10)] = 4  # 2p2h
-    nuint_categ[is_fv & is_cc & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10) & ((w < 1.4) | (genie_mode == 1))] = 5  # RES
-    nuint_categ[is_fv & is_cc & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10) & ((w > 2.0) | (genie_mode == 2))] = 6  # DIS
-    nuint_categ[is_fv & is_cc & ((1.4 < w) & (w < 2.0) & (genie_mode != 1) & (genie_mode != 2) & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10))] = 7  # INEL
+    nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode == 0)] = 3  # CCQE
+    nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode == 10)] = 4  # 2p2h
+    nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10) & ((w < 1.4) | (genie_mode == 1))] = 5  # RES
+    nuint_categ[is_fv & is_cc & ~is_signal & (genie_mode != 0) & (genie_mode != 3) & (genie_mode != 10) & ((w > 2.0) | (genie_mode == 2))] = 6  # DIS
 
-    #nudf = pd.DataFrame(index=nudf.index)
-    #print(nuint_categ)
     nudf['nuint_categ'] = nuint_categ
     
-    true_t_series = nudf.groupby(['entry', 'rec.mc.nu..index']).apply(get_true_t)
+    true_t_series = nudf.true_t
 
     mu_p_series = magdf(nudf.mu.genp)
     cpi_p_series = magdf(nudf.cpi.genp)
@@ -288,9 +313,6 @@ def make_cohpi_nudf(f):
         'nuint_categ': nuint_categ
     })
     this_nudf.columns = pd.MultiIndex.from_tuples([(col, '') for col in this_nudf.columns])
-    
-    print(this_nudf.columns)
-    print(wgtdf.columns)
     
     this_nudf = multicol_concat(this_nudf, wgtdf)
 

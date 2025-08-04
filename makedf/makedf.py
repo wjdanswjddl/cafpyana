@@ -26,7 +26,7 @@ PDG = {
 ## == For additional column in mcdf with primary particle multiplicities
 ## ==== "<column name>": ["<particle name>", <KE cut in GeV>]
 ## ==== <particle name> is used to collect PID and mass from the "PDG" dictionary
-TRUE_KE_THRESHOLDS = {"nmu_40MeV": ["muon", 0.04],
+TRUE_KE_THRESHOLDS = {"nmu_27MeV": ["muon", 0.027],
                       "np_20MeV": ["proton", 0.02],
                       "np_50MeV": ["proton", 0.05],
                       "npi_30MeV": ["pipm", 0.03],

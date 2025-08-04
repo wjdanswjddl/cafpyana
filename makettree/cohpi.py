@@ -9,11 +9,11 @@ import numpy as np
 def make_cohpi_ttree_mc(dfname):
     recodf = pd.read_hdf(dfname, key='cohpi')
     hdrdf = pd.read_hdf(dfname, key='hdr')
-    mcnuwgtdf = pd.read_hdf(dfname, key='mcnuwgt')
+    mcnuwgtdf = pd.read_hdf(dfname, key='mcnu')
 
     ## Collect POT and scale factor to the target POT
     this_pot = sum(hdrdf.pot)
-    target_POT = 3.0e18
+    target_POT = 4.6e18
     POT_scale = target_POT / this_pot
 
     ## Work for the reco df
