@@ -26,7 +26,7 @@ PDG = {
 ## == For additional column in mcdf with primary particle multiplicities
 ## ==== "<column name>": ["<particle name>", <KE cut in GeV>]
 ## ==== <particle name> is used to collect PID and mass from the "PDG" dictionary
-TRUE_KE_THRESHOLDS = {"nmu_40MeV": ["muon", 0.04],
+TRUE_KE_THRESHOLDS = {"nmu_27MeV": ["muon", 0.027],
                       "np_20MeV": ["proton", 0.02],
                       "np_50MeV": ["proton", 0.05],
                       "npi_30MeV": ["pipm", 0.03],
@@ -50,9 +50,9 @@ def make_potdf_numi(f):
     return pot
 
 def make_mcnuwgtdf(f):
-    return make_mcnudf(f, include_weights=True)
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000)
 
-def make_mcnudf(f, include_weights=False):
+def make_mcnudf(f, include_weights=False, multisim_nuniv=250):
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
@@ -68,7 +68,7 @@ def make_mcnudf(f, include_weights=False):
         elif det == "SBND":
             # geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
             # bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind)
-            wgtdf = pd.concat([bnbsyst.bnbsyst(f, mcdf.ind), geniesyst.geniesyst_sbnd(f, mcdf.ind)], axis=1)
+            wgtdf = pd.concat([bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv), geniesyst.geniesyst_sbnd(f, mcdf.ind)], axis=1)
         mcdf = multicol_concat(mcdf, wgtdf)
     return mcdf
 

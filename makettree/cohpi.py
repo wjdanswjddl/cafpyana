@@ -13,7 +13,7 @@ def make_cohpi_ttree_mc(dfname):
 
     ## Collect POT and scale factor to the target POT
     this_pot = sum(hdrdf.pot)
-    target_POT = 3.0e18
+    target_POT = 4.6e18
     POT_scale = target_POT / this_pot
 
     ## Work for the reco df
