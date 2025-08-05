@@ -2,7 +2,7 @@ from pyanalib.pandas_helpers import *
 from .branches import *
 from .util import *
 from .calo import *
-from . import numisyst, g4syst, geniesyst
+from . import numisyst, g4syst, geniesyst, bnbsyst
 
 PDG = {
     "muon": [13, "muon", 0.105,],
@@ -66,8 +66,9 @@ def make_mcnudf(f, include_weights=False):
         if det == "ICARUS":
             wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
         elif det == "SBND":
-            wgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
-
+            # geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
+            # bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind)
+            wgtdf = pd.concat([bnbsyst.bnbsyst(f, mcdf.ind), geniesyst.geniesyst_sbnd(f, mcdf.ind)], axis=1)
         mcdf = multicol_concat(mcdf, wgtdf)
     return mcdf
 
