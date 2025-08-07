@@ -53,7 +53,15 @@ def make_spine_evtdf(f):
     return df
 
 
-def make_pandora_evtdf(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=True, **trkArgs):
+def make_pandora_evtdf_wgt(f, include_weights=True, multisim_nuniv=1000, wgt_types=["bnb","genie"], slim=True, 
+                       trkScoreCut=False, trkDistCut=10., cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
+
+
+def make_pandora_evtdf(f, include_weights=False, multisim_nuniv=250, wgt_types=["bnb","genie"], slim=False, 
+                       trkScoreCut=False, trkDistCut=10., cutClearCosmic=True, **trkArgs):
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
@@ -61,7 +69,7 @@ def make_pandora_evtdf(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=True
     else:
         DETECTOR = "ICARUS"
     
-    mcdf = make_mcdf(f)
+    mcdf = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim)
     trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
     slcdf = make_slcdf(f)
 
