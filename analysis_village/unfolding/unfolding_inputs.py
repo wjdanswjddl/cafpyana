@@ -63,6 +63,7 @@ def get_smear_matrix(true_var_signal_sel_df, var_signal_df, bins_2d, weights=Non
                         fontsize=10
                     )
 
+        plt.title("Smearing")
         plt.tight_layout()
 
         if save_fig and save_fig_name is not None:
@@ -123,6 +124,7 @@ def get_response_matrix(reco_vs_true, eff, bins,
                         fontsize=10
                     )
 
+        plt.title("Response")
         plt.tight_layout()
 
         if save_fig and save_fig_name is not None:
