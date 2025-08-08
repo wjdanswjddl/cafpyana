@@ -18,6 +18,16 @@ def make_cc2pdf(f):
     pandora_df = pandora_df[pandora_df.slc.is_clear_cosmic == 0]
     #pandora_df = pandora_df[pandora_df[('slc', 'is_clear_cosmic', '', '', '', '')] == 0]
     
+    #### The three tracks should satisfy chi2 pid cut 
+    #### muon candidate: chi2_muon < 25., and chi2_proton > 100.
+    #### proton candidates: if not muon candidates and chi2_proton < 90
+        
+    #### first classify as muon or proton candidate
+    pid_result_series = pandora_df.apply(cc2preco.get_pid_result, axis=1)
+    pandora_df[('pfp', 'trk', 'reco_pid', '', '', '')] = pid_result_series
+    #### then add the muon and proton counters
+    pandora_df = cc2preco.get_n_recopid_per_slc(pandora_df)    
+    
     #### (3) Track multiplicity cut
     ######## (3) - a: keep only pfp objects with length > 4 cm and dist_to_vertex < 6 cm
     pandora_df = pandora_df[(pandora_df.pfp.trk.len > 4.) & (pandora_df.pfp.dist_to_vertex < 6.)]
@@ -31,30 +41,15 @@ def make_cc2pdf(f):
 
     #### (5) Nuscore > 0.65
     #pandora_df = pandora_df[pandora_df.slc.nu_score > 0.65]
-
-    #### (6) The three tracks should satisfy chi2 pid cut 
-    #### muon candidate: chi2_muon < 25., and chi2_proton > 100.
-    #### proton candidates: if not muon candidates and chi2_proton < 90
-        
-    #### first classify as muon or proton candidate
-    pid_result_series = pandora_df.apply(cc2preco.get_pid_result, axis=1)
-    pandora_df[('pfp', 'trk', 'reco_pid', '', '', '')] = pid_result_series
-    #### then add the muon and proton counters
-    pandora_df = cc2preco.get_n_recopid_per_slc(pandora_df)
     
-    pandora_df = pandora_df[pandora_df["muon_counter"] == 1]
-    pandora_df = pandora_df[pandora_df["proton_counter"] == 2]
-    pandora_df = pandora_df[pandora_df["pion_counter"] == 0]    
-    pandora_df = cc2preco.pass_slc_with_n_pfps(pandora_df)
-    
-    #### (7) demand track containement
+    #### (6) demand track containement
     cc2preco.add_contained_col(pandora_df)
     pandora_df = pandora_df[pandora_df.pfp.contained]
     pandora_df = cc2preco.pass_slc_with_n_pfps(pandora_df)
     
-    #### (8) demand reco memomenta above threshold
+    #### (7) demand reco memomenta above threshold
     pandora_df = pandora_df[(pandora_df.pfp.trk.reco_pid == 13) & (pandora_df.pfp.trk.rangeP.p_muon > 0.1) | 
-                            (pandora_df.pfp.trk.I2.reco_pid == 2212) & (pandora_df.pfp.trk.rangeP.p_proton > 0.3)]    
+                            (pandora_df.pfp.trk.reco_pid == 2212) & (pandora_df.pfp.trk.rangeP.p_proton > 0.3)]    
     pandora_df = cc2preco.pass_slc_with_n_pfps(pandora_df)
     
     #### dfs for muons and protons
@@ -85,8 +80,19 @@ def make_cc2pdf(f):
     cos_theta_rec_proton_series = cos_theta_rec_proton_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)    
     
     #### add kinematic imbalance vars
-    #reco_deltapt_series = pandora_df.groupby(['entry', 'rec.slc..index']).apply(cc2preco.measure_reco_deltapt)
-    #pandora_df[('reco_deltapt', '', '', '', '', '')] = reco_deltapt_series    
+    imbalance_df = pandora_df.groupby(['entry', 'rec.slc..index']).apply(cc2preco.measure_reco_imbalance)
+
+    print(imbalance_df.keys())
+
+    reco_deltapt_series = imbalance_df['deltapt']
+    reco_deltaalphat_series = imbalance_df['deltaalphat']
+    reco_deltaphit_series = imbalance_df['deltaphit']
+    reco_costheta_lr_series = imbalance_df['costheta_lr']
+    reco_costheta_mu_sum_series = imbalance_df['costheta_mu_sum']
+    reco_e_cal_series = imbalance_df['e_cal']
+    reco_pn_series = imbalance_df['pn']
+    reco_phi_3d_series = imbalance_df['phi_3d']
+    reco_alpha_3d_series = imbalance_df['alpha_3d']  
     
     # ######## (8) - output data frame
     if pandora_df.empty:
@@ -95,9 +101,15 @@ def make_cc2pdf(f):
         codes=[[], []],
         names=['entry', 'rec.slc..index']
         )
-        #reco_deltapt_series = pd.Series(dtype='float', name='reco_deltapt', index=empty_index)
-    #else:
-        #reco_deltapt_series = pandora_df.groupby(['entry', 'rec.slc..index']).apply(measure_reco_deltapt)
+        reco_deltapt_series = pd.Series(dtype='float', name='reco_deltapt', index=empty_index)
+        reco_deltaalphat_series = pd.Series(dtype='float', name='reco_deltaalphat', index=empty_index)
+        reco_deltaphit_series = pd.Series(dtype='float', name='reco_deltaphit', index=empty_index)
+        reco_costheta_lr_series = pd.Series(dtype='float', name='reco_costheta_lr', index=empty_index)
+        reco_costheta_mu_sum_series = pd.Series(dtype='float', name='reco_costheta_mu_sum', index=empty_index)
+        reco_e_cal_series = pd.Series(dtype='float', name='reco_e_cal', index=empty_index)
+        reco_pn_series = pd.Series(dtype='float', name='reco_pn', index=empty_index)
+        reco_phi_3d_series = pd.Series(dtype='float', name='reco_phi_3d', index=empty_index)
+        reco_alpha_3d_series = pd.Series(dtype='float', name='reco_alpha_3d', index=empty_index)                             
 
     ######## (8) - c: slc.tmatch.idx for truth matching
     tmatch_idx_series = pandora_df.slc.tmatch.idx
@@ -111,8 +123,16 @@ def make_cc2pdf(f):
         'cos_theta_mu': cos_theta_mu_series,
         'cos_theta_lead_proton': cos_theta_lead_proton_series,    
         'cos_theta_rec_proton': cos_theta_rec_proton_series,            
-        'tmatch_idx': tmatch_idx_series#,
-        #'reco_deltapt': reco_deltapt_series
+        'tmatch_idx': tmatch_idx_series,
+        'reco_deltapt': reco_deltapt_series,
+        'reco_deltaalphat': reco_deltaalphat_series,
+        'reco_deltaphit': reco_deltaphit_series,
+        'reco_costheta_lr': reco_costheta_lr_series,
+        'reco_costheta_mu_sum': reco_costheta_mu_sum_series,
+        'reco_e_cal': reco_e_cal_series,
+        'reco_pn': reco_pn_series,
+        'reco_phi_3d': reco_phi_3d_series,
+        'reco_alpha_3d': reco_alpha_3d_series        
     })
 
     return slcdf

@@ -136,35 +136,130 @@ def get_n_recopid_per_slc(df):
 def add_contained_col(df):
     contained = InFV(df.pfp.trk.start) & InFV(df.pfp.trk.end)
     df[('pfp', 'contained', '', '', '', '')] = contained
-    
-def reco_deltapt(muon_dir_x, muon_dir_y, muon_dir_z, range_P_muon, 
-                 proton_dir_x, proton_dir_y, proton_dir_z, range_P_proton):
 
-    # # -- each term
-    px_sq = np.power(muon_dir_x * range_P_muon + proton_dir_x * range_P_proton, 2.)
-    py_sq = np.power(muon_dir_y * range_P_muon + proton_dir_y * range_P_proton, 2.)
+def reco_imbalance(muon_dir_x, muon_dir_y, muon_dir_z, range_P_muon, 
+                 lead_proton_dir_x, lead_proton_dir_y, lead_proton_dir_z, lead_range_P_proton,
+                 rec_proton_dir_x, rec_proton_dir_y, rec_proton_dir_z, rec_range_P_proton):
+
+    # deltapt
+    deltapt_x = muon_dir_x.iloc[0] * range_P_muon.iloc[0] + lead_proton_dir_x.iloc[0] * lead_range_P_proton.iloc[0] + rec_proton_dir_x.iloc[0] * rec_range_P_proton.iloc[0]
+    px_sq = np.power(deltapt_x, 2.)
+    deltapt_y = muon_dir_y.iloc[0] * range_P_muon.iloc[0] + lead_proton_dir_y.iloc[0] * lead_range_P_proton.iloc[0] + rec_proton_dir_y.iloc[0] * rec_range_P_proton.iloc[0]
+    py_sq = np.power(deltapt_y, 2.)
     deltapt = np.sqrt(px_sq + py_sq)
-    
-    #print(deltapt)
-    return deltapt
 
-def measure_reco_deltapt(group):
+    # deltaalphat
+    muon_px = muon_dir_x.iloc[0] * range_P_muon.iloc[0]
+    muon_py = muon_dir_y.iloc[0] * range_P_muon.iloc[0]
+    muon_pz = muon_dir_z.iloc[0] * range_P_muon.iloc[0]    
+    muon_pt = np.sqrt( np.power(muon_px,2.) + np.power(muon_py,2.) ) 
+    muon_p = range_P_muon.iloc[0]
+    deltaalphat_denom = muon_pt * deltapt
+    deltaalphat_num = - ( muon_px * deltapt_x + muon_py * deltapt_y ) 
+    deltaalphat = np.arccos( deltaalphat_num / deltaalphat_denom) * 180./np.pi
+    
+    #deltaphit
+    lead_proton_x = lead_proton_dir_x.iloc[0] * lead_range_P_proton.iloc[0] 
+    rec_proton_x = rec_proton_dir_x.iloc[0] * rec_range_P_proton.iloc[0]     
+    proton_px = lead_proton_x + rec_proton_x
+    
+    lead_proton_y = lead_proton_dir_y.iloc[0] * lead_range_P_proton.iloc[0] 
+    rec_proton_y = rec_proton_dir_y.iloc[0] * rec_range_P_proton.iloc[0]     
+    proton_py = lead_proton_y + rec_proton_y
+    
+    lead_proton_z = lead_proton_dir_z.iloc[0] * lead_range_P_proton.iloc[0] 
+    rec_proton_z = rec_proton_dir_z.iloc[0] * rec_range_P_proton.iloc[0]    
+    proton_pz = lead_proton_z + rec_proton_z    
+
+    proton_pt = np.sqrt( np.power(proton_px,2.) + np.power(proton_py,2.) )   
+    proton_p = np.sqrt( np.power(proton_px,2.) + np.power(proton_py,2.) + np.power(proton_pz,2.) )      
+    lead_proton_p = np.sqrt( np.power(lead_proton_x,2.) + np.power(lead_proton_y,2.) + np.power(lead_proton_z,2.) )
+    rec_proton_p = np.sqrt( np.power(rec_proton_x,2.) + np.power(rec_proton_y,2.) + np.power(rec_proton_z,2.) )
+      
+    deltaphit_denom = muon_pt * proton_pt
+    deltaphit_num = - ( muon_px * proton_px + muon_py * proton_py )
+    deltaphit = np.arccos(deltaphit_num / deltaphit_denom) * 180./np.pi
+    
+    # cos(theta_LR)
+    costheta_lr_num = lead_proton_x * rec_proton_x + lead_proton_y * rec_proton_y + lead_proton_z * rec_proton_z
+    costheta_lr_denom = lead_range_P_proton.iloc[0] * rec_range_P_proton.iloc[0]
+    costheta_lr = costheta_lr_num / costheta_lr_denom
+    
+    # costheta_mu_sum
+    costheta_mu_sum_num = muon_px * proton_px + muon_py * proton_py + muon_pz * proton_pz
+    costheta_mu_sum_denom = muon_p * proton_p
+    costheta_mu_sum = costheta_mu_sum_num / costheta_mu_sum_denom
+        
+    #e_cal
+    e_mu = np.sqrt( np.power(muon_p,2.) + np.power(0.105,2) )
+    e_lead_p = np.sqrt( np.power(lead_proton_p,2.) + np.power(0.938272,2) )
+    ke_lead_p = e_lead_p - 0.938272
+    e_rec_p = np.sqrt( np.power(rec_proton_p,2.) + np.power(0.938272,2) )
+    ke_rec_p = e_rec_p - 0.938272    
+    e_cal = e_mu + ke_lead_p + ke_rec_p + 0.0309 # https://link.springer.com/article/10.1140/epjc/s10052-019-6750-3
+    
+    #p_l
+    p_l = muon_pz + proton_pz - e_cal
+    
+    #pn
+    pn = np.sqrt( np.power(p_l,2.) + np.power(deltapt,2.) )
+    pn_x = deltapt_x
+    pn_y = deltapt_y
+    pn_z = p_l
+    
+    # q (energy transfer)
+    q_x = - muon_px
+    q_y = - muon_py
+    q_z = - muon_pz + e_cal
+    q = np.sqrt( np.power(q_x,2.) + np.power(q_y,2.) + np.power(q_z,2.) )
+    
+    # phi_3d
+    phi_3d_num = q_x * proton_px + q_y * proton_py + q_z * proton_pz
+    phi_3d_denom = q * proton_p
+    phi_3d = np.arccos(phi_3d_num / phi_3d_denom) * 180./np.pi
+    
+    #alpha_3d
+    alpha_3d_num = q_x * pn_x + q_y * pn_y + q_z * pn_z
+    alpha_3d_denom = q * pn
+    alpha_3d = np.arccos(alpha_3d_num / alpha_3d_denom) * 180./np.pi
+    
+    print("hello")
+    
+    return pd.Series({
+                    'deltapt': deltapt,
+                    'deltaalphat': deltaalphat,
+                    'deltaphit': deltaphit,
+                    'costheta_lr':costheta_lr,
+                    'costheta_mu_sum':costheta_mu_sum,
+                    'e_cal': e_cal,
+                    'pn':pn,
+                    'phi_3d': phi_3d,
+                    'alpha_3d': alpha_3d         
+                    })
+
+def measure_reco_imbalance(group):
     
     muons = group[group.pfp.trk.reco_pid == 13]
     protons = group[group.pfp.trk.reco_pid == 2212]    
+    
+    lead_protons = protons.sort_values(by=("pfp", "trk", "len", "", "", ""), ascending=False).groupby(level=[0,1]).nth(0)
+    rec_protons = protons.sort_values(by=("pfp", "trk", "len", "", "", ""), ascending=False).groupby(level=[0,1]).nth(1)    
     
     muon_dir_x = muons[('pfp', 'trk', 'dir', 'x', '', '')]
     muon_dir_y = muons[('pfp', 'trk', 'dir', 'y', '', '')]
     muon_dir_z = muons[('pfp', 'trk', 'dir', 'z', '', '')]
     muon_range = muons[('pfp', 'trk', 'rangeP', 'p_muon', '', '')]
     
-    proton_dir_x = protons[('pfp', 'trk', 'dir', 'x', '', '')]
-    proton_dir_y = protons[('pfp', 'trk', 'dir', 'y', '', '')]
-    proton_dir_z = protons[('pfp', 'trk', 'dir', 'z', '', '')]
-    proton_range = protons[('pfp', 'trk', 'rangeP', 'p_proton', '', '')]    
+    lead_proton_dir_x = lead_protons[('pfp', 'trk', 'dir', 'x', '', '')]
+    lead_proton_dir_y = lead_protons[('pfp', 'trk', 'dir', 'y', '', '')]
+    lead_proton_dir_z = lead_protons[('pfp', 'trk', 'dir', 'z', '', '')]
+    lead_proton_range = lead_protons[('pfp', 'trk', 'rangeP', 'p_proton', '', '')]
+ 
+    rec_proton_dir_x = rec_protons[('pfp', 'trk', 'dir', 'x', '', '')]
+    rec_proton_dir_y = rec_protons[('pfp', 'trk', 'dir', 'y', '', '')]
+    rec_proton_dir_z = rec_protons[('pfp', 'trk', 'dir', 'z', '', '')]
+    rec_proton_range = rec_protons[('pfp', 'trk', 'rangeP', 'p_proton', '', '')]        
     
-    range_P_muon = group[('pfp', 'trk', 'rangeP', 'p_muon', '', '')]
-    range_P_proton = group[('pfp', 'trk', 'rangeP', 'p_proton', '', '')]
-
-    # Call reco_deltapt function
-    return reco_deltapt(muon_dir_x, muon_dir_y, muon_dir_z, muon_range, proton_dir_x, proton_dir_y, proton_dir_z, proton_range)  
+    return reco_imbalance(muon_dir_x, muon_dir_y, muon_dir_z, muon_range, 
+                        lead_proton_dir_x, lead_proton_dir_y, lead_proton_dir_z, lead_proton_range,
+                        rec_proton_dir_x, rec_proton_dir_y, rec_proton_dir_z, rec_proton_range)  
