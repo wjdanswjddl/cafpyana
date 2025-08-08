@@ -52,7 +52,10 @@ def make_potdf_numi(f):
 def make_mcnuwgtdf(f):
     return make_mcnudf(f, include_weights=True, multisim_nuniv=1000)
 
-def make_mcnudf(f, include_weights=False, multisim_nuniv=250):
+def make_mcnuwgtdf_slim(f):
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000, slim=True)
+
+def make_mcnudf(f, include_weights=False, multisim_nuniv=250, wgt_types=["bnb","genie"], slim=False):
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
@@ -63,13 +66,22 @@ def make_mcnudf(f, include_weights=False, multisim_nuniv=250):
     mcdf = make_mcdf(f)
     mcdf["ind"] = mcdf.index.get_level_values(1)
     if include_weights:
-        if det == "ICARUS":
-            wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
-        elif det == "SBND":
-            # geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
-            # bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind)
-            wgtdf = pd.concat([bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv), geniesyst.geniesyst_sbnd(f, mcdf.ind)], axis=1)
-        mcdf = multicol_concat(mcdf, wgtdf)
+        if len(wgt_types) == 0:
+            print("include_weights is set to True, pass at least one type of wgt to save")
+
+        else:
+            if det == "ICARUS":
+                wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
+            elif det == "SBND":
+                df_list = []
+                if "bnb" in wgt_types:
+                    bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
+                    df_list.append(bnbwgtdf)
+                if "genie" in wgt_types:
+                    geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
+                    df_list.append(geniewgtdf)
+                wgtdf = pd.concat(df_list, axis=1)
+            mcdf = multicol_concat(mcdf, wgtdf)
     return mcdf
 
 def make_mchdf(f, include_weights=False):
