@@ -44,7 +44,7 @@ def Signal(df): # definition
     is_fv = InFV(df.position)
     is_numu = (df.pdg == 14)
     is_cc = (df.iscc == 1)
-    is_2p0pi = (df.nmu_40MeV == 1) & (df.npi_30MeV == 0) & (df.np_50MeV == 2) & (df.npi0 == 0)
+    is_2p0pi = (df.nmu_27MeV == 1) & (df.npi_30MeV == 0) & (df.np_50MeV == 2) & (df.npi0 == 0)
     return is_fv & is_numu & is_cc & is_2p0pi
 
 ## -- reco level flags
@@ -222,9 +222,7 @@ def reco_imbalance(muon_dir_x, muon_dir_y, muon_dir_z, range_P_muon,
     alpha_3d_num = q_x * pn_x + q_y * pn_y + q_z * pn_z
     alpha_3d_denom = q * pn
     alpha_3d = np.arccos(alpha_3d_num / alpha_3d_denom) * 180./np.pi
-    
-    print("hello")
-    
+        
     return pd.Series({
                     'deltapt': deltapt,
                     'deltaalphat': deltaalphat,
