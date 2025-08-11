@@ -12,4 +12,5 @@ ytick.labelsize : 14
 xtick.direction: in
 ytick.direction: in
 
+grid.linestyle: "--"
 

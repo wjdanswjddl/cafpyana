@@ -1,14 +1,20 @@
-# cafpyana
+# Covariance Analysis Script - Python Conversion
 
-A set of scripts for analyzing SBN CAF files with the python.
-Goal is to provide an easy starting point for SBN analysis to everyone.
-For more details and instructions, please check [wiki](https://github.com/sungbinoh/cafpyana/wiki).
+This is a Python conversion of the original C++ covariance analysis script for systematic uncertainty calculations in particle physics analysis.
 
-## Releases
+## Key Changes from C++ to Python
 
-Please check tags for releases!
+### 1. **Modern Python Libraries**
+- **numpy**: For efficient array operations and matrix calculations
+- **matplotlib**: For plotting covariance matrices and histograms
+- **uproot**: For reading ROOT files (replaces ROOT C++ libraries)
+- **pathlib**: For cross-platform path handling
 
-## Version compatibility
+### 2. **Simplified Structure**
+- Consolidated constants into a `Constants` class
+- Streamlined function signatures with type hints
+- Removed verbose ROOT-specific code while maintaining functionality
+- Used Python's built-in features for cleaner code
 
 Current `main` branch is based on python v3.9.15.
 It is for running the repository without any issue at gpvm servers with the `spack`.
