@@ -1,13 +1,10 @@
 from pyanalib.pandas_helpers import *
+from pyanalib.variable_calculator import *
 from makedf.util import *
 import pandas as pd
 import numpy as np
 from makedf.makedf import *
-
-PROTON_MASS = 0.938272
-NEUTRON_MASS = 0.939565
-MUON_MASS = 0.105658
-PION_MASS = 0.139570
+from makedf.constants import *
 
 def make_spine_evtdf(f):
     # load slices and particles
@@ -60,7 +57,7 @@ def make_pandora_evtdf_wgt(f, include_weights=True, multisim_nuniv=1000, wgt_typ
     return df
 
 
-def make_pandora_evtdf(f, include_weights=False, multisim_nuniv=250, wgt_types=["bnb","genie"], slim=False, 
+def make_pandora_evtdf(f, include_weights=True, multisim_nuniv=1000, wgt_types=["bnb","genie"], slim=True, 
                        trkScoreCut=False, trkDistCut=10., cutClearCosmic=True, **trkArgs):
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
@@ -68,6 +65,8 @@ def make_pandora_evtdf(f, include_weights=False, multisim_nuniv=250, wgt_types=[
         DETECTOR = "SBND"
     else:
         DETECTOR = "ICARUS"
+
+    assert DETECTOR == "SBND"
     
     mcdf = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim)
     trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
@@ -106,12 +105,18 @@ def make_pandora_evtdf(f, include_weights=False, multisim_nuniv=250, wgt_types=[
     trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "P", "p_proton", "", "")] = trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "mcsP", "fwdP_proton", "", "")]
 
     # opening angles
-    trkdf[("pfp", "trk", "cos", "x", "", "")] = np.nan
-    trkdf[("pfp", "trk", "cos", "x", "", "")] = (trkdf.pfp.trk.end.x-trkdf.pfp.trk.start.x)/trkdf.pfp.trk.len
-    trkdf[("pfp", "trk", "cos", "y", "", "")] = np.nan
-    trkdf[("pfp", "trk", "cos", "y", "", "")] = (trkdf.pfp.trk.end.y-trkdf.pfp.trk.start.y)/trkdf.pfp.trk.len
-    trkdf[("pfp", "trk", "cos", "z", "", "")] = np.nan
-    trkdf[("pfp", "trk", "cos", "z", "", "")] = (trkdf.pfp.trk.end.z-trkdf.pfp.trk.start.z)/trkdf.pfp.trk.len
+    trkdf[("pfp", "trk", "dir", "x", "", "")] = np.nan
+    trkdf[("pfp", "trk", "dir", "x", "", "")] = (trkdf.pfp.trk.end.x-trkdf.pfp.trk.start.x)/trkdf.pfp.trk.len
+    trkdf[("pfp", "trk", "dir", "y", "", "")] = np.nan
+    trkdf[("pfp", "trk", "dir", "y", "", "")] = (trkdf.pfp.trk.end.y-trkdf.pfp.trk.start.y)/trkdf.pfp.trk.len
+    trkdf[("pfp", "trk", "dir", "z", "", "")] = np.nan
+    trkdf[("pfp", "trk", "dir", "z", "", "")] = (trkdf.pfp.trk.end.z-trkdf.pfp.trk.start.z)/trkdf.pfp.trk.len
+
+    # truth
+    trkdf.loc[:, ("pfp","trk","truth","p","totp","")] = np.sqrt(trkdf.pfp.trk.truth.p.genp.x**2 + trkdf.pfp.trk.truth.p.genp.y**2 + trkdf.pfp.trk.truth.p.genp.z**2)
+    trkdf.loc[:, ("pfp","trk","truth","p","dir","x")] = trkdf.pfp.trk.truth.p.genp.x/trkdf.pfp.trk.truth.p.totp
+    trkdf.loc[:, ("pfp","trk","truth","p","dir","y")] = trkdf.pfp.trk.truth.p.genp.y/trkdf.pfp.trk.truth.p.totp
+    trkdf.loc[:, ("pfp","trk","truth","p","dir","z")] = trkdf.pfp.trk.truth.p.genp.z/trkdf.pfp.trk.truth.p.totp
 
     # ----- loose PID for candidates ----
     trkdf[("pfp", "trk", "chi2pid", "I2", "mu_over_p", "")] = np.nan
@@ -131,60 +136,6 @@ def make_pandora_evtdf(f, include_weights=False, multisim_nuniv=250, wgt_types=[
     pdf.columns = pd.MultiIndex.from_tuples([tuple(["p"] + list(c)) for c in pdf.columns])
     slcdf = multicol_merge(slcdf, pdf.droplevel(-1), left_index=True, right_index=True, how="left", validate="one_to_one")
     idx_p = pdf.index
-
-    # calculated and save transverse kinematic variables
-    mudf = slcdf.mu.pfp.trk
-    pdf = slcdf.p.pfp.trk
-
-    # Caculate transverse kinematics
-    MASS_A = 22*NEUTRON_MASS + 18*PROTON_MASS - 0.34381
-    BE = 0.0295
-    MASS_Ap = MASS_A - NEUTRON_MASS + BE
-
-    mu_p = mudf.P.p_muon
-    mu_p_x = mu_p * mudf.cos.x
-    mu_p_y = mu_p * mudf.cos.y
-    mu_p_z = mu_p * mudf.cos.z
-    mu_phi_x = mu_p_x/mag2d(mu_p_x, mu_p_y)
-    mu_phi_y = mu_p_y/mag2d(mu_p_x, mu_p_y)
-
-    p_p = pdf.P.p_proton
-    p_p_x = p_p * pdf.cos.x
-    p_p_y = p_p * pdf.cos.y
-    p_p_z = p_p * pdf.cos.z
-    p_phi_x = p_p_x/mag2d(p_p_x, p_p_y)
-    p_phi_y = p_p_y/mag2d(p_p_x, p_p_y)
-
-    mu_Tp_x = mu_phi_y*mu_p_x - mu_phi_x*mu_p_y
-    mu_Tp_y = mu_phi_x*mu_p_x - mu_phi_y*mu_p_y
-    mu_Tp = mag2d(mu_Tp_x, mu_Tp_y)
-
-    p_Tp_x = mu_phi_y*p_p_x - mu_phi_x*p_p_y
-    p_Tp_y = mu_phi_x*p_p_x - mu_phi_y*p_p_y
-    p_Tp = mag2d(p_Tp_x, p_Tp_y)
-
-    del_Tp_x = mu_Tp_x + p_Tp_x
-    del_Tp_y = mu_Tp_y + p_Tp_y
-    del_Tp = mag2d(del_Tp_x, del_Tp_y)
-
-    del_alpha = np.arccos(-(mu_Tp_x*del_Tp_x + mu_Tp_y*del_Tp_y)/(mu_Tp*del_Tp))
-    del_phi = np.arccos(-(mu_Tp_x*p_Tp_x + mu_Tp_y*p_Tp_y)/(mu_Tp*p_Tp))
-
-    mu_E = mag2d(mu_p, MUON_MASS)
-    p_E = mag2d(p_p, PROTON_MASS)
-
-    R = MASS_A + mu_p_z + p_p_z - mu_E - p_E
-    del_Lp = 0.5*R - mag2d(MASS_Ap, del_Tp)**2/(2*R)
-    del_p = mag2d(del_Tp, del_Lp)
-
-    del_alpha = del_alpha.rename("del_alpha")
-    slcdf = multicol_add(slcdf, del_alpha)
-    del_phi = del_phi.rename("del_phi")
-    slcdf = multicol_add(slcdf, del_phi)
-    del_Tp = del_Tp.rename("del_Tp")
-    slcdf = multicol_add(slcdf, del_Tp)
-    del_p = del_p.rename("del_p")
-    slcdf = multicol_add(slcdf, del_p)
     
     # note if there are any other track/showers
     idx_not_mu_p = idx_not_mu.difference(idx_p)
@@ -197,15 +148,52 @@ def make_pandora_evtdf(f, include_weights=False, multisim_nuniv=250, wgt_types=[
     othertrkdf = otherdf[otherdf.pfp.trackScore > 0.5]
     other_trk_length = othertrkdf.pfp.trk.len.groupby(level=[0,1]).max().rename("other_trk_length")
     slcdf = multicol_add(slcdf, other_trk_length)
- 
+
+    # calculate and save transverse kinematic variables for reco slices
+    slc_mudf = slcdf.mu.pfp.trk
+    slc_pdf = slcdf.p.pfp.trk
+    slc_P_mu_col = pad_column_name(("P", "p_muon"), slc_mudf)
+    slc_P_p_col = pad_column_name(("P", "p_proton"), slc_pdf)
+    tki_reco = get_tki(slc_mudf, slc_pdf, slc_P_mu_col, slc_P_p_col)
+
+    slcdf = multicol_add(slcdf, tki_reco["del_alpha"].rename("del_alpha"))
+    slcdf = multicol_add(slcdf, tki_reco["del_phi"].rename("del_phi"))
+    slcdf = multicol_add(slcdf, tki_reco["del_Tp"].rename("del_Tp"))
+    slcdf = multicol_add(slcdf, tki_reco["del_p"].rename("del_p"))
+
+    # calculate and save transverse kinematic variables for MC
+    mc_mudf = mcdf.mu
+    mc_pdf = mcdf.p
+    mc_P_mu_col = pad_column_name(("totp",), mc_mudf)
+    mc_P_p_col = pad_column_name(("totp",), mc_pdf)
+    tki_mc = get_tki(mc_mudf, mc_pdf, mc_P_mu_col, mc_P_p_col)
+
+    mcdf = multicol_add(mcdf, tki_mc["del_alpha"].rename("mc_del_alpha"))
+    mcdf = multicol_add(mcdf, tki_mc["del_phi"].rename("mc_del_phi"))
+    mcdf = multicol_add(mcdf, tki_mc["del_Tp"].rename("mc_del_Tp"))
+    mcdf = multicol_add(mcdf, tki_mc["del_p"].rename("mc_del_p"))
+
+    # ----- apply cuts for lightweight df -----
+    # vertex in FV
+    slcdf = slcdf[InFV(slcdf.slc.vertex, 0, det=DETECTOR)]
+
+    # neutrino cuts
+    slcdf = slcdf[slcdf.slc.nu_score > 0.5]
+
+    # require both muon and proton to be present
+    mask = (~np.isnan(slcdf.mu.pfp.trk.P.p_muon)) & (~np.isnan(slcdf.p.pfp.trk.P.p_proton))
+    # mask = mask.reindex(slcdf.index, fill_value=False)
+    slcdf = slcdf[mask]
+
     # ---- truth match ----
     bad_tmatch = np.invert(slcdf.slc.tmatch.eff > 0.5) & (slcdf.slc.tmatch.idx >= 0)
     slcdf.loc[bad_tmatch, ("slc","tmatch","idx", "", "", "", "")] = np.nan
 
     mcdf.columns = pd.MultiIndex.from_tuples([tuple(list(c) +["", "", "", "", ""]) for c in mcdf.columns])     # match # of column levels
 
-    # require both muon and proton to be present
-    slcdf = slcdf[~np.isnan(mudf.P.p_muon) & ~np.isnan(pdf.P.p_muon)]
+    # neutrino cuts
+    slcdf = slcdf[InFV(slcdf.slc.vertex, 0, det=DETECTOR)]
+    slcdf = slcdf[slcdf.slc.nu_score > 0.5]
 
     df = multicol_merge(slcdf.reset_index(), 
                   mcdf.reset_index(),
