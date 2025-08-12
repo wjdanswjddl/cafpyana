@@ -53,7 +53,7 @@ def InFV(df, inzback, inx=10, iny=10, inzfront=10, det="ICARUS"):
         zmin = 10
         xmax = 190
         ymax =  190
-        zmax =  500.
+        zmax =  450.
         return (df.x > xmin) & (df.x < xmax) & (df.y > ymin) & (df.y < ymax) & (df.z > zmin) & (df.z < zmax)
     
     else:

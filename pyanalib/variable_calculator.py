@@ -3,9 +3,29 @@ import pandas as pd
 from makedf.util import *
 from makedf.constants import *
 
-def get_tki(mudf, pdf, P_mu_col, P_p_col):
+def get_cc1p0pi_tki(mudf, pdf, P_mu_col, P_p_col):
+    """
+    Calculate TKI variables for numu CC 1p0pi selected events
 
-    # Caculate transverse kinematics
+    Inputs:
+    - mudf : pandas df with muon information. Must contain P_mu_col and dir
+    - pdf : pandas df with leading-proton information. Must contain P_p_col and dir
+    - P_mu_col : tuple of str -- column name in mudf that holds the absolute muon momentum.
+    - P_p_col : tuple of str -- column name in pdf that holds the absolute proton momentum.
+
+    Returns: 
+    - A dictionary with one entry per TKI observable:
+       - del_alpha: angle between transverse momentum of muon and transverse momentum imbalance
+       - del_phi:   angle between transverse momentum of muon and transverse momentum of proton
+       - del_Tp:    magnitude of the transverse momentum imbalance
+       - del_p:     magnitude of the 3D imbalance
+
+    Notes
+    -----
+    - The masses and nuclear constants (MUON_MASS, PROTON_MASS, MASS_A, MASS_Ap) are imported from makedf.constants
+
+    """
+
     mu_p = mudf[P_mu_col]
     mu_p_x = mu_p * mudf["dir"]["x"]
     mu_p_y = mu_p * mudf["dir"]["y"]
