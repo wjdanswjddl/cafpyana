@@ -18,7 +18,7 @@ regen_systematics = [
     'piplus_Flux'
 ]
 
-def bnbsyst(f, nuind, multisim_nuniv=250):
+def bnbsyst(f, nuind, multisim_nuniv=250, slim=False):
     bnbwgtdf = getsyst.getsyst(f, regen_systematics, nuind, multisim_nuniv=multisim_nuniv)
 
     # multiply all knobs and save to "Flux.univ_"
@@ -34,5 +34,9 @@ def bnbsyst(f, nuind, multisim_nuniv=250):
     for syst in regen_systematics:
         flux_wgt *= bnbwgtdf[syst].to_numpy()
     bnbwgtdf = pd.concat([bnbwgtdf, flux_wgt], axis=1)
+
+    if slim:  # keep only the multiplied "Flux.univ_" columns
+        bnbwgtdf = bnbwgtdf[flux_cols]
+        
     return bnbwgtdf
 

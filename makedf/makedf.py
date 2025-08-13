@@ -31,6 +31,7 @@ TRUE_KE_THRESHOLDS = {"nmu_27MeV": ["muon", 0.027],
                       "np_50MeV": ["proton", 0.05],
                       "npi_30MeV": ["pipm", 0.03],
                       "nn_0MeV": ["neutron", 0.0]
+                      "nkaon_50MeV": ["kaon_p",0.05]
                       }
 
 def make_hdrdf(f):
@@ -52,7 +53,10 @@ def make_potdf_numi(f):
 def make_mcnuwgtdf(f):
     return make_mcnudf(f, include_weights=True, multisim_nuniv=1000)
 
-def make_mcnudf(f, include_weights=False, multisim_nuniv=250):
+def make_mcnuwgtdf_slim(f):
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000, slim=True)
+
+def make_mcnudf(f, include_weights=False, multisim_nuniv=250, wgt_types=["bnb","genie"], slim=False):
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
@@ -63,13 +67,22 @@ def make_mcnudf(f, include_weights=False, multisim_nuniv=250):
     mcdf = make_mcdf(f)
     mcdf["ind"] = mcdf.index.get_level_values(1)
     if include_weights:
-        if det == "ICARUS":
-            wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
-        elif det == "SBND":
-            # geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
-            # bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind)
-            wgtdf = pd.concat([bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv), geniesyst.geniesyst_sbnd(f, mcdf.ind)], axis=1)
-        mcdf = multicol_concat(mcdf, wgtdf)
+        if len(wgt_types) == 0:
+            print("include_weights is set to True, pass at least one type of wgt to save")
+
+        else:
+            if det == "ICARUS":
+                wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
+            elif det == "SBND":
+                df_list = []
+                if "bnb" in wgt_types:
+                    bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
+                    df_list.append(bnbwgtdf)
+                if "genie" in wgt_types:
+                    geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
+                    df_list.append(geniewgtdf)
+                wgtdf = pd.concat(df_list, axis=1)
+            mcdf = multicol_concat(mcdf, wgtdf)
     return mcdf
 
 def make_mchdf(f, include_weights=False):
@@ -181,6 +194,18 @@ def make_mcdf(f, branches=mcbranches, primbranches=mcprimbranches):
     mcdf = multicol_merge(mcdf, cpidf, left_index=True, right_index=True, how="left", validate="one_to_one")
     mcdf = multicol_merge(mcdf, pdf, left_index=True, right_index=True, how="left", validate="one_to_one")
 
+    # primary track variables
+    mcdf.loc[:, ('mu','totp','')] = np.sqrt(mcdf.mu.genp.x**2 + mcdf.mu.genp.y**2 + mcdf.mu.genp.z**2)
+    mcdf.loc[:, ('p','totp','')] = np.sqrt(mcdf.p.genp.x**2 + mcdf.p.genp.y**2 + mcdf.p.genp.z**2)
+
+    # opening angles
+    mcdf.loc[:, ('mu','dir','x')] = mcdf.mu.genp.x/mcdf.mu.totp
+    mcdf.loc[:, ('mu','dir','y')] = mcdf.mu.genp.y/mcdf.mu.totp
+    mcdf.loc[:, ('mu','dir','z')] = mcdf.mu.genp.z/mcdf.mu.totp
+    mcdf.loc[:, ('p','dir','x')] = mcdf.p.genp.x/mcdf.p.totp
+    mcdf.loc[:, ('p','dir','y')] = mcdf.p.genp.y/mcdf.p.totp
+    mcdf.loc[:, ('p','dir','z')] = mcdf.p.genp.z/mcdf.p.totp
+
     return mcdf
 
 def make_mcprimdf(f):
@@ -257,6 +282,7 @@ def make_stubs(f, det="ICARUS"):
         alpha = MODA_mc
         return np.log(alpha + dEdx*beta) / (Wion*beta)
     def dEdx2dQdx_data(dEdx): # data parameters
+        
         if det == "SBND":
             return np.log(alpha_sbnd + dEdx*beta_sbnd) / (Wion*beta_sbnd)
         beta = MODB_data / (LAr_density_gmL_data * Efield_data)
