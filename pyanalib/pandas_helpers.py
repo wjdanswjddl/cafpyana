@@ -170,4 +170,16 @@ def loadbranches(tree, branches, **uprargs):
 
     return df
 
+def pad_column_name(col, pad_ref): # TODO: merge with the above "pad" function
+    if isinstance(pad_ref, pd.DataFrame):
+        nlevels = pad_ref.columns.nlevels
+    elif isinstance(pad_ref, int):
+        nlevels = pad_ref
+    else:
+        raise ValueError("pad_ref must be a pandas DataFrame or an integer")
+    ndummies = nlevels - len(col)
+    extended_name = col + ("",) * ndummies
+    return extended_name
+
+
 

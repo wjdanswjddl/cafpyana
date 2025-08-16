@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import awkward as ak
 
-def getsyst(f, systematics, nuind):
+def getsyst(f, systematics, nuind, multisim_nuniv=250):
     if "globalTree" not in f:
         return pd.DataFrame(index=nuind.index)
 
@@ -52,7 +52,7 @@ def getsyst(f, systematics, nuind):
                 this_systs.append(pd.Series(1, index=this_systs[-1].index, name=(s, "cv")))
 
         elif wgt_types[isyst] == 0: # multisim
-            this_wgts = wgts[wgts.isyst == isyst].wgt.groupby(level=[0,1]).head(250) # limit to 250 universes
+            this_wgts = wgts[wgts.isyst == isyst].wgt.groupby(level=[0,1]).head(multisim_nuniv) # limit to 250 universes
             this_wgts = this_wgts.reset_index(level=2)
             this_wgts = this_wgts.pivot_table(values="wgt", index=["entry", "inu"], columns="iwgt")
             this_wgts.columns = pd.MultiIndex.from_tuples([(s, "univ_%i"% i) for i in range(len(this_wgts.columns))])

@@ -22,6 +22,7 @@ hdrbranches = [
     "rec.hdr.proc",
     "rec.hdr.cluster",
     "rec.hdr.fno",
+    "rec.hdr.noffbeambnb",
 
     # "rec.hdr.triggerinfo.trigger_id",
     # "rec.hdr.triggerinfo.gate_id",
@@ -32,12 +33,17 @@ hdrbranches = [
     # "rec.hdr.triggerinfo.prev_global_trigger_time",
 ]
 
-potbranches = [
+numipotbranches = [
     "rec.hdr.numiinfo.spill_time_s",
     "rec.hdr.numiinfo.spill_time_ns",
     "rec.hdr.numiinfo.TRTGTD",
     "rec.hdr.numiinfo.TORTGT",
     "rec.hdr.numiinfo.daq_gates",
+]
+
+bnbpotbranches = [
+    "rec.hdr.bnbinfo.TOR860",
+    "rec.hdr.bnbinfo.TOR875",
 ]
 
 trueparticlenames = [
@@ -162,7 +168,10 @@ slcbranches = [
     "rec.slc.tmatch.index",
     "rec.slc.producer",
     "rec.slc.nuid.crlongtrkdiry",
-    "rec.slc.nu_score"
+    "rec.slc.nu_score",
+    "rec.slc.barycenterFM.flashTime",    
+    "rec.slc.opt0.score",
+    "rec.slc.opt0.time"
 ]
 
 mcbranches = [

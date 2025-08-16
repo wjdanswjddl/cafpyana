@@ -2,7 +2,7 @@ from pyanalib.pandas_helpers import *
 from .branches import *
 from .util import *
 from .calo import *
-from . import numisyst, g4syst, geniesyst
+from . import numisyst, g4syst, geniesyst, bnbsyst
 
 PDG = {
     "muon": [13, "muon", 0.105,],
@@ -26,10 +26,11 @@ PDG = {
 ## == For additional column in mcdf with primary particle multiplicities
 ## ==== "<column name>": ["<particle name>", <KE cut in GeV>]
 ## ==== <particle name> is used to collect PID and mass from the "PDG" dictionary
-TRUE_KE_THRESHOLDS = {"nmu_40MeV": ["muon", 0.04],
+TRUE_KE_THRESHOLDS = {"nmu_27MeV": ["muon", 0.027],
                       "np_20MeV": ["proton", 0.02],
                       "np_50MeV": ["proton", 0.05],
                       "npi_30MeV": ["pipm", 0.03],
+                      "nkaon_50MeV": ["kaon_p",0.05]
                       }
 
 def make_hdrdf(f):
@@ -40,14 +41,21 @@ def make_mchdrdf(f):
     hdr = loadbranches(f["recTree"], mchdrbranches).rec.hdr
     return hdr
 
-def make_potdf(f):
-    pot = loadbranches(f["recTree"], potbranches).rec.hdr.numiinfo
+def make_potdf_bnb(f):
+    pot = loadbranches(f["recTree"], bnbpotbranches).rec.hdr.bnbinfo
+    return pot
+
+def make_potdf_numi(f):
+    pot = loadbranches(f["recTree"], numipotbranches).rec.hdr.numiinfo
     return pot
 
 def make_mcnuwgtdf(f):
-    return make_mcnudf(f, include_weights=True)
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000)
 
-def make_mcnudf(f, include_weights=False):
+def make_mcnuwgtdf_slim(f):
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000, slim=True)
+
+def make_mcnudf(f, include_weights=False, multisim_nuniv=250, wgt_types=["bnb","genie"], slim=False):
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
@@ -58,12 +66,22 @@ def make_mcnudf(f, include_weights=False):
     mcdf = make_mcdf(f)
     mcdf["ind"] = mcdf.index.get_level_values(1)
     if include_weights:
-        if det == "ICARUS":
-            wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
-        elif det == "SBND":
-            wgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
+        if len(wgt_types) == 0:
+            print("include_weights is set to True, pass at least one type of wgt to save")
 
-        mcdf = multicol_concat(mcdf, wgtdf)
+        else:
+            if det == "ICARUS":
+                wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
+            elif det == "SBND":
+                df_list = []
+                if "bnb" in wgt_types:
+                    bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
+                    df_list.append(bnbwgtdf)
+                if "genie" in wgt_types:
+                    geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
+                    df_list.append(geniewgtdf)
+                wgtdf = pd.concat(df_list, axis=1)
+            mcdf = multicol_concat(mcdf, wgtdf)
     return mcdf
 
 def make_mchdf(f, include_weights=False):
@@ -175,7 +193,23 @@ def make_mcdf(f, branches=mcbranches, primbranches=mcprimbranches):
     mcdf = multicol_merge(mcdf, cpidf, left_index=True, right_index=True, how="left", validate="one_to_one")
     mcdf = multicol_merge(mcdf, pdf, left_index=True, right_index=True, how="left", validate="one_to_one")
 
+    # primary track variables
+    mcdf.loc[:, ('mu','totp','')] = np.sqrt(mcdf.mu.genp.x**2 + mcdf.mu.genp.y**2 + mcdf.mu.genp.z**2)
+    mcdf.loc[:, ('p','totp','')] = np.sqrt(mcdf.p.genp.x**2 + mcdf.p.genp.y**2 + mcdf.p.genp.z**2)
+
+    # opening angles
+    mcdf.loc[:, ('mu','dir','x')] = mcdf.mu.genp.x/mcdf.mu.totp
+    mcdf.loc[:, ('mu','dir','y')] = mcdf.mu.genp.y/mcdf.mu.totp
+    mcdf.loc[:, ('mu','dir','z')] = mcdf.mu.genp.z/mcdf.mu.totp
+    mcdf.loc[:, ('p','dir','x')] = mcdf.p.genp.x/mcdf.p.totp
+    mcdf.loc[:, ('p','dir','y')] = mcdf.p.genp.y/mcdf.p.totp
+    mcdf.loc[:, ('p','dir','z')] = mcdf.p.genp.z/mcdf.p.totp
+
     return mcdf
+
+def make_mcprimdf(f):
+    mcprimdf = loadbranches(f["recTree"], mcprimbranches)
+    return mcprimdf
 
 def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, **trkArgs):
     # load
@@ -247,6 +281,7 @@ def make_stubs(f, det="ICARUS"):
         alpha = MODA_mc
         return np.log(alpha + dEdx*beta) / (Wion*beta)
     def dEdx2dQdx_data(dEdx): # data parameters
+        
         if det == "SBND":
             return np.log(alpha_sbnd + dEdx*beta_sbnd) / (Wion*beta_sbnd)
         beta = MODB_data / (LAr_density_gmL_data * Efield_data)

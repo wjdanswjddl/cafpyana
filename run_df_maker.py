@@ -3,12 +3,13 @@ import os,sys,time
 import datetime
 #from TimeTools import *
 import argparse
+import tables
 from pyanalib.ntuple_glob import NTupleGlob
 import pandas as pd
 import warnings
 
 warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
-# warnings.simplefilter(action='ignore', category=NaturalNameWarning)
+warnings.filterwarnings("ignore", category=tables.exceptions.NaturalNameWarning)
 
 ## Arguments
 parser = argparse.ArgumentParser(
@@ -33,22 +34,66 @@ parser.add_argument('-i', dest='inputfiles', default="", help="input root file p
 parser.add_argument('-l', dest='inputfilelist', default="", help="a file of list for input root files")
 parser.add_argument('-ngrid', dest='NGridJobs', default=0, type=int, help="Number of grid jobs. Default = 0, no grid submission.")
 parser.add_argument('-nfile', dest='NFiles', default=0, type=int, help="Number of files to run. Default = 0, run all input files.")
+parser.add_argument('-split', dest='SplitSize', default=1.0, type=float, help="Split size in GB before writing to HDF5. Default = 1.0 GB.")
+
 args = parser.parse_args()
 
 def run_pool(output, inputs):
     os.nice(10)
     ntuples = NTupleGlob(inputs, None)
 
-    dfs = ntuples.dataframes(nproc="auto", fs=DFS)
+    dfss = ntuples.dataframes(nproc="auto", fs=DFS)
     output = output + ".df"
-    with pd.HDFStore(output) as hdf:
-        for k,df in zip(reversed(NAMES), reversed(dfs)): # go in reverse order so we can delete along the way
-            try:
-                hdf.put(key=k, value=df, format="fixed")
-            except Exception as e:
-                print("Table %s failed to save, skipping. Exception: %s" % (k, str(e)))
+    k_idx = 0
+    split_margin = args.SplitSize
+    with pd.HDFStore(output) as hdf_pd:
+        size_counters = {k: 0 for k in NAMES}
+        df_buffers = {k: [] for k in NAMES}
 
-            del df
+        for dfs in dfss:
+            for k, df in zip(reversed(NAMES), reversed(dfs)):
+                this_key = k + "_" + str(k_idx)
+                size_bytes = df.memory_usage(deep=True).sum()
+                size_gb = size_bytes / (1024**3)
+                size_counters[k] += size_gb
+                df_buffers[k].append(df)  # accumulate
+
+                #print(f"{k}_{k_idx}: added {size_gb:.4f} GB (total {size_counters[k]:.4f} GB)")
+
+                del df
+
+            if any(val > split_margin for val in size_counters.values()):
+                # Concatenate and save accumulated DataFrames
+                for k, buffer in df_buffers.items():
+                    if buffer:  # only if buffer has data
+                        concat_df = pd.concat(buffer, ignore_index=False)
+                        this_key = k + "_" + str(k_idx)
+                        try:
+                            hdf_pd.put(key=this_key, value=concat_df, format="fixed")
+                            print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
+                        except Exception as e:
+                            print(f"Table {this_key} failed to save, skipping. Exception: {str(e)}")
+                        del concat_df
+                # Reset counters and buffers
+                k_idx += 1
+                size_counters = {k: 0 for k in NAMES}
+                df_buffers = {k: [] for k in NAMES}
+
+        for k, buffer in df_buffers.items():
+            if buffer:
+                concat_df = pd.concat(buffer, ignore_index=False)
+                this_key = k + "_" + str(k_idx)
+                try:
+                    hdf_pd.put(key=this_key, value=concat_df, format="fixed")
+                    print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
+                except Exception as e:
+                    print(f"Table {this_key} failed to save, skipping. Exception: {str(e)}")
+                del concat_df
+
+        # Save the split count metadata
+        split_df = pd.DataFrame({"n_split": [k_idx + 1]})  # +1 because k_idx is 0-based
+        hdf_pd.put(key="split", value=split_df, format="fixed")
+        print(f"Saved split info: {split_df.iloc[0]['n_split']} total splits")
 
 def run_grid(inputfiles):
     # 1) dir/file name style
@@ -107,14 +152,13 @@ def run_grid(inputfiles):
 
     submitCMD = '''jobsub_submit \\
 -G sbnd \\
---auth-methods="token,proxy" \\
+--auth-methods="token" \\
 -e LC_ALL=C \\
 --role=Analysis \\
 --resource-provides="usage_model=DEDICATED,OPPORTUNISTIC" \\
 --lines '+FERMIHTC_AutoRelease=True' --lines '+FERMIHTC_GraceMemory=1000' --lines '+FERMIHTC_GraceLifetime=3600' \\
 --append_condor_requirements='(TARGET.HAS_SINGULARITY=?=true)' \\
 --tar_file_name "dropbox://$(pwd)/bin_dir.tar" \\
---email-to sungbin.oh555@gmail.com \\
 -N %d \\
 --disk 100GB \\
 --expected-lifetime 10h \\
