@@ -31,7 +31,6 @@ TRUE_KE_THRESHOLDS = {"nmu_27MeV": ["muon", 0.027],
                       "np_50MeV": ["proton", 0.05],
                       "npi_30MeV": ["pipm", 0.03],
                       "nn_0MeV": ["neutron", 0.0]
-                      "nkaon_50MeV": ["kaon_p",0.05]
                       }
 
 def make_hdrdf(f):
@@ -91,6 +90,14 @@ def make_mchdf(f, include_weights=False):
         wgtdf = numisyst.numisyst(14, mcdf.E) # TODO: what PDG?
         mcdf = pd.concat([mcdf, wgtdf], axis=1)
     return mcdf
+
+def make_crtspdf(f):
+    crtspdf = loadbranches(f["recTree"], crtspbranches).rec
+    return crtspdf
+
+def make_opflashdf(f):
+    opflashdf = loadbranches(f["recTree"], opflashbranches).rec.opflashes
+    return opflashdf
 
 def make_trkdf(f, scoreCut=False, requiret0=False, requireCosmic=False, mcs=False):
     trkdf = loadbranches(f["recTree"], trkbranches + shwbranches)
