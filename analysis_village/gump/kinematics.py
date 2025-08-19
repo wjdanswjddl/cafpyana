@@ -1,4 +1,11 @@
-from util import *
+import os
+import sys
+
+# Add the head directly to sys.path
+workspace_root = os.getcwd()
+sys.path.insert(0, workspace_root + "/../../")
+
+from makedf.util import *
 
 PROTON_MASS = 0.938272
 NEUTRON_MASS = 0.939565
@@ -15,6 +22,11 @@ def neutrino_energy(mu_p, mu_dir, p_p, p_dir):
     dpT = transverse_kinematics(mu_p, mu_dir, p_p, p_dir)[0]
     ET = np.sqrt(dpT**2 + MASS_Ap**2) - MASS_Ap
     return mu_E + p_E - PROTON_MASS + ET + BE
+
+def muon_energy(mu_p, mu_dir):
+    mu_E = mag2d(mu_p, MUON_MASS)
+    return mu_E
+
 
 def transverse_kinematics(mu_p, mu_dir, p_p, p_dir):
 
@@ -56,6 +68,3 @@ def transverse_kinematics(mu_p, mu_dir, p_p, p_dir):
     del_p = mag2d(del_Tp, del_Lp)
 
     return del_p, del_Tp, del_phi, del_alpha
-
-
-

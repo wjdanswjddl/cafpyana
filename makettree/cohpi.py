@@ -7,9 +7,9 @@ import awkward as ak
 import numpy as np
 
 def make_cohpi_ttree_mc(dfname):
-    recodf = pd.read_hdf(dfname, key='cohpi')
-    hdrdf = pd.read_hdf(dfname, key='hdr')
-    mcnuwgtdf = pd.read_hdf(dfname, key='mcnu')
+    recodf = pd.read_hdf(dfname, key='cohpi_0')
+    hdrdf = pd.read_hdf(dfname, key='hdr_0')
+    mcnuwgtdf = pd.read_hdf(dfname, key='mcnu_0')
 
     ## Collect POT and scale factor to the target POT
     this_pot = sum(hdrdf.pot)
