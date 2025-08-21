@@ -13,8 +13,8 @@ import kinematics
 
 def load_data(file, start=0, stop=10000):
     """Load event, header, and mcnu data from HDF file."""
-    df_evt = pd.read_hdf(file, "evt")
-    df_hdr = pd.read_hdf(file, "hdr")
+    df_evt = pd.read_hdf(file, "evt_0")
+    df_hdr = pd.read_hdf(file, "hdr_0")
     return df_evt, df_hdr
 
 def scale_pot(df, df_hdr, desired_pot):
@@ -164,8 +164,8 @@ def apply_cuts(df_nd, df_fd, nd_POT, fd_POT, dffile_nd, dffile_fd):
 
 def main():
     """Main analysis pipeline."""
-    dffile_nd = "sbnd_test.df"
-    dffile_fd = "icarus_test.df"
+    dffile_nd = "no_cuts.df"
+    dffile_fd = "no_cuts.df"
     df_nd, df_nd_hdr = load_data(dffile_nd)
     df_fd, df_fd_hdr = load_data(dffile_fd)
     df_nd['og_sig_ct'] = len(df_nd[is_signal(df_nd, "SBND")])

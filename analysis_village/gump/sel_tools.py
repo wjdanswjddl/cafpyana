@@ -145,23 +145,23 @@ def is_cosmic(df: pd.DataFrame) -> pd.Series:
 
 def is_FV(df: pd.DataFrame, det: str) -> pd.Series:
     """Return mask for events in fiducial volume."""
-    return SelFV(df.position, det)
+    return SelFV(df.slc.vertex, det)
 
 def is_numu(df: pd.DataFrame) -> pd.Series:
     """Return mask for numu events."""
-    return (np.abs(df.pdg) == 14)
+    return (np.abs(df.slc.truth.pdg) == 14)
 
 def is_CC(df: pd.DataFrame) -> pd.Series:
     """Return mask for CC events."""
-    return (df.iscc == 1)
+    return (df.slc.truth.iscc == 1)
 
 def is_NC(df: pd.DataFrame) -> pd.Series:
     """Return mask for NC events."""
-    return (df.iscc == 0)
+    return (df.slc.truth.iscc == 0)
 
 def is_1p0pi(df: pd.DataFrame) -> pd.Series:
     """Return mask for 1mu, 1p, 0pi events."""
-    return (df.nmu_20MeV == 1) & (df.np_50MeV == 1) & (df.npi_40MeV == 0) & (df.npi0 == 0)
+    return (df.slc.truth.nmu_27MeV == 1) & (df.slc.truth.np_50MeV == 1) & (df.slc.truth.npi_30MeV == 0) & (df.slc.truth.npi0 == 0)
 
 def is_signal(df: pd.DataFrame, det: str) -> pd.Series:
     """Return mask for signal events."""
