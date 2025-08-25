@@ -1,7 +1,0 @@
-Runing Pool mode
-CPU_COUNT : 64, len(thisglob): 1, nproc: 1
-Saved cohpi_0: 0.0000 GB
-Saved hdr_0: 0.0000 GB
-Saved pot_0: 0.0000 GB
-Saved mcnu_0: 0.0026 GB
-Saved split info: 1 total splits
