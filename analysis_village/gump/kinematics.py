@@ -1,5 +1,6 @@
 import os
 import sys
+import pandas as pd
 
 # Add the head directly to sys.path
 workspace_root = os.getcwd()
@@ -19,17 +20,12 @@ def neutrino_energy(mu_p, mu_dir, p_p, p_dir):
     mu_E = mag2d(mu_p, MUON_MASS)
     p_E = mag2d(p_p, PROTON_MASS)
 
-    dpT = transverse_kinematics(mu_p, mu_dir, p_p, p_dir)[0]
+    dpT = transverse_kinematics(mu_p, mu_dir, p_p, p_dir)[1]
     ET = np.sqrt(dpT**2 + MASS_Ap**2) - MASS_Ap
+    
     return mu_E + p_E - PROTON_MASS + ET + BE
 
-def muon_energy(mu_p, mu_dir):
-    mu_E = mag2d(mu_p, MUON_MASS)
-    return mu_E
-
-
 def transverse_kinematics(mu_p, mu_dir, p_p, p_dir):
-
     mu_E = mag2d(mu_p, MUON_MASS)
     p_E = mag2d(p_p, PROTON_MASS)
 
@@ -67,4 +63,9 @@ def transverse_kinematics(mu_p, mu_dir, p_p, p_dir):
     del_Lp = 0.5*R - mag2d(MASS_Ap, del_Tp)**2/(2*R)
     del_p = mag2d(del_Tp, del_Lp)
 
-    return del_p, del_Tp, del_phi, del_alpha
+    return pd.Series({'del_p' : del_p, 
+                      'del_Tp' : del_Tp, 
+                      'del_phi' : del_phi, 
+                      'del_alpha' : del_alpha, 
+                      'mu_E' : mu_E, 
+                      'p_E' : p_E})

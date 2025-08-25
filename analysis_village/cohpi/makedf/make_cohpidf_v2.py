@@ -177,29 +177,29 @@ def make_cohpidf_v2(f):
     pandora_df = make_pandora_df(f)
     
     #### (1) FV cut
-    pandora_df = pandora_df[InFV_nohiyz(pandora_df.slc.vertex)]
+    # pandora_df = pandora_df[InFV_nohiyz(pandora_df.slc.vertex)]
 
     #### (2) Not clear cosmic cut
-    pandora_df = pandora_df[pandora_df.slc.is_clear_cosmic == 0]
+    # pandora_df = pandora_df[pandora_df.slc.is_clear_cosmic == 0]
     #pandora_df = pandora_df[pandora_df[('slc', 'is_clear_cosmic', '', '', '', '')] == 0]
     
     #### (3) Track multiplicity cut
     ######## (3) - a: keep only pfp objects with length > 4 cm and dist_to_vertex < 6 cm
-    pandora_df = pandora_df[(pandora_df.pfp.trk.len > 4.) & (pandora_df.pfp.dist_to_vertex < 6.)]
+    # pandora_df = pandora_df[(pandora_df.pfp.trk.len > 4.) & (pandora_df.pfp.dist_to_vertex < 6.)]
     ######## (3) - b: keep onlhy slices with exactly two pfp object passing the requirement
-    pandora_df = pass_slc_with_n_pfps(pandora_df)
+    # pandora_df = pass_slc_with_n_pfps(pandora_df)
 
     #### (4) The two trakcs should have track score > 0.5
-    pandora_df = pandora_df[pandora_df.pfp.trackScore > 0.5]
+    # pandora_df = pandora_df[pandora_df.pfp.trackScore > 0.5]
     pandora_df = pass_slc_with_n_pfps(pandora_df)
 
     #### (5) Tho two tracks should satisfy chi2 pid cut 
-    pandora_df = pandora_df[(pandora_df.pfp.trk.chi2pid.I2.chi2_muon < 25.) & (pandora_df.pfp.trk.chi2pid.I2.chi2_proton > 100.)]
-    pandora_df = pass_slc_with_n_pfps(pandora_df)
+    # pandora_df = pandora_df[(pandora_df.pfp.trk.chi2pid.I2.chi2_muon < 25.) & (pandora_df.pfp.trk.chi2pid.I2.chi2_proton > 100.)]
+    # pandora_df = pass_slc_with_n_pfps(pandora_df)
 
     #### (6) dir Z cut
-    pandora_df = apply_dir_z_cut(pandora_df)
-    pandora_df = pass_slc_with_n_pfps(pandora_df)
+    # pandora_df = apply_dir_z_cut(pandora_df)
+    # pandora_df = pass_slc_with_n_pfps(pandora_df)
 
     #### (6) Nuscore > 0.65 -> not applied
     #pandora_df = pandora_df[pandora_df.slc.nu_score > 0.65]
@@ -246,11 +246,15 @@ def make_cohpidf_v2(f):
     else:
         reco_t_series = pandora_df.groupby(['entry', 'rec.slc..index']).apply(measure_reco_t)
     #reco_t_series = reco_t_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)
+    print(reco_t_series)
+    print(np.shape(reco_t_series.to_numpy()))
 
     ######## (9) - c: slc.tmatch.idx for truth matching
     tmatch_idx_series = pandora_df.slc.tmatch.idx
     tmatch_idx_series = tmatch_idx_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)
     
+    print(tmatch_idx_series)
+    print(np.shape(tmatch_idx_series.to_numpy()))
     ## (10) creat a slice-based reco df
     slcdf = pd.DataFrame({
         'range_p_mu': range_p_mu_series,

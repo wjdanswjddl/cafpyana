@@ -9,7 +9,7 @@ import numpy as np
 def make_gump_ttree_mc(dfname, split):
     recodf_key = 'evt_' + str(split)
     hdrdf_key = 'hdr_' + str(split)
-    mcnuwgtdf_key = 'mcnuwgtslim_' + str(split)
+    mcnuwgtdf_key = 'mcnu_' + str(split)
 
     recodf = pd.read_hdf(dfname, key=recodf_key)
     hdrdf = pd.read_hdf(dfname, key=hdrdf_key)
@@ -21,20 +21,21 @@ def make_gump_ttree_mc(dfname, split):
     POT_scale = target_POT / this_pot
 
     ## Work for the reco df
-    # matchdf = recodf.copy()
-    # matchdf.columns = pd.MultiIndex.from_tuples([(col, '') for col in matchdf.columns])
-    # matchdf = ph.multicol_merge(matchdf.reset_index(), mcnuwgtdf.reset_index(),
-    #                            left_on=[("__ntuple", ""), ("entry", ""), ("tmatch_idx", "")],
-    #                            right_on=[("__ntuple", ""), ("entry", ""), ("rec.mc.nu..index", "")],
-    #                            how="left") ## -- save all sllices
-
+    matchdf = recodf.copy()
+    matchdf.columns = pd.MultiIndex.from_tuples([(col, '') for col in matchdf.columns])
+    matchdf = ph.multicol_merge(matchdf.reset_index(), mcnuwgtdf.reset_index(),
+                               left_on=[("__ntuple", ""), ("entry", ""), ("tmatch_idx", "")],
+                               right_on=[("__ntuple", ""), ("entry", ""), ("rec.mc.nu..index", "")],
+                               how="left") ## -- save all sllices
     wgt_columns = [c for c in list(set(mcnuwgtdf.columns.get_level_values(0)))if (c.startswith("GENIE") or c.startswith("Flux"))]
     #print(wgt_columns)
-    recodf_wgt_out = pd.DataFrame({}, index=recodf.index)
+    recodf_wgt_out = pd.DataFrame({}, index=matchdf.index)
     for col in wgt_columns:
-        recodf_wgt_out[col] = np.array([recodf[col][u].values for u in recodf[col].columns]).T.tolist()
+        recodf_wgt_out[col] = np.array([matchdf[col][u].values for u in matchdf[col].columns]).T.tolist()
 
     recodf = recodf.reset_index()
+    print("111: ",recodf)
+    print("222: ",recodf_wgt_out)
     recodf = pd.concat([recodf, recodf_wgt_out], axis = 1)
     
     ## Work for the true df
