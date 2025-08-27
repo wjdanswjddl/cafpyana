@@ -59,7 +59,6 @@ def make_pandora_evtdf_wgt(f, include_weights=True, multisim_nuniv=1000, wgt_typ
 
 def make_pandora_evtdf(f, include_weights=True, multisim_nuniv=1000, wgt_types=["bnb","genie"], slim=True, 
                        trkScoreCut=False, trkDistCut=10., cutClearCosmic=True, **trkArgs):
-
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
@@ -68,7 +67,7 @@ def make_pandora_evtdf(f, include_weights=True, multisim_nuniv=1000, wgt_types=[
         DETECTOR = "ICARUS"
 
     assert DETECTOR == "SBND"
-
+    
     mcdf = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim)
     trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
     slcdf = make_slcdf(f)
@@ -155,7 +154,7 @@ def make_pandora_evtdf(f, include_weights=True, multisim_nuniv=1000, wgt_types=[
     slc_pdf = slcdf.p.pfp.trk
     slc_P_mu_col = pad_column_name(("P", "p_muon"), slc_mudf)
     slc_P_p_col = pad_column_name(("P", "p_proton"), slc_pdf)
-    tki_reco = get_cc1p0pi_tki(slc_mudf, slc_pdf, slc_P_mu_col, slc_P_p_col)
+    tki_reco = get_tki(slc_mudf, slc_pdf, slc_P_mu_col, slc_P_p_col)
 
     slcdf = multicol_add(slcdf, tki_reco["del_alpha"].rename("del_alpha"))
     slcdf = multicol_add(slcdf, tki_reco["del_phi"].rename("del_phi"))
@@ -167,7 +166,7 @@ def make_pandora_evtdf(f, include_weights=True, multisim_nuniv=1000, wgt_types=[
     mc_pdf = mcdf.p
     mc_P_mu_col = pad_column_name(("totp",), mc_mudf)
     mc_P_p_col = pad_column_name(("totp",), mc_pdf)
-    tki_mc = get_cc1p0pi_tki(mc_mudf, mc_pdf, mc_P_mu_col, mc_P_p_col)
+    tki_mc = get_tki(mc_mudf, mc_pdf, mc_P_mu_col, mc_P_p_col)
 
     mcdf = multicol_add(mcdf, tki_mc["del_alpha"].rename("mc_del_alpha"))
     mcdf = multicol_add(mcdf, tki_mc["del_phi"].rename("mc_del_phi"))
