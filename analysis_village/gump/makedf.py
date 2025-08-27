@@ -6,6 +6,7 @@ import numpy as np
 from makedf.makedf import *
 from makedf.constants import *
 from analysis_village.gump.kinematics import *
+from analysis_village.gump.sel_tools import *
 
 def pass_slc_with_n_pfps(df, n = 2):
     group_levels = ['entry', 'rec.slc..index']
@@ -39,7 +40,6 @@ def measure_tki(group):
     range_P_proton = group[('pfp', 'trk', 'rangeP', 'p_proton', '', '')]
     mu_over_p = group[("pfp", "trk", "chi2pid", "I2", "mu_over_p", "")]
     
-    ret = transverse_kinematics(range_P_muon.iloc[0], dirs.iloc[0], range_P_proton.iloc[1], dirs.iloc[1])
     if(mu_over_p.iloc[0] < mu_over_p.iloc[1]):
         return transverse_kinematics(range_P_muon.iloc[0], dirs.iloc[0], range_P_proton.iloc[1], dirs.iloc[1])
     else:
@@ -73,8 +73,89 @@ def Signal(df): # definition
     is_fv = InFV_nohiyz(df.position)
     return is_fv
 
-def make_pandora_no_cuts_df(f):
+def make_pandora_gump_df(f):
+
+    det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+
+    if (1 == det.unique()):
+        DETECTOR = "SBND"
+    elif (2 == det.unique()):
+        DETECTOR = "ICARUS"
+    else:
+        print("Detector unclear, check rec.hdr.det!")
+
     pandora_df = make_pandora_df(f)
+    print("Not Including Stubs")
+    for c in pandora_df.columns:
+        print(c)
+
+    pandora_df = make_pandora_df(f, includeStubs=True)
+    print("Including Stubs")
+    for c in pandora_df.columns:
+        print(c)
+
+    pandora_df = pass_slc_with_n_pfps(pandora_df)
+
+    # FV cut
+    pandora_df = pandora_df[SelFV(pandora_df.slc.vertex, DETECTOR)]
+    # Cosmic cut
+    pandora_df = pandora_df[nu_score(pandora_df.slc)]
+    # Two prong cut
+    pandora_df = pandora_df[twoprong_cut(pandora_df)]    
+    # PID cut
+    pandora_df = pandora_df[pid_cut(pandora_df)]
+    # Stub cut
+    pandora_df = pandora_df[stub_cut(pandora_df)]
+
+
+    pandora_df[("pfp", "trk", "chi2pid", "I2", "mu_over_p", "")] = pandora_df.pfp.trk.chi2pid.I2.chi2_muon/pandora_df.pfp.trk.chi2pid.I2.chi2_proton
+
+    if pandora_df.empty:
+        empty_index = pd.MultiIndex(
+            levels=[[], []],
+            codes=[[], []],
+            names=['entry','rec.slc..index']
+        )
+        del_p = pd.Series(dtype='float', name='del_p', index=empty_index)
+        del_Tp = pd.Series(dtype='float', name='del_Tp', index=empty_index)
+        del_phi = pd.Series(dtype='float', name='del_phi', index=empty_index)
+        del_alpha = pd.Series(dtype='float', name='del_alpha', index=empty_index)
+        mu_E = pd.Series(dtype='float', name='mu_E', index=empty_index)
+        p_E = pd.Series(dtype='float', name='p_E', index=empty_index)
+        nu_E = pd.Series(dtype='float', name='nu_E', index=empty_index)
+    else:
+        tki = pandora_df.groupby(['entry','rec.slc..index']).apply(measure_tki).squeeze()
+        nu_E = pandora_df.groupby(['entry','rec.slc..index']).apply(measure_nu_E).squeeze()
+        del_p = tki['del_p']
+        del_Tp = tki['del_Tp']
+        del_phi = tki['del_phi']
+        del_alpha = tki['del_alpha']
+        mu_E = tki['mu_E']
+        p_E = tki['p_E']
+
+    ######## (9) - c: slc.tmatch.idx for truth matching
+    tmatch_idx_series = pandora_df.slc.tmatch.idx
+    tmatch_idx_series = tmatch_idx_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)
+    # not sure if this is correct...
+    tmatch_idx_series = tmatch_idx_series.reset_index(level='rec.slc.reco.stub..index', drop=True)
+
+    ## (10) creat a slice-based reco df
+    slcdf = pd.DataFrame({
+        'nu_E': nu_E,
+        'mu_E': mu_E,
+        'p_E': p_E,
+        'del_p': del_p,
+        'del_Tp': del_Tp,
+        'del_phi': del_phi,
+        'del_p': del_p,
+        'tmatch_idx': tmatch_idx_series
+    })
+
+    return slcdf
+
+def make_pandora_no_cuts_df(f):
+
+    pandora_df = make_pandora_df(f, includeStubs=True)
 
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
 
@@ -115,6 +196,8 @@ def make_pandora_no_cuts_df(f):
     ######## (9) - c: slc.tmatch.idx for truth matching
     tmatch_idx_series = pandora_df.slc.tmatch.idx
     tmatch_idx_series = tmatch_idx_series.reset_index(level='rec.slc.reco.pfp..index', drop=True)
+    # Not sure if this is correct...
+    tmatch_idx_series = tmatch_idx_series.reset_index(level='rec.slc.reco.stub..index', drop=True)
 
     ## (10) creat a slice-based reco df
     slcdf = pd.DataFrame({

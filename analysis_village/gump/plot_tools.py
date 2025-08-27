@@ -233,8 +233,8 @@ def plot_stub_2d(df, cuts, outfile, title='test'):
     dQdx = []
     x = []
     for l in ["0_5", "1", "2", "3"]:
-        x.extend(df.stub["l"+l+"cm"].length)
-        dQdx.extend(df.stub["l"+l+"cm"].Q/df.stub["l"+l+"cm"].length)
+        x.extend(df.slc.reco.stub["l"+l+"cm"].length)
+        dQdx.extend(df.slc.reco.stub["l"+l+"cm"].Q/df.slc.reco.stub["l"+l+"cm"].length)
 
     fig, ax = plt.subplots(figsize=(8, 6), dpi=80)
     plt.hlines(cuts, [0, 0.5, 1.0, 2.0], [0.5, 1.0, 2.0, 3.0], color='red', lw=1.0, linestyle='--')

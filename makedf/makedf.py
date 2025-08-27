@@ -122,8 +122,6 @@ def make_trkdf(f, scoreCut=False, requiret0=False, requireCosmic=False, mcs=Fals
         cumlen = mcsdf.seg_length.groupby(level=mcsgroup).cumsum()*14 # convert rad length to cm
         maxlen = (cumlen*(mcsdf.seg_scatter_angles >= 0)).groupby(level=mcsgroup).max()
         trkdf[("pfp", "trk", "mcsP", "len", "", "")] = maxlen
-
-
     trkdf[("pfp", "tindex", "", "", "", "")] = trkdf.index.get_level_values(2)
 
     return trkdf
@@ -219,7 +217,7 @@ def make_mcprimdf(f):
     mcprimdf = loadbranches(f["recTree"], mcprimbranches)
     return mcprimdf
 
-def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, **trkArgs):
+def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, includeStubs=False, **trkArgs):
     # load
     trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
     slcdf = make_slcdf(f)
@@ -237,6 +235,9 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, 
     # require fiducial verex
     if requireFiducial:
         slcdf = slcdf[InFV(slcdf.slc.vertex, 50)]
+    if includeStubs:
+        stubdf = make_stubs(f)
+        slcdf = multicol_merge(slcdf, stubdf, left_index=True, right_index=True, how="right", validate="one_to_many")
 
     return slcdf
 

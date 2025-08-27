@@ -12,7 +12,7 @@ workspace_root = os.getcwd()
 sys.path.insert(0, workspace_root + "/../../")
 
 # Local imports
-import kinematics
+import analysis_village.gump.kinematics
 from makedf.util import *
 
 
@@ -112,7 +112,7 @@ def recodf(df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.concat([dPt, caloE, muonE, tmatch], axis=1) # .droplevel(0, 0)
 
-def SelFV(df: pd.DataFrame, det: str, inzback: int = 50) -> pd.Series:
+def SelFV(df, det):
     """
     Fiducial volume cut for SBND or ICARUS.
     Args:

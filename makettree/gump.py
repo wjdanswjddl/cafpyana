@@ -28,19 +28,16 @@ def make_gump_ttree_mc(dfname, split):
                                right_on=[("__ntuple", ""), ("entry", ""), ("rec.mc.nu..index", "")],
                                how="left") ## -- save all sllices
     wgt_columns = [c for c in list(set(mcnuwgtdf.columns.get_level_values(0)))if (c.startswith("GENIE") or c.startswith("Flux"))]
-    #print(wgt_columns)
     recodf_wgt_out = pd.DataFrame({}, index=matchdf.index)
     for col in wgt_columns:
         recodf_wgt_out[col] = np.array([matchdf[col][u].values for u in matchdf[col].columns]).T.tolist()
 
     recodf = recodf.reset_index()
-    print("111: ",recodf)
-    print("222: ",recodf_wgt_out)
     recodf = pd.concat([recodf, recodf_wgt_out], axis = 1)
     
     ## Work for the true df
-    # mcnuwgtdf = mcnuwgtdf[mcnuwgtdf.nuint_categ == 1]
-    # mcnuwgtdf = mcnuwgtdf.reset_index()
+    mcnuwgtdf = mcnuwgtdf[mcnuwgtdf.nuint_categ == 1]
+    mcnuwgtdf = mcnuwgtdf.reset_index()
 
     truedf_wgt_out = pd.DataFrame({}, index=mcnuwgtdf.index)
     for col in wgt_columns:
