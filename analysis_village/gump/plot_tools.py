@@ -13,7 +13,7 @@ sys.path.insert(0, workspace_root + "/../../")
 # Local imports
 import kinematics
 from makedf.util import *
-from sel_tools import *
+from gump_cuts import *
 
 import matplotlib as mpl
 
