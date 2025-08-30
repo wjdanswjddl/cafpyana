@@ -83,7 +83,7 @@ def make_pandora_gump_df(f):
         print("Detector unclear, check rec.hdr.det!")
 
     pandora_df = make_pandora_df(f)
-    stub_df = make_stubs(f)
+    stub_df = make_stubs(f, det=DETECTOR)
 
     pandora_df = multicol_merge(pandora_df, stub_df, left_index=True, right_index=True, how="left", validate="one_to_one")
     pandora_df[("pfp", "trk", "chi2pid", "I2", "mu_over_p", "")] = pandora_df.pfp.trk.chi2pid.I2.chi2_muon/pandora_df.pfp.trk.chi2pid.I2.chi2_proton
@@ -202,7 +202,6 @@ def make_pandora_no_cuts_df(f):
     else:
         print("Detector unclear, check rec.hdr.det!")
 
-
     slcdf = make_slcdf(f)
     trkdf = make_trkdf(f, False)
     trkdf = multicol_add(trkdf, dmagdf(slcdf.slc.vertex, trkdf.pfp.trk.start).rename(("pfp", "dist_to_vertex")))
@@ -274,7 +273,7 @@ def make_pandora_no_cuts_df(f):
         mu_E = pd.Series(dtype='float', name='mu_E', index=empty_index)
         p_E = pd.Series(dtype='float', name='p_E', index=empty_index)
         nu_E = pd.Series(dtype='float', name='nu_E', index=empty_index)
-        pass_proton_stub = pd.Series(dtype='float', name='nu_E', index=empty_index)
+        has_stub = pd.Series(dtype='float', name='has_stub', index=empty_index)
     else:
         pd.set_option('display.max_rows', None)
         tki = transverse_kinematics(slcdf.mu.pfp.trk.P.p_muon, slcdf.mu.pfp.trk.cos, slcdf.p.pfp.trk.P.p_proton, slcdf.p.pfp.trk.cos)
@@ -287,6 +286,8 @@ def make_pandora_no_cuts_df(f):
         p_E = tki['p_E']
 
     ######## (9) - c: slc.tmatch.idx for truth matching
+    bad_tmatch = np.invert(slcdf.slc.tmatch.eff > 0.5) & (slcdf.slc.tmatch.idx >= 0)
+    slcdf.loc[bad_tmatch, ("slc","tmatch","idx", "", "", "", "")] = np.nan
     tmatch_idx_series = slcdf.slc.tmatch.idx
     slc_vtx = slcdf.slc.vertex
     nu_score = slcdf.slc.nu_score
@@ -299,14 +300,15 @@ def make_pandora_no_cuts_df(f):
     mu_len = slcdf.mu.pfp.trk.len
 
     stubdf = make_stubs(f)
-    any_pass_series = stubdf.groupby('rec.slc..index')['pass_proton_stub'].transform('any')
-    stub_series = pd.Series(index=mu_len.index, dtype=bool)
-    for k in stub_series.keys():
+    has_any_stub_series = stubdf.groupby('rec.slc..index')['pass_proton_stub'].transform('any')
+    slc_has_stub_series = pd.Series(index=mu_len.index, dtype=bool)
+
+    for k in slc_has_stub_series.keys():
         try:
             threek = k + (0,)
-            stub_series[k] = any_pass_series[threek]
+            slc_has_stub_series[k] = has_any_stub_series[threek]
         except KeyError:
-            stub_series[k] = False
+            slc_has_stub_series[k] = False
 
     ## (10) create a slice-based reco df
     slcdf = pd.DataFrame({
@@ -328,7 +330,7 @@ def make_pandora_no_cuts_df(f):
         'del_Tp': del_Tp,
         'del_phi': del_phi,
         'tmatch_idx': tmatch_idx_series,
-        'pass_proton_stub': stub_series
+        'has_stub': slc_has_stub_series
     })
 
     return slcdf

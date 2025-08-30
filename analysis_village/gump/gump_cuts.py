@@ -57,57 +57,25 @@ def cosmic_cut(df):
 def twoprong_cut(df):
     return (np.isnan(df.other_shw_length) & np.isnan(df.other_trk_length))
 
-def pid_cut(df):
+def pid_cut(mu_chi2_mu_cand, mu_chi2_prot_cand, prot_chi2_mu_cand,
+            prot_chi2_prot_cand, mu_len):
+
     MUSEL_MUSCORE_TH, MUSEL_PSCORE_TH, MUSEL_LEN_TH = 25, 100, 50
-    mu_cut = (df.mu.trk.chi2pid.I2.chi2_muon < MUSEL_MUSCORE_TH) & \
-             (df.mu.trk.chi2pid.I2.chi2_proton > MUSEL_PSCORE_TH) & \
-             (df.mu.trk.len > MUSEL_LEN_TH)
+    mu_cut = (mu_chi2_mu_cand < MUSEL_MUSCORE_TH) & \
+             (prot_chi2_mu_cand > MUSEL_PSCORE_TH) & \
+             (mu_len > MUSEL_LEN_TH)
 
     PSEL_MUSCORE_TH, PSEL_PSCORE_TH = 0, 90
-    p_cut = (df.p.trk.chi2pid.I2.chi2_muon > PSEL_MUSCORE_TH) & \
-            (df.p.trk.chi2pid.I2.chi2_proton < PSEL_PSCORE_TH)
+    p_cut = (mu_chi2_prot_cand > PSEL_MUSCORE_TH) & \
+            (prot_chi2_prot_cand < PSEL_PSCORE_TH)
 
     return mu_cut & p_cut
 
 def stub_cut(df):
-    cut = (df.pass_proton_stub == 0)
+    cut = (df.has_stub == 0)
+    print(sum(cut))
+    print(len(cut))
     return cut
-
-def is_cosmic(df):
-    """Return mask for cosmic events."""
-    return (df.slc.truth.pdg == -1)
-
-def is_FV(df, det):
-    """Return mask for events in fiducial volume."""
-    return fv_cut(df.slc.vertex, det)
-
-def is_numu(df):
-    """Return mask for numu events."""
-    return (np.abs(df.slc.truth.pdg) == 14)
-
-def is_CC(df):
-    """Return mask for CC events."""
-    return (df.slc.truth.iscc == 1)
-
-def is_NC(df):
-    """Return mask for NC events."""
-    return (df.slc.truth.iscc == 0)
-
-def is_1p0pi(df):
-    """Return mask for 1mu, 1p, 0pi events."""
-    return (df.slc.truth.nmu_27MeV == 1) & (df.slc.truth.np_50MeV == 1) & (df.slc.truth.npi_30MeV == 0) & (df.slc.truth.npi0 == 0)
-
-def is_signal(df, det):
-    """Return mask for signal events."""
-    return is_numu(df) & is_CC(df) & is_1p0pi(df) & is_FV(df, det)
-
-def is_outFV(df, det):
-    """Return mask for signal events outside FV."""
-    return is_numu(df) & is_CC(df) & is_1p0pi(df) & np.invert(is_FV(df, det))
-
-def is_othernumuCC(df, det):
-    """Return mask for other numu CC events in FV."""
-    return is_numu(df) & is_CC(df) & np.invert(is_1p0pi(df)) & is_FV(df, det)
 
 mode_list = [0, 10, 1, 2, 3]
 mode_labels = ['QE', 'MEC', 'RES', 'SIS/DIS', 'COH', "other"]
@@ -118,13 +86,35 @@ def breakdown_mode(var, df):
     ret.append(var[sum([df.genie_mode == i for i in mode_list]) == 0])
     return ret
 
-def breakdown_top(var, df, det):
-    """Break down variable by topological category."""
-    ret = [var[is_signal(df, det)],
-            var[is_othernumuCC(df, det)],
-            var[is_NC(df)],
-            var[is_outFV(df, det)],
-            var[is_cosmic(df)],
-            var[np.invert(is_signal(df, det) | is_othernumuCC(df, det) | is_NC(df) | is_outFV(df, det) | is_cosmic(df))]
-            ]
-    return ret
+def tmatchdf(df, mcdf):
+    # filter the columns from the mcdf we want
+    # map old name to new name
+    tosave = {
+      "pdg": "pdg",
+      "is_sig": "is_sig",
+      "genie_mode": "genie_mode"
+    }
+
+    def savecol(c):
+        return c[0] in list(tosave.keys()) 
+
+    mcdf_cols = [c for c in mcdf.columns if savecol(c)]
+    mcdf = mcdf[mcdf_cols]
+
+    # Get the column depth matching on both sides
+    mcdf.columns = pd.MultiIndex.from_tuples([(tosave[c[0]], c[1]) if c[0] in tosave else (c[0], c[1]) for c in mcdf.columns])
+    df.columns = pd.MultiIndex.from_tuples([(c, "") for c in df.columns])
+
+    print(mcdf.pdg)
+    print(df.tmatch_idx)
+    tmatch_df = pd.merge(df, mcdf, how="left", left_on=["__ntuple", "entry", "tmatch_idx"], right_index=True) 
+    print(tmatch_df.pdg)
+
+    # Fill nan's for not-matching columns
+    for c in tosave.values():
+        tmatch_df[(c, "")] = tmatch_df[(c, "")].fillna(0.)
+
+    # Systematic weights are all 1 for no truth match
+    tmatch_df.fillna(1, inplace=True)
+
+    return tmatch_df

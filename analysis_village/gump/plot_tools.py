@@ -55,7 +55,7 @@ def plot_int(df, var, title, outfile, label, mode_labels, det, eff_bool=False):
     ax.set_title(f"$\\bf{{{det}}}$  {title}", fontsize=FONTSIZE+2)
     plt.legend(fontsize=FONTSIZE)
 
-    sig_ct = len(var_data[is_signal(df, det)])
+    sig_ct = len(df.is_sig[df.is_sig == True])
     if eff_bool:
         ax.text(0.5, 0.33, f"Purity {{:.2f}}%".format(100*sig_ct/len(df)), 
                 transform=ax.transAxes, fontsize=FONTSIZE)
@@ -130,7 +130,7 @@ def plot_PID_cut(var, cut_vals, title, outfile, xlims=[0, 100],
         for spine in ax.spines.values():
             spine.set_linewidth(1.5)
         ax.set_ylabel('Events', fontsize=FONTSIZE, fontweight='bold')
-    ax2.set_xlabel('x label', fontsize=FONTSIZE, fontweight='bold')
+    ax2.set_xlabel(title, fontsize=FONTSIZE, fontweight='bold')
     ax1.legend(fontsize=FONTSIZE)
     ax2.legend(fontsize=FONTSIZE)
 
@@ -156,7 +156,7 @@ def plot_PID_cut(var, cut_vals, title, outfile, xlims=[0, 100],
        ax1.text(cut_val_nd-20, 0.8*max_1, arrow_txt, color='red')
        ax2.text(cut_val_fd-20, 0.8*max_2, arrow_txt, color='red')
 
-    fig.suptitle(title, fontsize=FONTSIZE+2, fontweight='bold', x=0.01, ha='left')
+    fig.suptitle(title+" Cut", fontsize=FONTSIZE+2, fontweight='bold', x=0.01, ha='left')
     plt.tight_layout()
     plt.savefig("EventSelectionPlots/"+outfile, bbox_inches='tight')
     plt.clf()
@@ -174,6 +174,9 @@ def plot_nuscore_cut(var_nd, cut_vals_nd, var_fd, cut_vals_fd, title, outfile, x
                            label=labels[0], stacked=False, weights=[1/len(var_nd[0])]*len(var_nd[0]), linestyle='-')
     n2, bins, _ = ax1.hist(var_nd[1], bins=b, histtype='step', color=HAWKS_COLORS[0], 
                            label=labels[1], stacked=False, weights=[1/len(var_nd[1])]*len(var_nd[1]), linestyle='--')
+    n3, bins, _ = ax2.hist(var_fd[0], bins=b, histtype='step', color=HAWKS_COLORS[1], 
+                           label=labels[2], stacked=False, weights=[1/len(var_fd[0])]*len(var_fd[0]), linestyle='--')
+
     n4, bins, _ = ax2.hist(var_fd[1], bins=b, histtype='step', color=HAWKS_COLORS[1], 
                            label=labels[3], stacked=False, weights=[1/len(var_fd[1])]*len(var_fd[1]), linestyle='--')
 
@@ -183,7 +186,7 @@ def plot_nuscore_cut(var_nd, cut_vals_nd, var_fd, cut_vals_fd, title, outfile, x
         for spine in ax.spines.values():
             spine.set_linewidth(1.5)
         ax.set_ylabel('Events', fontsize=FONTSIZE, fontweight='bold')
-    ax2.set_xlabel('x label', fontsize=FONTSIZE, fontweight='bold')
+    ax2.set_xlabel('Nu Score', fontsize=FONTSIZE, fontweight='bold')
     ax1.legend(fontsize=FONTSIZE)
     ax2.legend(fontsize=FONTSIZE)
 
@@ -228,29 +231,26 @@ def plot_cut(var_nd, cut_vals_nd, var_fd, cut_vals_fd, title, outfile, xlims=[0,
     plt.clf()
     plt.close()
 
-def plot_stub_2d(df, cuts, outfile, title='test'):
+def plot_stub_2d(length, dqdx, outfile, title='test'):
     plt.style.use('default')
-    dQdx = []
-    x = []
-    for l in ["0_5", "1", "2", "3"]:
-        x.extend(df.slc.reco.stub["l"+l+"cm"].length)
-        dQdx.extend(df.slc.reco.stub["l"+l+"cm"].Q/df.slc.reco.stub["l"+l+"cm"].length)
-
     fig, ax = plt.subplots(figsize=(8, 6), dpi=80)
-    plt.hlines(cuts, [0, 0.5, 1.0, 2.0], [0.5, 1.0, 2.0, 3.0], color='red', lw=1.0, linestyle='--')
-    plt.vlines([0.5, 1.0, 2.0], cuts[1:], cuts[:-1], color='red', lw=1.0, linestyle='--')
+    dqdx_cuts = np.array([5.5e5, 3.5e5, 3e5, 2e5, 0])
+    length_cuts = np.array([0, 0.5, 1, 2, 4])
+    plt.hlines(dqdx_cuts[:-1], length_cuts[1:], length_cuts[:-1], color='red', lw=1.0, linestyle='--')
+    plt.vlines(length_cuts[1:], dqdx_cuts[1:], dqdx_cuts[:-1], color='red', lw=1.0, linestyle='--')
 
     plt.text(0.5, 2e5, 'Select', color='red', fontsize=FONTSIZE*2)
     plt.text(1.8, 6e5, 'Remove', color='red', fontsize=FONTSIZE*2)
 
     for spine in ax.spines.values():
         spine.set_linewidth(1.5)
+
     plt.title(title, fontsize=FONTSIZE+5, fontweight='bold', loc='left')
     plt.tick_params(axis='both', which='both', direction='in', length=6, width=1.5, labelsize=FONTSIZE, top=True, right=True)
     plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
     plt.xlabel('Stub Length [cm]', fontsize=FONTSIZE, fontweight='bold')
     plt.ylabel('dQ/dx [electrons/cm]', fontsize=FONTSIZE, fontweight='bold')
-    h = plt.hist2d(x, dQdx, bins=[6, 16], range=[[0, 3],[0, 8e5]])
+    h = plt.hist2d(length, dqdx, bins=[8, 16], range=[[0, 4],[0, 8e5]])
     plt.gca().yaxis.get_offset_text().set_fontsize(FONTSIZE)
     cbar = plt.colorbar(h[3])
     cbar.ax.tick_params(labelsize=FONTSIZE)

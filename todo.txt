@@ -1,0 +1,2 @@
+make sure it can get through all cuts on FullES.py
+X investigate sus POT value
