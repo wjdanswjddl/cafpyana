@@ -73,8 +73,6 @@ def pid_cut(mu_chi2_mu_cand, mu_chi2_prot_cand, prot_chi2_mu_cand,
 
 def stub_cut(df):
     cut = (df.has_stub == 0)
-    print(sum(cut))
-    print(len(cut))
     return cut
 
 mode_list = [0, 10, 1, 2, 3]
@@ -105,10 +103,7 @@ def tmatchdf(df, mcdf):
     mcdf.columns = pd.MultiIndex.from_tuples([(tosave[c[0]], c[1]) if c[0] in tosave else (c[0], c[1]) for c in mcdf.columns])
     df.columns = pd.MultiIndex.from_tuples([(c, "") for c in df.columns])
 
-    print(mcdf.pdg)
-    print(df.tmatch_idx)
     tmatch_df = pd.merge(df, mcdf, how="left", left_on=["__ntuple", "entry", "tmatch_idx"], right_index=True) 
-    print(tmatch_df.pdg)
 
     # Fill nan's for not-matching columns
     for c in tosave.values():
