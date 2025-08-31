@@ -207,7 +207,6 @@ def make_pandora_no_cuts_df(f):
     trkdf = multicol_add(trkdf, dmagdf(slcdf.slc.vertex, trkdf.pfp.trk.start).rename(("pfp", "dist_to_vertex")))
     trkdf = trkdf[trkdf.pfp.dist_to_vertex < 10]
     trkdf[("pfp", "trk", "chi2pid", "I2", "mu_over_p", "")] = trkdf.pfp.trk.chi2pid.I2.chi2_muon/trkdf.pfp.trk.chi2pid.I2.chi2_proton
-    slcdf = slcdf[slcdf.slc.is_clear_cosmic==0]
 
     # track containment
     trkdf[("pfp", "trk", "is_contained", "", "", "")] = (InFV(trkdf.pfp.trk.start, 0, det=DETECTOR)) & (InFV(trkdf.pfp.trk.end, 0, det=DETECTOR))
@@ -289,8 +288,10 @@ def make_pandora_no_cuts_df(f):
     bad_tmatch = np.invert(slcdf.slc.tmatch.eff > 0.5) & (slcdf.slc.tmatch.idx >= 0)
     slcdf.loc[bad_tmatch, ("slc","tmatch","idx", "", "", "", "")] = np.nan
     tmatch_idx_series = slcdf.slc.tmatch.idx
+
     slc_vtx = slcdf.slc.vertex
     nu_score = slcdf.slc.nu_score
+    is_clear_cosmic = slcdf.slc.is_clear_cosmic
     other_shw_length = slcdf.other_shw_length
     other_trk_length = slcdf.other_trk_length
     mu_chi2_of_mu_cand = slcdf.mu.pfp.trk.chi2pid.I2.chi2_muon
@@ -317,6 +318,7 @@ def make_pandora_no_cuts_df(f):
         'slc_vtx_x': slc_vtx.x,
         'slc_vtx_y': slc_vtx.y,
         'slc_vtx_z': slc_vtx.z,
+        'is_clear_cosmic': is_clear_cosmic,
         'nu_score': nu_score,
         'mu_chi2_of_mu_cand': mu_chi2_of_mu_cand,
         'mu_chi2_of_prot_cand': mu_chi2_of_prot_cand,
@@ -338,7 +340,7 @@ def make_pandora_no_cuts_df(f):
 def make_gump_nudf(f):
     nudf = make_mcdf(f)
     nudf["ind"] = nudf.index.get_level_values(1)
-    wgtdf = pd.concat([bnbsyst.bnbsyst(f, nudf.ind), geniesyst.geniesyst_sbnd(f, nudf.ind)], axis=1)
+    # wgtdf = pd.concat([bnbsyst.bnbsyst(f, nudf.ind), geniesyst.geniesyst_sbnd(f, nudf.ind)], axis=1)
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
 
     if (1 == det.unique()):
@@ -384,11 +386,15 @@ def make_gump_nudf(f):
         'true_del_phi': true_del_phi,
         'true_del_p': true_del_p,
         'genie_mode': genie_mode, 
+        'is_fv': is_fv, 
+        'is_1p0pi': is_1p0pi, 
+        'is_numu': is_numu, 
+        'is_cc': is_cc, 
         'is_sig': is_sig, 
         'pdg': pdg 
     })
     this_nudf.columns = pd.MultiIndex.from_tuples([(col, '') for col in this_nudf.columns])
 
-    this_nudf = multicol_concat(this_nudf, wgtdf)
+    #this_nudf = multicol_concat(this_nudf, wgtdf)
 
     return this_nudf
