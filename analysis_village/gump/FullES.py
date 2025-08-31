@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from memory_profiler import profile
+
 from plot_tools import *
 # Add the head direcoty to sys.path
 workspace_root = os.getcwd()  
@@ -12,23 +14,44 @@ from makedf.util import *
 
 import kinematics
 
-def load_data(file, nfiles=5):
+def load_data(file, nfiles=1):
     """Load event, header, and mcnu data from HDF file."""
-    print(str(range(nfiles)))
     for s in range(nfiles):
-        print(s)
-        if s == 0:
-            df_evt = pd.read_hdf(file, "evt_"+str(s))
-            df_hdr = pd.read_hdf(file, "hdr_"+str(s))
-            df_mcnu = pd.read_hdf(file, "mcnu_"+str(s))
-            df_stub = pd.read_hdf(file, "stub_"+str(s))
-        else:
-            df_evt = pd.concat([df_evt, pd.read_hdf(file, "evt_"+str(s))])
-            df_hdr = pd.concat([df_hdr, pd.read_hdf(file, "hdr_"+str(s))])
-            df_mcnu = pd.concat([df_mcnu, pd.read_hdf(file, "mcnu_"+str(s))])
-            df_stub = pd.concat([df_stub, pd.read_hdf(file, "stub_"+str(s))])
+        print("df index:"+str(s))
+        df_evt = pd.read_hdf(file, "evt_"+str(s))
+        df_hdr = pd.read_hdf(file, "hdr_"+str(s))
+        df_mcnu = pd.read_hdf(file, "mcnu_"+str(s))
+        df_stub = pd.read_hdf(file, "stub_"+str(s))
 
-    return df_evt, df_hdr, df_mcnu, df_stub
+        matchdf = df_evt.copy()
+        matchdf.columns = pd.MultiIndex.from_tuples([(col, '') for col in matchdf.columns])
+        df_evt = ph.multicol_merge(matchdf.reset_index(), df_mcnu.reset_index(),
+                                    left_on=[("__ntuple", ""), ("entry", ""), ("tmatch_idx", "")],
+                                    right_on=[("__ntuple", ""), ("entry", ""), ("rec.mc.nu..index", "")],
+                                    how="left") ## -- save all sllices
+
+        cols_to_drop = []
+        for c in df_evt.columns:
+            if 'GENIE' in c[0] or 'Flux' in c[0]:
+                cols_to_drop.append(c)
+
+        df_evt.drop(columns=cols_to_drop, inplace=True)
+        del df_mcnu
+
+        if s == 0:
+            res_df_evt = df_evt
+            res_df_hdr = df_hdr
+            res_df_stub = df_stub
+        else:
+            res_df_evt = pd.concat([res_df_evt, df_evt])
+            res_df_hdr = pd.concat([res_df_hdr, df_hdr])
+            res_df_stub = pd.concat([res_df_stub, df_stub])
+
+        del df_evt
+        del df_hdr
+        del df_stub
+
+    return res_df_evt, res_df_hdr, res_df_stub
 
 def scale_pot(df, df_hdr, desired_pot):
     """Scale DataFrame by desired POT."""
@@ -128,7 +151,6 @@ def apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, 
     # plot_fs(df_fd, 'del_p', "1mu+1p Cut", "fs3_1mu1p_icarus.png", 'ICARUS')
 
 
-    # pd.set_option('display.max_columns', 5)
     # Stub cut
     df_nd_stub = df_nd_stub.reset_index('rec.slc.reco.stub..index', drop=True)
     sel = df_nd.set_index(['__ntuple', 'entry', 'rec.slc..index'], drop=True).index
@@ -136,7 +158,7 @@ def apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, 
     df_nd_stub = df_nd_stub.loc[sel]
     plot_stub_2d(df_nd_stub['length'], df_nd_stub['dqdx'], "SBND.png", "SBND Stub Cut")
     # plot_stub_2d(df_nd[(df_nd.is_sig != True)], "FPSBND.png", "False Positive SBND Stub Cut")
-    plot_stub_2d(df_nd_stub['length'], df_nd_stub['dqdx'], "ICARUS.png", "ICARUS Stub Cut")
+    plot_stub_2d(df_fd_stub['length'], df_fd_stub['dqdx'], "ICARUS.png", "ICARUS Stub Cut")
     # plot_stub_2d(df_fd[(df_fd.is_sig != True)], "FPICARUS.png", "False Positive ICARUS Stub Cut")
 
     df_nd = df_nd[stub_cut(df_nd)]
@@ -158,35 +180,12 @@ def apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, 
 
 def main():
     """Main analysis pipeline."""
-    # dffile_nd = "/exp/sbnd/app/users/nrowe/cafpyana_gump/sbnd_no_cuts.df"
-    dffile_nd = "/exp/sbnd/app/users/nrowe/cafpyana_gump/icarus_no_cuts.df"
-    dffile_fd = "/exp/sbnd/app/users/nrowe/cafpyana_gump/icarus_no_cuts.df"
-    df_nd, df_nd_hdr, df_nd_mcnu, df_nd_stub = load_data(dffile_nd)
-    df_fd, df_fd_hdr, df_fd_mcnu, df_fd_stub = load_data(dffile_fd)
+    dffile_nd = "/home/nathanielerowe/SBN/cafpyana_gump/sbnd_no_cuts.df"
+    dffile_fd = "/home/nathanielerowe/SBN/cafpyana_gump/icarus_no_cuts.df"
+    df_nd, df_nd_hdr, df_nd_stub = load_data(dffile_nd)
+    df_fd, df_fd_hdr, df_fd_stub = load_data(dffile_fd)
 
-    nd_matchdf = df_nd.copy()
-    nd_matchdf.columns = pd.MultiIndex.from_tuples([(col, '') for col in nd_matchdf.columns])
-    nd_matchdf = ph.multicol_merge(nd_matchdf.reset_index(), df_nd_mcnu.reset_index(),
-                               left_on=[("__ntuple", ""), ("entry", ""), ("tmatch_idx", "")],
-                               right_on=[("__ntuple", ""), ("entry", ""), ("rec.mc.nu..index", "")],
-                               how="left") ## -- save all sllices
-
-    df_nd = nd_matchdf
-
-    fd_matchdf = df_fd.copy()
-    fd_matchdf.columns = pd.MultiIndex.from_tuples([(col, '') for col in fd_matchdf.columns])
-    fd_matchdf = ph.multicol_merge(fd_matchdf.reset_index(), df_fd_mcnu.reset_index(),
-                               left_on=[("__ntuple", ""), ("entry", ""), ("tmatch_idx", "")],
-                               right_on=[("__ntuple", ""), ("entry", ""), ("rec.mc.nu..index", "")],
-                               how="left") ## -- save all sllices
-
-    df_fd = fd_matchdf
-
-    del(nd_matchdf)
-    del(df_nd_mcnu)
-    del(fd_matchdf)
-    del(df_fd_mcnu)
-
+    print('data loaded!')
     df_nd['og_sig_ct'] = len(df_nd.is_sig[df_nd.is_sig == True])
     df_fd['og_sig_ct'] = len(df_fd.is_sig[df_fd.is_sig == True])
 
@@ -194,6 +193,7 @@ def main():
     des_fd_POT = 5e20
     nd_POT = scale_pot(df_nd, df_nd_hdr, des_nd_POT)
     fd_POT = scale_pot(df_fd, df_fd_hdr, des_fd_POT)
+    print("Starting to apply cuts!")
     df_nd, df_fd = apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, dffile_fd)
 
 if __name__ == "__main__":
