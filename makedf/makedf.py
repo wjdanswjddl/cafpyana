@@ -143,7 +143,6 @@ def make_trkhitdf(f):
 def make_slcdf(f):
     slcdf = loadbranches(f["recTree"], slcbranches)
     slcdf = slcdf.rec
-    pd.set_option('display.max_rows', None)
     slc_mcdf = make_mcdf(f, slc_mcbranches, slc_mcprimbranches)
     slc_mcdf.columns = pd.MultiIndex.from_tuples([tuple(["slc", "truth"] + list(c)) for c in slc_mcdf.columns])
     slcdf = multicol_merge(slcdf, slc_mcdf, left_index=True, right_index=True, how="left", validate="one_to_one")
