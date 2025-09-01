@@ -82,15 +82,15 @@ def plot_fs(df, var, title, outfile, det):
     fig, ax = plt.subplots(1, 1, figsize=(6, 4.5))
     for spine in ax.spines.values():
         spine.set_linewidth(1.5)
-    prim_v = ['np', 'nn', 'nmu', 'npi', 'npi0', 'ng']
-    prim_v_labels = ['Protons', 'Neutrons', 'Muons', 'Charged Pions', 'Neutral Pions', 'Gammas']
+    prim_v = ['np', 'nn', 'nmu', 'npi', 'npi0']#, 'ng']
+    prim_v_labels = ['Protons', 'Neutrons', 'Muons', 'Charged Pions', 'Neutral Pions']#, 'Gammas']
     b = np.arange(1, 11, 1)
     bin_centers = 0.5 * (b[:-1] + b[1:])
     bin_numbers = range(1, len(bin_centers)+1)
 
     df_fs = [df[p] for p in prim_v]
     ax.set_xticks(bin_centers, [str(i) for i in bin_numbers])
-    ax.hist(df_fs, bins=b, stacked=True, label=prim_v_labels, color=HAWKS_COLORS, 
+    ax.hist(df_fs, bins=b, stacked=True, label=prim_v_labels, color=HAWKS_COLORS[:-1], 
             weights=[glob_scale*np.ones_like(p) for p in df_fs])
 
     # Style
@@ -264,12 +264,16 @@ def plot_composition(percentages, time_labels=None, components=None, title='', o
     percentages = np.flip(np.array(percentages), axis=0)
     num_time_points, num_components = percentages.shape
 
+    print(time_labels)
+    print(percentages.shape)
+
     if components is None:
         components = [f"Component {i+1}" for i in range(num_components)]
     if time_labels is None:
         time_labels = [f"Time {i+1}" for i in range(num_time_points)]
 
     plt.style.use('default')
+    print(num_time_points)
     y = np.arange(num_time_points)
 
     ax = plt.gca()
@@ -281,6 +285,8 @@ def plot_composition(percentages, time_labels=None, components=None, title='', o
         plt.barh(y, percentages[:, i], left=left, label=components[i])
         left += percentages[:, i]
 
+    print(y)
+    print(time_labels)
     plt.yticks(y, labels=reversed(time_labels), fontsize=FONTSIZE)
     plt.tick_params(axis='both', which='both', direction='in', length=6, width=1.5, labelsize=FONTSIZE, top=True, right=True)
     plt.xlabel('Percentage', fontsize=FONTSIZE, fontweight='bold')

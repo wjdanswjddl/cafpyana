@@ -18,9 +18,16 @@ from makedf.util import *
 
 # Fiducial volume cuts for SBND and ICARUS
 SBNDFVCuts = {
-    "x": {"min": -199.15 + 10, "max": 199.15 - 10},
-    "y": {"min": -200. + 10, "max": 200. - 10},
-    "z": {"min": 0.0 + 10, "max": 500. - 50}
+    "lowYZ": {
+        "x": {"min": -190., "max": 190.},
+        "y": {"min": -190., "max": 190.},
+        "z": {"min": 10., "max": 250.}
+    },
+    "highYZ": {
+        "x": {"min": -190., "max": 190.},
+        "y": {"min": -190., "max": 100},
+        "z": {"min": 250., "max": 450.}
+    }
 }
 
 ICARUSFVCuts = {
@@ -44,9 +51,13 @@ def fv_cut(df, det):
                  (df.z < ICARUSFVCuts['C0']['z']['max']) & (df.z > ICARUSFVCuts['C0']['z']['min'])
 
     elif det == "SBND":
-        return (df.x < SBNDFVCuts['x']['max']) & (df.x > SBNDFVCuts['x']['min']) &\
-               (df.y < SBNDFVCuts['y']['max']) & (df.y > SBNDFVCuts['y']['min']) &\
-               (df.z < SBNDFVCuts['z']['max']) & (df.z > SBNDFVCuts['z']['min'])
+
+        return ((df.x < SBNDFVCuts['lowYZ']['x']['max']) & (df.x > SBNDFVCuts['lowYZ']['x']['min']) &\
+                (df.y < SBNDFVCuts['lowYZ']['y']['max']) & (df.y > SBNDFVCuts['lowYZ']['y']['min']) &\
+                (df.z < SBNDFVCuts['lowYZ']['z']['max']) & (df.z > SBNDFVCuts['lowYZ']['z']['min'])) |\
+               ((df.x < SBNDFVCuts['highYZ']['x']['max']) & (df.x > SBNDFVCuts['highYZ']['x']['min']) &\
+                (df.y < SBNDFVCuts['highYZ']['y']['max']) & (df.y > SBNDFVCuts['highYZ']['y']['min']) &\
+                (df.z < SBNDFVCuts['highYZ']['z']['max']) & (df.z > SBNDFVCuts['highYZ']['z']['min']))
 
     else:
         raise NameError("DETECTOR not valid, should be SBND or ICARUS")
@@ -73,6 +84,14 @@ def pid_cut(mu_chi2_mu_cand, mu_chi2_prot_cand, prot_chi2_mu_cand,
 
 def stub_cut(df):
     cut = (df.has_stub == 0)
+    return cut
+
+def clear_cosmic_cut(df):
+    cut = (df.is_clear_cosmic == 0)
+    return cut
+
+def contained_cut(df):
+    cut = (df.is_contained == 1)
     return cut
 
 mode_list = [0, 10, 1, 2, 3]

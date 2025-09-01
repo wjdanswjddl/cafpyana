@@ -16,6 +16,7 @@ import kinematics
 
 def load_data(file, nfiles=1):
     """Load event, header, and mcnu data from HDF file."""
+
     for s in range(nfiles):
         print("df index:"+str(s))
         df_evt = pd.read_hdf(file, "evt_"+str(s))
@@ -62,10 +63,21 @@ def scale_pot(df, df_hdr, desired_pot):
     return pot, scale
 
 def apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, dffile_fd):
+
     comp_sbnd = []
     comp_icarus = []
-    cut_labels = ["FV Cut", "Cosmic Cut", "Two Prong", "PID", "Stub"]
+    cut_labels = ["Clear Cosmic", "FV Cut", "NuScore Cut", "Two Prong", "PID", "Stub"]
     mode_labels = ['QE', 'MEC', 'RES', 'SIS/DIS', 'COH', "other"]
+
+    # Clear Cosmic
+    df_nd = df_nd[clear_cosmic_cut(df_nd)]
+    df_fd = df_fd[clear_cosmic_cut(df_fd)]
+    comp_sbnd.append(plot_int(df_nd, 'del_p', "Clear Cosmic Rejection Cut", "int0delp_clear_cosmic_rej_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
+    comp_icarus.append(plot_int(df_fd, 'del_p', "Clear Cosmic Rejection Cut", "int0delp_clear_cosmic_rej_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
+    plot_int(df_nd, 'del_Tp', "Clear Cosmic Rejection Cut", "int1delpT_clear_cosmic_rej_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
+    plot_int(df_fd, 'del_Tp', "Clear Cosmic Rejection Cut", "int1delpT_clear_cosmic_rej_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
+    plot_fs(df_nd, 'del_p', "Clear Cosmic Rejection Cut", "fs1_clear_cosmic_rej_sbnd.png", 'SBND')
+    plot_fs(df_fd, 'del_p', "Clear Cosmic Rejection Cut", "fs1_clear_cosmic_rej_icarus.png", 'ICARUS')
 
     # FV Cut
     nd_vtx = pd.DataFrame({'x': df_nd.slc_vtx_x,
@@ -83,8 +95,8 @@ def apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, 
     comp_icarus.append(plot_int(df_fd, 'del_p', "FV Cut", "int0delp_fv_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
     plot_int(df_nd, 'del_Tp', "FV Cut", "int0delpT_fv_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
     plot_int(df_fd, 'del_Tp', "FV Cut", "int0delpT_fv_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
-    # plot_fs(df_nd, 'del_p', "FV Cut", "fs0_fv_sbnd.png", 'SBND')
-    # plot_fs(df_fd, 'del_p', "FV Cut", "fs0_fv_icarus.png", 'ICARUS')
+    plot_fs(df_nd, 'del_p', "FV Cut", "fs0_fv_sbnd.png", 'SBND')
+    plot_fs(df_fd, 'del_p', "FV Cut", "fs0_fv_icarus.png", 'ICARUS')
 
     plot_nuscore_cut([
         df_nd.nu_score[cosmic_cut(df_nd)], df_nd.nu_score[np.invert(cosmic_cut(df_nd))]
@@ -93,25 +105,25 @@ def apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, 
     ], [0.5], "NuScore", "NuScore.png", [0, 1],
         ['SBND Cosmic', 'SBND Neutrino', 'ICARUS Cosmic', 'ICARUS Neutrino'], 'right', 'select as neutrino')
 
-    # Cosmic cut
+    # NuScore cut
     df_nd = df_nd[cosmic_cut(df_nd)]
     df_fd = df_fd[cosmic_cut(df_fd)]
-    comp_sbnd.append(plot_int(df_nd, 'del_p', "Cosmic Rejection Cut", "int1delp_cosmic_rej_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
-    comp_icarus.append(plot_int(df_fd, 'del_p', "Cosmic Rejection Cut", "int1delp_cosmic_rej_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
-    plot_int(df_nd, 'del_Tp', "Cosmic Rejection Cut", "int1delpT_cosmic_rej_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
-    plot_int(df_fd, 'del_Tp', "Cosmic Rejection Cut", "int1delpT_cosmic_rej_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
-    # plot_fs(df_nd, 'del_p', "Cosmic Rejection Cut", "fs1_cosmic_rej_sbnd.png", 'SBND')
-    # plot_fs(df_fd, 'del_p', "Cosmic Rejection Cut", "fs1_cosmic_rej_icarus.png", 'ICARUS')
+    comp_sbnd.append(plot_int(df_nd, 'del_p', "NuScore Cut", "int1delp_nuscore_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
+    comp_icarus.append(plot_int(df_fd, 'del_p', "NuScore Cut", "int1delp_nuscore_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
+    plot_int(df_nd, 'del_Tp', "NuScore Rejection Cut", "int1delpT_nuscore_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
+    plot_int(df_fd, 'del_Tp', "NuScore Rejection Cut", "int1delpT_nuscore_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
+    plot_fs(df_nd, 'del_p', "NuScore Rejection Cut", "fs1_nuscore_rej_sbnd.png", 'SBND')
+    plot_fs(df_fd, 'del_p', " Rejection Cut", "fs1_nuscore_rej_icarus.png", 'ICARUS')
 
     # Two prong cut
     df_nd = df_nd[twoprong_cut(df_nd)]
     df_fd = df_fd[twoprong_cut(df_fd)]
-    comp_sbnd.append(plot_int(df_nd, 'del_p', "Two Prong Cut", "int2delp_two_prong_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
-    comp_icarus.append(plot_int(df_fd, 'del_p', "Two Prong Cut", "int2delp_two_prong_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
-    plot_int(df_nd, 'del_Tp', "Two Prong Cut", "int2delpT_two_prong_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
-    plot_int(df_fd, 'del_Tp', "Two Prong Cut", "int2delpT_two_prong_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
-    # plot_fs(df_nd, 'del_p', "Two Prong Cut", "fs2_two_prong_sbnd.png", 'SBND')
-    # plot_fs(df_fd, 'del_p', "Two Prong Cut", "fs2_two_prong_icarus.png", 'ICARUS')
+    comp_sbnd.append(plot_int(df_nd, 'del_p', "Two Prong Cut", "int3delp_two_prong_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
+    comp_icarus.append(plot_int(df_fd, 'del_p', "Two Prong Cut", "int3delp_two_prong_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
+    plot_int(df_nd, 'del_Tp', "Two Prong Cut", "int3delpT_two_prong_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
+    plot_int(df_fd, 'del_Tp', "Two Prong Cut", "int3delpT_two_prong_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
+    plot_fs(df_nd, 'del_p', "Two Prong Cut", "fs2_two_prong_sbnd.png", 'SBND')
+    plot_fs(df_fd, 'del_p', "Two Prong Cut", "fs2_two_prong_icarus.png", 'ICARUS')
 
     plot_PID_cut([[df_nd.mu_chi2_of_prot_cand, df_nd.mu_chi2_of_mu_cand],
                   [df_fd.mu_chi2_of_prot_cand, df_fd.mu_chi2_of_mu_cand]],
@@ -125,31 +137,25 @@ def apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, 
                   ['SBND, Protons', 'SBND, Muons', 'ICARUS, Protons', 'ICARUS, Muons'],
                   'right', 'select as muon')
 
-    # PID cuts
-    bmu = np.linspace(0, 70, 30)
-    plt.hist(df_nd.mu_chi2_of_mu_cand, bins=bmu, histtype='step', label='mu cand')
-    plt.hist(df_nd.mu_chi2_of_prot_cand, bins=bmu, histtype='step', label='prot cand')
-    plt.legend()
-    plt.savefig("mu_score.png")
-    plt.clf()
-    bprot = np.linspace(0, 200, 30)
-    plt.hist(df_nd.prot_chi2_of_mu_cand, bins=bprot, histtype='step', label='mu cand')
-    plt.hist(df_nd.prot_chi2_of_prot_cand, bins=bprot, histtype='step', label='prot cand')
-    plt.legend()
-    plt.savefig("prot_score.png")
-    plt.clf()
+    # Contained cut
+    # df_nd = df_nd[contained_cut(df_nd)]
+    # df_fd = df_fd[contained_cut(df_fd)]
+    # comp_sbnd.append(plot_int(df_nd, 'del_p', "Contained Cut", "int2delp_contained_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
+    # comp_icarus.append(plot_int(df_fd, 'del_p', "Contained Cut", "int2delp_contained_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
+    # plot_int(df_nd, 'del_Tp', "Contained Cut", "int2delpT_contained_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
+    # plot_int(df_fd, 'del_Tp', "Contained Cut", "int2delpT_contained_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
 
+    # PID cuts
     df_nd = df_nd[pid_cut(df_nd.mu_chi2_of_mu_cand, df_nd.mu_chi2_of_prot_cand, 
                           df_nd.prot_chi2_of_mu_cand, df_nd.prot_chi2_of_prot_cand, df_nd.mu_len)]
     df_fd = df_fd[pid_cut(df_fd.mu_chi2_of_mu_cand, df_fd.mu_chi2_of_prot_cand, 
                           df_fd.prot_chi2_of_mu_cand, df_fd.prot_chi2_of_prot_cand, df_fd.mu_len)]
-    comp_sbnd.append(plot_int(df_nd, 'del_p', "1mu+1p Cut", "int3delp_1mu1p_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
-    comp_icarus.append(plot_int(df_fd, 'del_p', "1mu+1p Cut", "int3delp_1mu1p_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
-    plot_int(df_nd, 'del_Tp', "1mu+1p Cut", "int3delpT_1mu1p_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
-    plot_int(df_fd, 'del_Tp', "1mu+1p Cut", "int3delpT_1mu1p_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
-    # plot_fs(df_nd, 'del_p', "1mu+1p Cut", "fs3_1mu1p_sbnd.png", 'SBND')
-    # plot_fs(df_fd, 'del_p', "1mu+1p Cut", "fs3_1mu1p_icarus.png", 'ICARUS')
-
+    comp_sbnd.append(plot_int(df_nd, 'del_p', "1mu+1p Cut", "int4delp_1mu1p_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
+    comp_icarus.append(plot_int(df_fd, 'del_p', "1mu+1p Cut", "int4delp_1mu1p_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
+    plot_int(df_nd, 'del_Tp', "1mu+1p Cut", "int4delpT_1mu1p_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
+    plot_int(df_fd, 'del_Tp', "1mu+1p Cut", "int4delpT_1mu1p_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
+    plot_fs(df_nd, 'del_p', "1mu+1p Cut", "fs3_1mu1p_sbnd.png", 'SBND')
+    plot_fs(df_fd, 'del_p', "1mu+1p Cut", "fs3_1mu1p_icarus.png", 'ICARUS')
 
     # Stub cut
     df_nd_stub = df_nd_stub.reset_index('rec.slc.reco.stub..index', drop=True)
@@ -157,18 +163,18 @@ def apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, 
     sel = sel.intersection(df_nd_stub.index)
     df_nd_stub = df_nd_stub.loc[sel]
     plot_stub_2d(df_nd_stub['length'], df_nd_stub['dqdx'], "SBND.png", "SBND Stub Cut")
-    # plot_stub_2d(df_nd[(df_nd.is_sig != True)], "FPSBND.png", "False Positive SBND Stub Cut")
+    plot_stub_2d(df_nd[(df_nd.is_sig != True)], "FPSBND.png", "False Positive SBND Stub Cut")
     plot_stub_2d(df_fd_stub['length'], df_fd_stub['dqdx'], "ICARUS.png", "ICARUS Stub Cut")
-    # plot_stub_2d(df_fd[(df_fd.is_sig != True)], "FPICARUS.png", "False Positive ICARUS Stub Cut")
+    plot_stub_2d(df_fd[(df_fd.is_sig != True)], "FPICARUS.png", "False Positive ICARUS Stub Cut")
 
     df_nd = df_nd[stub_cut(df_nd)]
     df_fd = df_fd[stub_cut(df_fd)]
-    comp_sbnd.append(plot_int(df_nd, 'del_p', "Stub Cut", "int4delp_stub_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
-    comp_icarus.append(plot_int(df_fd, 'del_p', "Stub Cut", "int4delp_stub_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
-    plot_int(df_nd, 'del_Tp', "Stub Cut", "int4delpT_stub_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
-    plot_int(df_fd, 'del_Tp', "Stub Cut", "int4delpT_stub_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
-    # plot_fs(df_nd, 'del_p', "Stub Cut", "fs4_stub_sbnd.png", 'SBND')
-    # plot_fs(df_fd, 'del_p', "Stub Cut", "fs4_stub_icarus.png", 'ICARUS')
+    comp_sbnd.append(plot_int(df_nd, 'del_p', "Stub Cut", "int5delp_stub_sbnd.png", r"$\delta p$ [GeV/c]", mode_labels, 'SBND', eff_bool=True))
+    comp_icarus.append(plot_int(df_fd, 'del_p', "Stub Cut", "int5delp_stub_icarus.png", r"$\delta p$ [GeV/c]", mode_labels, 'ICARUS', eff_bool=True))
+    plot_int(df_nd, 'del_Tp', "Stub Cut", "int5delpT_stub_sbnd.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'SBND')
+    plot_int(df_fd, 'del_Tp', "Stub Cut", "int5delpT_stub_icarus.png", r"$\delta p_{T}$ [GeV/c]", mode_labels, 'ICARUS')
+    plot_fs(df_nd, 'del_p', "Stub Cut", "fs4_stub_sbnd.png", 'SBND')
+    plot_fs(df_fd, 'del_p', "Stub Cut", "fs4_stub_icarus.png", 'ICARUS')
 
     # Composition plots
     comp_sbnd = np.array(comp_sbnd)
@@ -180,12 +186,11 @@ def apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, 
 
 def main():
     """Main analysis pipeline."""
-    dffile_nd = "/home/nathanielerowe/SBN/cafpyana_gump/sbnd_no_cuts.df"
-    dffile_fd = "/home/nathanielerowe/SBN/cafpyana_gump/icarus_no_cuts.df"
+    dffile_nd = "/exp/sbnd/app/users/nrowe/cafpyana_gump/sbnd_no_cuts.df"
+    dffile_fd = "/exp/sbnd/app/users/nrowe/cafpyana_gump/icarus_no_cuts.df"
     df_nd, df_nd_hdr, df_nd_stub = load_data(dffile_nd)
     df_fd, df_fd_hdr, df_fd_stub = load_data(dffile_fd)
 
-    print('data loaded!')
     df_nd['og_sig_ct'] = len(df_nd.is_sig[df_nd.is_sig == True])
     df_fd['og_sig_ct'] = len(df_fd.is_sig[df_fd.is_sig == True])
 
@@ -193,7 +198,6 @@ def main():
     des_fd_POT = 5e20
     nd_POT = scale_pot(df_nd, df_nd_hdr, des_nd_POT)
     fd_POT = scale_pot(df_fd, df_fd_hdr, des_fd_POT)
-    print("Starting to apply cuts!")
     df_nd, df_fd = apply_cuts(df_nd, df_nd_stub, df_fd, df_fd_stub, nd_POT, fd_POT, dffile_nd, dffile_fd)
 
 if __name__ == "__main__":
