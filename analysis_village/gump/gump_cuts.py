@@ -37,7 +37,7 @@ ICARUSFVCuts = {
         "z": {"min": -894.950652270838 + 10, "max": 894.950652270838 - 50}
     },
     "C1": {
-        "x": {"min": 358.49, "max": 61.94},
+        "x": {"min": 61.94, "max": 358.49},
         "y": {"min": -181.86 + 10, "max": 134.96 - 10},
         "z": {"min": -894.950652270838 + 10, "max": 894.950652270838 - 50}
     }
@@ -49,6 +49,7 @@ def fv_cut(df, det):
                 ((df.x < ICARUSFVCuts['C1']['x']['max']) & (df.x > ICARUSFVCuts['C1']['x']['min']))) &\
                  (df.y < ICARUSFVCuts['C0']['y']['max']) & (df.y > ICARUSFVCuts['C0']['y']['min']) &\
                  (df.z < ICARUSFVCuts['C0']['z']['max']) & (df.z > ICARUSFVCuts['C0']['z']['min'])
+
 
     elif det == "SBND":
 
@@ -103,32 +104,50 @@ def breakdown_mode(var, df):
     ret.append(var[sum([df.genie_mode == i for i in mode_list]) == 0])
     return ret
 
-def tmatchdf(df, mcdf):
-    # filter the columns from the mcdf we want
-    # map old name to new name
-    tosave = {
-      "pdg": "pdg",
-      "is_sig": "is_sig",
-      "genie_mode": "genie_mode"
-    }
+top_labels = ["Signal",
+              "Other numu CC",
+              "NC",
+              "Out of FV",
+              #"Cosmic",
+              "Other"]
 
-    def savecol(c):
-        return c[0] in list(tosave.keys()) 
+def breakdown_top(var, df):
+    ret = [var[df.is_sig == True],
+           var[df.is_other_numucc == True],
+           var[df.is_nc == True],
+           var[df.is_fv == False],
+           #var[df.is_cosmic == True],
+           var[(df.is_sig != True) & (df.is_other_numucc != True) & (df.is_nc != True) & (df.is_fv != False) & (df.is_cosmic != True)]
+           ]
+    return ret
 
-    mcdf_cols = [c for c in mcdf.columns if savecol(c)]
-    mcdf = mcdf[mcdf_cols]
-
-    # Get the column depth matching on both sides
-    mcdf.columns = pd.MultiIndex.from_tuples([(tosave[c[0]], c[1]) if c[0] in tosave else (c[0], c[1]) for c in mcdf.columns])
-    df.columns = pd.MultiIndex.from_tuples([(c, "") for c in df.columns])
-
-    tmatch_df = pd.merge(df, mcdf, how="left", left_on=["__ntuple", "entry", "tmatch_idx"], right_index=True) 
-
-    # Fill nan's for not-matching columns
-    for c in tosave.values():
-        tmatch_df[(c, "")] = tmatch_df[(c, "")].fillna(0.)
-
-    # Systematic weights are all 1 for no truth match
-    tmatch_df.fillna(1, inplace=True)
-
-    return tmatch_df
+# def tmatchdf(df, mcdf):
+#     # filter the columns from the mcdf we want
+#     # map old name to new name
+#     tosave = {
+#       "pdg": "pdg",
+#       "is_sig": "is_sig",
+#       "genie_mode": "genie_mode"
+#     }
+# 
+#     def savecol(c):
+#         return c[0] in list(tosave.keys()) 
+# 
+#     mcdf_cols = [c for c in mcdf.columns if savecol(c)]
+#     mcdf = mcdf[mcdf_cols]
+# 
+#     # Get the column depth matching on both sides
+#     mcdf.columns = pd.MultiIndex.from_tuples([(tosave[c[0]], c[1]) if c[0] in tosave else (c[0], c[1]) for c in mcdf.columns])
+#     df.columns = pd.MultiIndex.from_tuples([(c, "") for c in df.columns])
+# 
+#     tmatch_df = pd.merge(df, mcdf, how="left", left_on=["__ntuple", "entry", "tmatch_idx"], right_index=True) 
+# 
+#     # Fill nan's for not-matching columns
+#     for c in tosave.values():
+#         tmatch_df[(c, "")] = tmatch_df[(c, "")].fillna(0.)
+# 
+#     # Systematic weights are all 1 for no truth match
+#     tmatch_df.fillna(1, inplace=True)
+# 
+#     return tmatch_df
+# 

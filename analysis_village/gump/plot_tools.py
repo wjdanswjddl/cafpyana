@@ -25,16 +25,50 @@ class PlotObj:
 # Colors for plots
 HAWKS_COLORS = ["#315031", "#d54c28", "#1e3f54", "#c89648", "#43140b", "#95af8b"]
 
-top_labels = ["Signal",
-              "Other numu CC",
-              "NC",
-              "Out of FV",
-              "Cosmic",
-              "Other"]
-
 FONTSIZE = 14
 
-def plot_int(df, var, title, outfile, label, mode_labels, det, eff_bool=False):
+def plot_all_cuts(df_nd, df_fd, cut_stage, mode_labels, top_labels, det_labels):
+    """
+    Plots all relevant distributions for a given cut stage for both SBND and ICARUS.
+    Args:
+        df_nd: DataFrame for SBND after cut
+        df_fd: DataFrame for ICARUS after cut
+        cut_stage: str, name of the cut (for titles and filenames)
+        mode_labels: list of str, labels for interaction modes
+        det_labels: tuple, ("SBND", "ICARUS")
+    Returns:
+        (sbnd_composition, icarus_composition): lists of composition fractions for each detector
+    """
+    sbnd_title = f"{cut_stage}"
+    icarus_title = f"{cut_stage}"
+
+    sbnd_file_p = f"intdelp_{cut_stage.lower().replace(' ', '_')}_sbnd.png"
+    icarus_file_p = f"intdelp_{cut_stage.lower().replace(' ', '_')}_icarus.png"
+    plot_int(df_nd, 'del_p', sbnd_title, sbnd_file_p, r"$\delta p$ [GeV/c]", mode_labels, det_labels[0])
+    plot_int(df_fd, 'del_p', icarus_title, icarus_file_p, r"$\delta p$ [GeV/c]", mode_labels, det_labels[1])
+
+    sbnd_file_pT = f"intdelpT_{cut_stage.lower().replace(' ', '_')}_sbnd.png"
+    icarus_file_pT = f"intdelpT_{cut_stage.lower().replace(' ', '_')}_icarus.png"
+    plot_int(df_nd, 'del_Tp', sbnd_title, sbnd_file_pT, r"$\delta p_{T}$ [GeV/c]", mode_labels, det_labels[0])
+    plot_int(df_fd, 'del_Tp', icarus_title, icarus_file_pT, r"$\delta p_{T}$ [GeV/c]", mode_labels, det_labels[1])
+
+    sbnd_file_E = f"intE_{cut_stage.lower().replace(' ', '_')}_sbnd.png"
+    icarus_file_E = f"intE_{cut_stage.lower().replace(' ', '_')}_icarus.png"
+    plot_int(df_nd, 'nu_E', sbnd_title, sbnd_file_E, r"$E_{reco}$ [GeV]", mode_labels, det_labels[0])
+    plot_int(df_fd, 'nu_E', icarus_title, icarus_file_E, r"$E_{reco}$ [GeV]", mode_labels, det_labels[1])
+
+    sbnd_fs_file = f"fs_{cut_stage.lower().replace(' ', '_')}_sbnd.png"
+    icarus_fs_file = f"fs_{cut_stage.lower().replace(' ', '_')}_icarus.png"
+    plot_fs(df_nd, 'del_p', sbnd_title, sbnd_fs_file, det_labels[0])
+    plot_fs(df_fd, 'del_p', icarus_title, icarus_fs_file, det_labels[1])
+
+    sbnd_file_top = f"topE_{cut_stage.lower().replace(' ', '_')}_sbnd.png"
+    icarus_file_top = f"topE_{cut_stage.lower().replace(' ', '_')}_icarus.png"
+    sbnd_comp = plot_top(df_nd, 'nu_E', sbnd_title, sbnd_file_top, r"$E_{reco}$ [GeV]", top_labels, det_labels[0], eff_bool=True)
+    icarus_comp = plot_top(df_fd, 'nu_E', icarus_title, icarus_file_top, r"$E_{reco}$ [GeV]", top_labels, det_labels[1], eff_bool=True)
+    return sbnd_comp, icarus_comp
+
+def plot_top(df, var, title, outfile, label, mode_labels, det, eff_bool=False):
     var_data = df[var]
     og_sig_ct = df['og_sig_ct'].to_numpy()[0]
     glob_scale = df['glob_scale'].to_numpy()[0]
@@ -43,8 +77,10 @@ def plot_int(df, var, title, outfile, label, mode_labels, det, eff_bool=False):
     plt.style.use('default')
     fig, ax = plt.subplots(1, 1, figsize=(6, 4.5))
     pvar = breakdown_mode(var_data, df)
-    n, bins, _ = ax.hist(pvar, bins=np.linspace(0,2,21), stacked=True, label=mode_labels, 
-                        color=HAWKS_COLORS, weights=[glob_scale*np.ones_like(p) for p in pvar])
+    tvar = breakdown_top(var_data, df)
+
+    n, bins, _ = ax.hist(tvar, bins=np.linspace(0,2,21), stacked=True, label=top_labels, 
+                        color=HAWKS_COLORS[:-1], weights=[glob_scale*np.ones_like(t) for t in tvar])
 
     # Style
     ax.tick_params(axis='both', which='both', direction='in', length=6, width=1.5, labelsize=FONTSIZE, top=True, right=True)
@@ -56,10 +92,60 @@ def plot_int(df, var, title, outfile, label, mode_labels, det, eff_bool=False):
     plt.legend(fontsize=FONTSIZE)
 
     sig_ct = len(df.is_sig[df.is_sig == True])
+
+    eff = sig_ct/og_sig_ct
+
+    tot = sum(n[-1])
+    ret = [sum(n[0])/tot]
+    for i in range(1, len(n)):
+        ret.append((sum(n[i])-sum(n[i-1]))/tot)
+
+    pur = ret[0]
+
     if eff_bool:
-        ax.text(0.5, 0.33, f"Purity {{:.2f}}%".format(100*sig_ct/len(df)), 
+        ax.text(0.6, 0.33, f"Purity {{:.2f}}%".format(100*pur), 
                 transform=ax.transAxes, fontsize=FONTSIZE)
-        ax.text(0.5, 0.4, f"Efficiency {{:.2f}}%".format(100*sig_ct/og_sig_ct), 
+        ax.text(0.6, 0.4, f"Efficiency {{:.2f}}%".format(100*eff), 
+                transform=ax.transAxes, fontsize=FONTSIZE)
+
+    plt.tight_layout()
+    plt.gca().yaxis.get_offset_text().set_fontsize(FONTSIZE)
+    plt.savefig("EventSelectionPlots/"+outfile, bbox_inches='tight')
+    plt.clf()
+    plt.close()
+
+    return ret
+
+def plot_int(df, var, title, outfile, label, mode_labels, det, eff_bool=False):
+    var_data = df[var]
+    og_sig_ct = df['og_sig_ct'].to_numpy()[0]
+    glob_scale = df['glob_scale'].to_numpy()[0]
+
+    # Use SBND style: thick axes, ticks in, bold label, no 'Work in Progress', detector name bold
+    plt.style.use('default')
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4.5))
+    pvar = breakdown_mode(var_data, df)
+    tvar = breakdown_top(var_data, df)
+    n, bins, _ = ax.hist(pvar, bins=np.linspace(0,2,21), stacked=True, label=mode_labels, 
+                      color=HAWKS_COLORS, weights=[glob_scale*np.ones_like(p) for p in pvar])
+
+    # Style
+    ax.tick_params(axis='both', which='both', direction='in', length=6, width=1.5, labelsize=FONTSIZE, top=True, right=True)
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.5)
+    ax.set_xlabel(label, fontsize=FONTSIZE, fontweight='bold')
+    ax.set_ylabel('Events', fontsize=FONTSIZE, fontweight='bold')
+    ax.set_title(f"$\\bf{{{det}}}$  {title}", fontsize=FONTSIZE+2)
+    plt.legend(fontsize=FONTSIZE)
+
+    sig_ct = len(df.is_sig[df.is_sig == True])
+
+    pur = sig_ct/len(df)
+    eff = sig_ct/og_sig_ct
+    if eff_bool:
+        ax.text(0.5, 0.33, f"Purity {{:.2f}}%".format(100*pur), 
+                transform=ax.transAxes, fontsize=FONTSIZE)
+        ax.text(0.5, 0.4, f"Efficiency {{:.2f}}%".format(100*eff), 
                 transform=ax.transAxes, fontsize=FONTSIZE)
 
     plt.tight_layout()
@@ -175,7 +261,7 @@ def plot_nuscore_cut(var_nd, cut_vals_nd, var_fd, cut_vals_fd, title, outfile, x
     n2, bins, _ = ax1.hist(var_nd[1], bins=b, histtype='step', color=HAWKS_COLORS[0], 
                            label=labels[1], stacked=False, weights=[1/len(var_nd[1])]*len(var_nd[1]), linestyle='--')
     n3, bins, _ = ax2.hist(var_fd[0], bins=b, histtype='step', color=HAWKS_COLORS[1], 
-                           label=labels[2], stacked=False, weights=[1/len(var_fd[0])]*len(var_fd[0]), linestyle='--')
+                           label=labels[2], stacked=False, weights=[1/len(var_fd[0])]*len(var_fd[0]), linestyle='-')
 
     n4, bins, _ = ax2.hist(var_fd[1], bins=b, histtype='step', color=HAWKS_COLORS[1], 
                            label=labels[3], stacked=False, weights=[1/len(var_fd[1])]*len(var_fd[1]), linestyle='--')
@@ -191,7 +277,7 @@ def plot_nuscore_cut(var_nd, cut_vals_nd, var_fd, cut_vals_fd, title, outfile, x
     ax2.legend(fontsize=FONTSIZE)
 
     max_1 = np.max([n1, n2])*3.0
-    max_2 = np.max(n4)*3.0
+    max_2 = np.max(n4)*12.0
     ax1.vlines(cut_vals_nd, 0, max_1, colors='black', linestyle='--')
     ax2.vlines(cut_vals_fd, 0, max_2, colors='black', linestyle='--')
     ax1.set_ylim(0, max_1)
@@ -205,27 +291,6 @@ def plot_nuscore_cut(var_nd, cut_vals_nd, var_fd, cut_vals_fd, title, outfile, x
     ax2.text(cut_vals_fd[0]+(xlims[1]-xlims[0])/20, 0.35*max_2, arrow_txt, color='red')
 
     fig.suptitle(title, fontsize=FONTSIZE+2, fontweight='bold', x=0.01, ha='left')
-    plt.tight_layout()
-    plt.savefig("EventSelectionPlots/"+outfile, bbox_inches='tight')
-    plt.clf()
-    plt.close()
-
-def plot_cut(var_nd, cut_vals_nd, var_fd, cut_vals_fd, title, outfile, xlims=[0, 100], 
-             labels=['SBND', 'ICARUS'], arrow_dir='None', arrow_txt='None'):
-    plt.style.use('default')
-    b = np.linspace(xlims[0], xlims[1], 40)
-    fig, ax1 = plt.subplots(1, 1, figsize=(6, 4.5))
-    n, bins, _ = ax1.hist(var_nd, bins=b, histtype='step', color=HAWKS_COLORS[0], label='SBND')
-    n, bins, _ = ax1.hist(var_fd, bins=b, histtype='step', color=HAWKS_COLORS[1], label='ICARUS')
-    ax1.vlines(cut_vals_fd, 0, np.max(n), colors='black', linestyle='--')
-    # Style
-    ax1.tick_params(axis='both', which='both', direction='in', length=6, width=1.5, labelsize=FONTSIZE, top=True, right=True)
-    for spine in ax1.spines.values():
-        spine.set_linewidth(1.5)
-    ax1.set_xlabel('x label', fontsize=FONTSIZE, fontweight='bold')
-    ax1.set_ylabel('Events', fontsize=FONTSIZE, fontweight='bold')
-    fig.suptitle(title, fontsize=FONTSIZE+2, fontweight='bold', x=0.01, ha='left')
-    plt.legend(fontsize=FONTSIZE)
     plt.tight_layout()
     plt.savefig("EventSelectionPlots/"+outfile, bbox_inches='tight')
     plt.clf()
@@ -264,16 +329,7 @@ def plot_composition(percentages, time_labels=None, components=None, title='', o
     percentages = np.flip(np.array(percentages), axis=0)
     num_time_points, num_components = percentages.shape
 
-    print(time_labels)
-    print(percentages.shape)
-
-    if components is None:
-        components = [f"Component {i+1}" for i in range(num_components)]
-    if time_labels is None:
-        time_labels = [f"Time {i+1}" for i in range(num_time_points)]
-
     plt.style.use('default')
-    print(num_time_points)
     y = np.arange(num_time_points)
 
     ax = plt.gca()
@@ -285,8 +341,6 @@ def plot_composition(percentages, time_labels=None, components=None, title='', o
         plt.barh(y, percentages[:, i], left=left, label=components[i])
         left += percentages[:, i]
 
-    print(y)
-    print(time_labels)
     plt.yticks(y, labels=reversed(time_labels), fontsize=FONTSIZE)
     plt.tick_params(axis='both', which='both', direction='in', length=6, width=1.5, labelsize=FONTSIZE, top=True, right=True)
     plt.xlabel('Percentage', fontsize=FONTSIZE, fontweight='bold')
