@@ -38,7 +38,6 @@ def make_pandora_no_cuts_df(f):
     trkdf.loc[trkdf.pfp.trk.is_contained, ("pfp", "trk", "P", "p_muon", "", "")]  = trkdf.loc[(trkdf.pfp.trk.is_contained), ("pfp", "trk", "rangeP", "p_muon", "", "")]
     trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "P", "p_muon","", "")] = trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "mcsP", "fwdP_muon", "", "")]
 
-
     trkdf[("pfp", "trk", "P", "p_pion", "", "")] = np.nan
     trkdf.loc[trkdf.pfp.trk.is_contained, ("pfp", "trk", "P", "p_pion", "", "")]  = trkdf.loc[(trkdf.pfp.trk.is_contained), ("pfp", "trk", "rangeP", "p_pion", "", "")]
     trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "P", "p_pion", "", "")] = trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "mcsP", "fwdP_pion", "", "")]
@@ -100,7 +99,6 @@ def make_pandora_no_cuts_df(f):
         has_stub = pd.Series(dtype='float', name='has_stub', index=empty_index)
         is_contained = pd.Series(dtype='float', name='is_contained', index=empty_index)
     else:
-        pd.set_option('display.max_rows', None)
         tki = transverse_kinematics(slcdf.mu.pfp.trk.P.p_muon, slcdf.mu.pfp.trk.cos, slcdf.p.pfp.trk.P.p_proton, slcdf.p.pfp.trk.cos)
         nu_E = neutrino_energy(slcdf.mu.pfp.trk.P.p_muon, slcdf.mu.pfp.trk.cos, slcdf.p.pfp.trk.P.p_proton, slcdf.p.pfp.trk.cos)
         del_p = tki['del_p']
@@ -164,17 +162,10 @@ def make_pandora_no_cuts_df(f):
         'has_stub': slc_has_stub_series
     })
 
-    EndingRows = len(slcdf)
-    if(StartingRows != EndingRows):
-        print("You lost a row somewhere! This could impact efficiency calculations!")
-        print("Starting Rows:", StartingRows)
-        print("Ending Rows:", EndingRows)
-        sys.exit()
     return slcdf
 
 def make_gump_nudf(f):
     nudf = make_mcdf(f)
-    StartingLength = len(nudf)
     nudf["ind"] = nudf.index.get_level_values(1)
     # wgtdf = pd.concat([bnbsyst.bnbsyst(f, nudf.ind), geniesyst.geniesyst_sbnd(f, nudf.ind)], axis=1)
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
@@ -201,7 +192,6 @@ def make_gump_nudf(f):
     is_numu = (nudf.pdg == 14)
     is_other_numucc = (is_numu & is_cc & (is_1p0pi == 0) & is_fv)
     is_sig = is_fv & is_1p0pi & is_numu & is_cc
-    w = nudf.w
 
     nudf['nuint_categ'] = genie_mode 
 
@@ -210,28 +200,21 @@ def make_gump_nudf(f):
     
     true_tki = transverse_kinematics(muon_p_series, nudf.mu.genp, proton_p_series, nudf.mu.genp)
     true_del_p = true_tki['del_p']
-    true_del_Tp = true_tki['del_Tp']
-    true_del_phi = true_tki['del_phi']
-    true_del_alpha = true_tki['del_alpha']
-    true_mu_E = true_tki['mu_E']
-    true_p_E = true_tki['p_E']
 
     true_nu_E = neutrino_energy(muon_p_series, nudf.mu.genp, proton_p_series, nudf.mu.genp)
 
     this_nudf = pd.DataFrame({
         'true_nu_E': true_nu_E,
-        'true_mu_E': true_mu_E,
-        'true_p_E': true_p_E,
-        'true_del_p': true_del_p,
-        'true_del_Tp': true_del_Tp,
-        'true_del_phi': true_del_phi,
         'true_del_p': true_del_p,
         'genie_mode': genie_mode, 
-        'is_fv': is_fv, 
-        'is_1p0pi': is_1p0pi, 
-        'is_numu': is_numu, 
-        'is_cc': is_cc, 
         'is_sig': is_sig, 
+        'is_cosmic': is_cosmic, 
+        'is_nc': is_nc, 
+        'is_other_numucc': is_other_numucc, 
+        'is_fv': is_fv, 
+        'pos_x' : nudf.position.x,
+        'pos_y' : nudf.position.y,
+        'pos_z' : nudf.position.z,
         'pdg': pdg,
         'nmu': nmu,
         'nn': nn,
@@ -242,9 +225,4 @@ def make_gump_nudf(f):
 
     this_nudf.columns = pd.MultiIndex.from_tuples([(col, '') for col in this_nudf.columns])
 
-    EndingLength = len(this_nudf)
-    if StartingLength != EndingLength:
-        print("StartingLength: ",StartingLength)
-        print("EndingLength: ",EndingLength)
-        sys.exit()
     return this_nudf
