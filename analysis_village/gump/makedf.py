@@ -166,6 +166,9 @@ def make_pandora_no_cuts_df(f):
         'has_stub': slc_has_stub_series
     })
 
+    # include some meta-data
+    slcdf['detector'] = DETECTOR
+
     # add in stub info, per range bin
     stubdf = stubdf[stubdf.plane == 2]
 
