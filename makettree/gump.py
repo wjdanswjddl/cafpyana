@@ -6,6 +6,8 @@ import pyanalib.pandas_helpers as ph
 import awkward as ak
 import numpy as np
 
+from analysis_village.gump.gump_cuts import *
+
 def make_gump_ttree_mc(dfname, split):
     recodf_key = 'evt_' + str(split)
     hdrdf_key = 'hdr_' + str(split)
@@ -19,6 +21,9 @@ def make_gump_ttree_mc(dfname, split):
     this_pot = sum(hdrdf.pot)
     target_POT = 4.58e18
     POT_scale = target_POT / this_pot
+
+    ## Figure out which detector this is
+    DETECTOR = recodf.detector.iloc[0]
 
     ## Work for the reco df
     matchdf = recodf.copy()
@@ -34,9 +39,16 @@ def make_gump_ttree_mc(dfname, split):
 
     recodf = recodf.reset_index()
     recodf = pd.concat([recodf, recodf_wgt_out], axis = 1)
-    
+
+    ## Apply cuts
+    slc_vtx = pd.DataFrame({'x':recodf.slc_vtx_x, 
+                            'y':recodf.slc_vtx_y,
+                            'z':recodf.slc_vtx_z})
+
+    recodf = recodf[fv_cut(slc_vtx, DETECTOR)]
+
     ## Work for the true df
-    mcnuwgtdf = mcnuwgtdf[mcnuwgtdf.nuint_categ == 1]
+    mcnuwgtdf = mcnuwgtdf[mcnuwgtdf.is_sig == True]
     mcnuwgtdf = mcnuwgtdf.reset_index()
 
     truedf_wgt_out = pd.DataFrame({}, index=mcnuwgtdf.index)
