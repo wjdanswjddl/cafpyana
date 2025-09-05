@@ -39,6 +39,7 @@ def make_pandora_no_cuts_df(f):
 
     # mu candidate is track pfp with smallest chi2_mu/chi2_p
     mudf = trkdf[(trkdf.pfp.trackScore> 0.0)].sort_values(trkdf.pfp.index.names[:-1] + [("pfp", "trk", "chi2pid","I2","mu_over_p", "")]).groupby(level=[0, 1]).head(1)
+    # mudf = trkdf[(trkdf.pfp.trackScore> 0.0)].sort_values(trkdf.pfp.index.names[:-1] + [("pfp", "trk", "chi2pid","I2","mu_over_p", "")]).groupby(level=[0, 1]).head(1)
     mudf.columns = pd.MultiIndex.from_tuples([tuple(["mu"] + list(c)) for c in mudf.columns])
     slcdf = multicol_merge(slcdf, mudf.droplevel(-1), left_index=True, right_index=True, how="left", validate="one_to_one")
     idx_mu = mudf.index
@@ -99,6 +100,7 @@ def make_pandora_no_cuts_df(f):
 
     slc_vtx = slcdf.slc.vertex
     nu_score = slcdf.slc.nu_score
+    true_pdg = slcdf.slc.truth.pdg
     crlongtrkdiry = slcdf.slc.nuid.crlongtrkdiry
     is_clear_cosmic = slcdf.slc.is_clear_cosmic
     other_shw_length = slcdf.other_shw_length
@@ -130,6 +132,8 @@ def make_pandora_no_cuts_df(f):
         'slc_vtx_z': slc_vtx.z,
         'is_clear_cosmic': is_clear_cosmic,
         'nu_score': nu_score,
+        'true_pdg': true_pdg,
+        'is_cosmic': (true_pdg == -1),
         'is_contained': is_contained,
         'crlongtrkdiry': crlongtrkdiry,
         'mu_chi2_of_mu_cand': mu_chi2_of_mu_cand,
@@ -187,8 +191,11 @@ def make_pandora_no_cuts_df(f):
     return slcdf
 
 def make_gump_nudf(f, is_slc=False):
+    # note: setting is_slc to false results in pdg for the slice not being used
+    # and instead only mcnu pdg info gets saved, but this excludes the -1 pdg for cosmic
     nudf = make_mcdf(f, slc_mcbranches, slc_mcprimbranches) if is_slc else make_mcdf(f)
     nudf["ind"] = nudf.index.get_level_values(1)
+
     # wgtdf = pd.concat([bnbsyst.bnbsyst(f, nudf.ind), geniesyst.geniesyst_sbnd(f, nudf.ind)], axis=1)
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
 
@@ -202,7 +209,6 @@ def make_gump_nudf(f, is_slc=False):
     is_fv = fv_cut(nudf.position, DETECTOR)
     is_cc = nudf.iscc
     is_nc = (nudf.iscc == 0)
-    is_cosmic = (nudf.pdg == -1)
     genie_mode = nudf.genie_mode
     pdg = nudf.pdg
     nmu = nudf.nmu_27MeV
@@ -230,7 +236,6 @@ def make_gump_nudf(f, is_slc=False):
         'true_del_p': true_del_p,
         'genie_mode': genie_mode, 
         'is_sig': is_sig, 
-        'is_cosmic': is_cosmic, 
         'is_nc': is_nc, 
         'is_other_numucc': is_other_numucc, 
         'is_fv': is_fv, 
