@@ -38,7 +38,6 @@ void MakesBruce(const char* fileName = "input.root", const char* output_filename
 
     TFile *outfile = TFile::Open(output_filename, "recreate");
     TTree *wgt_outtree = new TTree("multisigmaTree", "Systematic weights formatted for PROfit");
-    // TTree *var_outtree = new TTree("CopySelectedEvents", "Systematic weights formatted for PROfit");
 
     tree->SetBranchStatus("*", 0);
     for(int b=0; b < AllBranches->GetEntries(); b++){
@@ -58,7 +57,6 @@ void MakesBruce(const char* fileName = "input.root", const char* output_filename
         // We assume the branch contains std::vector<double>.
         // A pointer to a vector of doubles is created to hold the data.
         double weights[7];
-        // std::vector<double> *weights = nullptr;
 
         // Link the branch in the TTree to our C++ vector pointer.
         // ROOT will handle the memory allocation for the vector.
@@ -73,7 +71,6 @@ void MakesBruce(const char* fileName = "input.root", const char* output_filename
             // Load the data for the i-th entry. This fills our 'weights' vector.
             tree->GetEntry(i);
             event_wgts.clear();
-            // std::cout << "--- Entry " << i << " ---" << std::endl;
 
             // Check if the weights vector is valid and not empty for this entry.
             // Loop through the elements of the vector and print them.
@@ -86,7 +83,6 @@ void MakesBruce(const char* fileName = "input.root", const char* output_filename
 
     }
     tree->CopyTree("");
-    //var_outtree = tree->CopyTree("");
     // --- Clean up ---
     std::cout << "--- End of processing ---" << std::endl;
     file->Close();

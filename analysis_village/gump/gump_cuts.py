@@ -15,7 +15,6 @@ sys.path.insert(0, workspace_root + "/../../")
 import analysis_village.gump.kinematics
 from makedf.util import *
 
-
 # Fiducial volume cuts for SBND and ICARUS
 SBNDFVCuts = {
     "lowYZ": {
@@ -100,8 +99,8 @@ def pid_cut(mu_chi2_mu_cand, mu_chi2_prot_cand, prot_chi2_mu_cand,
              (mu_len > MUSEL_LEN_TH)
 
     PSEL_MUSCORE_TH, PSEL_PSCORE_TH = 0, 90
-    p_cut = (mu_chi2_prot_cand > PSEL_MUSCORE_TH) & \
-            (prot_chi2_prot_cand < PSEL_PSCORE_TH)
+    p_cut = (mu_chi2_of_prot_cand > PSEL_MUSCORE_TH) & \
+            (prot_chi2_of_prot_cand < PSEL_PSCORE_TH)
 
     return mu_cut & p_cut
 
@@ -130,15 +129,16 @@ top_labels = ["Signal",
               "Other numu CC",
               "NC",
               "Out of FV",
-              #"Cosmic",
+              "Cosmic",
               "Other"]
 
 def breakdown_top(var, df):
+    print(df.is_cosmic)
     ret = [var[df.is_sig == True],
            var[df.is_other_numucc == True],
            var[df.is_nc == True],
            var[df.is_fv == False],
-           #var[df.is_cosmic == True],
+           var[df.is_cosmic == True],
            var[(df.is_sig != True) & (df.is_other_numucc != True) & (df.is_nc != True) & (df.is_fv != False) & (df.is_cosmic != True)]
            ]
     return ret
