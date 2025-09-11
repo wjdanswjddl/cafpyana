@@ -49,6 +49,9 @@ def make_potdf_numi(f):
     pot = loadbranches(f["recTree"], numipotbranches).rec.hdr.numiinfo
     return pot
 
+def make_triggerdf(f):
+    return  loadbranches(f["recTree"], trigger_info_branches).rec.hdr.triggerinfo
+
 def make_mcnuwgtdf(f):
     return make_mcnudf(f, include_weights=True, multisim_nuniv=1000)
 
@@ -95,6 +98,10 @@ def make_crtspdf(f):
     crtspdf = loadbranches(f["recTree"], crtspbranches).rec
     return crtspdf
 
+def make_crthitdf(f):
+    crthitdf = loadbranches(f["recTree"], crthitbranches).rec.crt_hits
+    return crthitdf
+
 def make_opflashdf(f):
     opflashdf = loadbranches(f["recTree"], opflashbranches).rec.opflashes
     return opflashdf
@@ -126,8 +133,38 @@ def make_trkdf(f, scoreCut=False, requiret0=False, requireCosmic=False, mcs=Fals
 
     return trkdf
 
-def make_trkhitdf(f):
-    df = loadbranches(f["recTree"], trkhitbranches).rec.slc.reco.pfp.trk.calo.I2.points
+def make_trkhitdf(f, plane=2):
+    branches = [trkhitbranches_P0, trkhitbranches_P1, trkhitbranches][plane]
+    df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo.I2.points
+
+    # ----- sbnd or icarus? -----
+    det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+    if (1 == det.unique()):
+        det = "SBND"
+    else:
+        det = "ICARUS"
+
+    # get the cryostat
+    df = df.merge(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.producer"]).rec.slc.reco.pfp.trk.producer.rename("cryo"),  how="left", left_index=True, right_index=True)
+
+    # save the plane
+    df["plane"] = plane
+
+    # Add in the run, useful in calibrations
+    df = df.merge(loadbranches(f["recTree"], ["rec.hdr.run"]).rec.hdr, how="left", left_index=True, right_index=True)
+
+    # Add in the track phi angle
+    #
+    # TODO: (when ready) -- get this from the hitdf
+    df = df.merge(np.arccos(np.abs(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.dir.x"]).rec.slc.reco.pfp.trk.dir.x)).rename("phi"), how="left", left_index=True, right_index=True) 
+
+    # Add in the efield
+    #
+    # TODO: (when ready) -- get this from the hitdf
+    df["efield"] = Efield_IC if (det == "ICARUS") else Efield_sbnd
+
+    # and the density
+    df["rho"] = LAr_density_gmL_IC if (det == "ICARUS") else LAr_density_gmL_sbnd
 
     # Firsthit and Lasthit info
     ihit = df.index.get_level_values(-1)
@@ -136,7 +173,7 @@ def make_trkhitdf(f):
     lasthit = df.groupby(level=list(range(df.index.nlevels-1))).tail(1).copy()
     lasthit["lasthit"] = True
     df["lasthit"] = lasthit.lasthit
-    df.lasthit = df.lasthit.fillna(False)
+    df.lasthit = df.lasthit.fillna(False).infer_objects()
 
     return df
 
