@@ -4,6 +4,8 @@ from .util import *
 from .calo import *
 from . import numisyst, g4syst, geniesyst, bnbsyst
 
+pd.set_option('future.no_silent_downcasting', True)
+
 PDG = {
     "muon": [13, "muon", 0.105,],
     "proton": [2212, "proton", 0.938272,],
@@ -156,15 +158,16 @@ def make_trkhitdf(f, plane=2):
     # Add in the track phi angle
     #
     # TODO: (when ready) -- get this from the hitdf
-    df = df.merge(np.arccos(np.abs(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.dir.x"]).rec.slc.reco.pfp.trk.dir.x)).rename("phi"), how="left", left_index=True, right_index=True) 
+    with np.errstate(invalid='ignore'):
+        df = df.merge(np.arccos(np.abs(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.dir.x"]).rec.slc.reco.pfp.trk.dir.x)).rename("phi"), how="left", left_index=True, right_index=True) 
 
     # Add in the efield
     #
     # TODO: (when ready) -- get this from the hitdf
-    df["efield"] = Efield_IC if (det == "ICARUS") else Efield_sbnd
+    df["efield"] = Efield_icarus if (det == "ICARUS") else Efield_sbnd
 
     # and the density
-    df["rho"] = LAr_density_gmL_IC if (det == "ICARUS") else LAr_density_gmL_sbnd
+    df["rho"] = LAr_density_gmL_icarus if (det == "ICARUS") else LAr_density_gmL_sbnd
 
     # Firsthit and Lasthit info
     ihit = df.index.get_level_values(-1)
@@ -293,11 +296,6 @@ def make_spine_df(f, trkDistCut=-1, requireFiducial=True, **trkArgs):
     return eslcdf
 
 def make_stubs(f, det="ICARUS"):
-    alpha_sbnd = 0.930                     
-    LAr_density_gmL_sbnd = 1.38434
-    Efield_sbnd = 0.5                           
-    beta_sbnd = 0.212 / (LAr_density_gmL_sbnd * Efield_sbnd)  
-    
     stubdf = loadbranches(f["recTree"], stubbranches)
     stubdf = stubdf.rec.slc.reco.stub
 
@@ -316,21 +314,9 @@ def make_stubs(f, det="ICARUS"):
 
     hdrdf = make_mchdrdf(f)
     ismc = hdrdf.ismc.iloc[0]
-    def dEdx2dQdx_mc(dEdx): # MC parameters
-        if det == "SBND":
-            return np.log(alpha_sbnd + dEdx*beta_sbnd) / (Wion*beta_sbnd)
-        beta = MODB_mc / (LAr_density_gmL_mc * Efield_mc)
-        alpha = MODA_mc
-        return np.log(alpha + dEdx*beta) / (Wion*beta)
-    def dEdx2dQdx_data(dEdx): # data parameters
-        
-        if det == "SBND":
-            return np.log(alpha_sbnd + dEdx*beta_sbnd) / (Wion*beta_sbnd)
-        beta = MODB_data / (LAr_density_gmL_data * Efield_data)
-        alpha = MODA_data
-        return np.log(alpha + dEdx*beta) / (Wion*beta)
+    def dEdx2dQdx(dEdx): # MC parameters
+        return recombination_sbnd(dEdx, np.pi/2) if det == "SBND" else recombination_icarus(dEdx, np.pi/2)
 
-    dEdx2dQdx = dEdx2dQdx_mc if ismc else dEdx2dQdx_data
     MIP_dqdx = dEdx2dQdx(1.7) 
 
     stub_end_charge = stubhitdf.charge[stubhitdf.wire == stubhitdf.hit_w].groupby(level=[0,1,2,3]).first().groupby(level=[0,1,2]).first()
@@ -362,17 +348,11 @@ def make_stubs(f, det="ICARUS"):
     stubdf["truth_interaction_id"] = stubdf.truth.p.interaction_id 
     stubdf["truth_gen_E"] = stubdf.truth.p.genE 
 
-    # convert charge to energy
-    if ismc:
-        stubdf["ke"] = Q2KE_mc(stubdf.Q)
-        # also do calorimetric variations
-        # TODO: Systematic variations
-        stubdf["ke_callo"] = np.nan # Q2KE_mc_callo(stubdf.Q)
-        stubdf["ke_calhi"] = np.nan # Q2KE_mc_calhi(stubdf.Q)
-    else:
-        stubdf["ke"] = Q2KE_mc(stubdf.Q) ## FIXME
-        stubdf["ke_callo"] = np.nan
-        stubdf["ke_calhi"] = np.nan
+    # TODO: convert charge to energy
+    stubdf["ke"] = np.nan # Q2KE(stubdf.Q)
+    # TODO: also do calorimetric variations
+    stubdf["ke_callo"] = np.nan # Q2KE_mc_callo(stubdf.Q)
+    stubdf["ke_calhi"] = np.nan # Q2KE_mc_calhi(stubdf.Q)
 
     stubdf.ke = stubdf.ke.fillna(0)
     stubdf.Q = stubdf.Q.fillna(0)

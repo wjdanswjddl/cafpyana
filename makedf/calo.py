@@ -16,9 +16,9 @@ def ellipsoid_beta(phi, B90=B90, R=R):
 LAr_density_gmL_sbnd = 1.38434
 Efield_sbnd = 0.5                           
 
-# ICARUS detector parameters
-LAr_density_gmL_IC = 1.390
-Efield_IC = 0.4938
+# icarusARUS detector parameters
+LAr_density_gmL_icarus = 1.390
+Efield_icarus = 0.4938
 
 def recombination_cor(dQdx, phi, E=0.5, rho=1.39, A=MODA, B90=B90, R=R):
     alpha = A
@@ -28,9 +28,22 @@ def recombination_cor(dQdx, phi, E=0.5, rho=1.39, A=MODA, B90=B90, R=R):
 
     return dEdx
 
+def recombination_cor_sbnd(dQdx, phi):
+    return recombination_cor(dQdx, phi, Efield_sbnd, LAr_density_gmL_sbnd)
+
+def recombination_cor_icarus(dQdx, phi):
+    return recombination_cor(dQdx, phi, Efield_icarus, LAr_density_gmL_icarus)
+
 def recombination(dEdx, phi, E=0.5, rho=1.39, A=MODA, B90=B90, R=R):
     alpha = A
     beta = ellipsoid_beta(phi, B90, R) / (rho * E)
 
     dQdx = np.log(alpha + dEdx*beta) / (Wion * beta)
     return dQdx
+
+def recombination_sbnd(dEdx, phi):
+    return recombination(dEdx, phi, Efield_sbnd, LAr_density_gmL_sbnd)
+
+def recombination_icarus(dEdx, phi):
+    return recombination(dEdx, phi, Efield_icarus, LAr_density_gmL_icarus)
+
