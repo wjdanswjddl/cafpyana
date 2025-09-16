@@ -1,4 +1,5 @@
 from pyanalib.pandas_helpers import *
+import pyanalib.calo_helpers as caloh
 from .branches import *
 from .util import *
 from .calo import *
@@ -32,6 +33,16 @@ TRUE_KE_THRESHOLDS = {"nmu_27MeV": ["muon", 0.027],
                       "npi_30MeV": ["pipm", 0.03],
                       "nn_0MeV": ["neutron", 0.0]
                       }
+
+## == For updating dE/dx and chi2_pid
+#### == use pandora_df_calo_update to apply these changes
+CALO_PARAMS = {
+    "alpha_emb": 0.904,
+    "beta_90": 0.204,
+    "R_emb": 1.25,
+    "c_cal_frac": [1., 1., 1.],
+    "etau": [100., 100.], ## first value for MC and second value for data
+}
 
 def make_hdrdf(f):
     hdr = loadbranches(f["recTree"], hdrbranches).rec.hdr
@@ -128,9 +139,12 @@ def make_trkdf(f, scoreCut=False, requiret0=False, requireCosmic=False, mcs=Fals
 
     return trkdf
 
-def make_trkhitdf(f):
-    df = loadbranches(f["recTree"], trkhitbranches).rec.slc.reco.pfp.trk.calo.I2.points
-
+def make_trkhitdf(f, plane = 2):
+    plane_str = str(plane)
+    df = loadbranches(f["recTree"], trkhitbranches_perplane(plane)).rec.slc.reco.pfp.trk.calo
+    df = df['I' + plane_str]
+    df = df.points
+    
     # Firsthit and Lasthit info
     ihit = df.index.get_level_values(-1)
     df["firsthit"] = ihit == 0
@@ -219,9 +233,40 @@ def make_mcprimdf(f):
     mcprimdf = loadbranches(f["recTree"], mcprimbranches)
     return mcprimdf
 
-def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, **trkArgs):
+def make_pandora_df_calo_update(f, **trkArgs):
+    pandoradf = make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, updatecalo=True, **trkArgs)
+    return pandoradf
+
+def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, updatecalo=False, **trkArgs):
     # load
     trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
+    if updatecalo:
+        hdrdf = make_mchdrdf(f)
+        ismc = hdrdf.ismc.iloc[0]
+        chi2_pids = []
+        for plane in range(2, 3):
+            hitdf = make_trkhitdf(f, plane)
+
+            trk_keys = trkdf.index.unique()
+            hit_keys3 = hitdf.index.droplevel(-1)  # -1 since hitdf has an additional index
+            mask_match = hit_keys3.isin(trk_keys)
+            hitdf = hitdf[mask_match]
+            
+            this_etau = CALO_PARAMS["etau"][1]
+            if ismc:
+                this_etau = CALO_PARAMS["etau"][0]
+            new_dedx = caloh.new_dedx(hitdf, CALO_PARAMS["c_cal_frac"][plane], plane, CALO_PARAMS["alpha_emb"], CALO_PARAMS["beta_90"], CALO_PARAMS["R_emb"], this_etau, ismc)
+            #hitdf[('dedx', '')] = new_dedx
+
+            for par in ['muon', 'pion', 'proton']:
+                this_chi2_new = hitdf.groupby(level=['entry', 'rec.slc..index', 'rec.slc.reco.pfp..index']).apply(lambda group: caloh.calculate_chi2_for_entry(group, par))
+                this_chi2_new = this_chi2_new.apply(pd.Series).rename(columns={0: "chi2", 1: "ndof"})
+
+                this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new', '')
+                this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new', '')
+                trkdf[this_chi2_col] = this_chi2_new.chi2
+                trkdf[this_ndof_col] = this_chi2_new.ndof
+                
     slcdf = make_slcdf(f)
 
     # merge in tracks
@@ -238,6 +283,9 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, 
     if requireFiducial:
         slcdf = slcdf[InFV(slcdf.slc.vertex, 50)]
 
+
+    print(slcdf.pfp.trk.chi2pid.head(50))
+    print(slcdf.pfp.trk.len)
     return slcdf
 
 def make_spine_df(f, trkDistCut=-1, requireFiducial=True, **trkArgs):

@@ -52,6 +52,27 @@ bnbpotbranches = [
     "rec.hdr.bnbinfo.TOR875",
 ]
 
+sbndframebranches = [
+    "rec.sbnd_frames.frameApplyAtCaf",
+    "rec.sbnd_frames.frameHltBeamGate",
+    "rec.sbnd_frames.frameHltCrtt1",
+    "rec.sbnd_frames.frameTdcBes",
+    "rec.sbnd_frames.frameTdcCrtt1",
+    "rec.sbnd_frames.frameTdcRwm",
+    "rec.sbnd_frames.timingType",
+]
+
+sbndtimingbranches = [
+    "rec.sbnd_timings.hltBeamGate",
+    "rec.sbnd_timings.hltCrtt1",
+    "rec.sbnd_timings.hltEtrig",
+    "rec.sbnd_timings.rawDAQHeaderTimestamp",
+    "rec.sbnd_timings.tdcBes",
+    "rec.sbnd_timings.tdcCrtt1",
+    "rec.sbnd_timings.tdcEtrig",
+    "rec.sbnd_timings.tdcRwm",
+]
+
 trueparticlenames = [
     "start_process",
     "end_process",
@@ -154,6 +175,8 @@ trkhitbranches_perplane = lambda IPLANE : [
     trkbranch + "calo.%i.points.pitch"% IPLANE,
     trkbranch + "calo.%i.points.integral"% IPLANE,
     trkbranch + "calo.%i.points.rr"% IPLANE,
+    trkbranch + "calo.%i.points.phi"% IPLANE,
+    trkbranch + "calo.%i.points.efield"% IPLANE,
     trkbranch + "calo.%i.points.wire"% IPLANE,
     trkbranch + "calo.%i.points.tpc"% IPLANE,
     trkbranch + "calo.%i.points.sumadc"% IPLANE,
