@@ -61,7 +61,7 @@ def particle_chi2(dEdx, ResRange, particle, dedx_a0, dedx_a1):
     N_skip = 1
     dEdx_truncate_upper = 1000.0
     dEdx_truncate_bellow = 0.0
-    this_chi2 = 0.0
+    max_res_range = 25.
     npt = 0
 
     dedx_exp = pd.cut(ResRange, chi2pid_temp[particle]["chi2_rr_arrs"], labels=chi2pid_temp[particle]["chi2_dEdx_arrs"]).astype(float)
@@ -70,7 +70,7 @@ def particle_chi2(dEdx, ResRange, particle, dedx_a0, dedx_a1):
 
     v_chi2 = (dEdx - dedx_exp)**2 / (dedx_err**2 + dedx_res**2)
 
-    when_chi2 = (ResRange < 26.) & (ResRange > 0.) & (dEdx < dEdx_truncate_upper) & (dEdx > dEdx_truncate_bellow)
+    when_chi2 = (ResRange < max_res_range) & (ResRange > 0.) & (dEdx < dEdx_truncate_upper) & (dEdx > dEdx_truncate_bellow)
 
     v_chi2= v_chi2.iloc[N_skip:-1 * N_skip]
     chi2_series = v_chi2[when_chi2]
