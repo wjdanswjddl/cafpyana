@@ -244,7 +244,7 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, 
         hdrdf = make_mchdrdf(f)
         ismc = hdrdf.ismc.iloc[0]
         chi2_pids = []
-        for plane in range(2, 3):
+        for plane in range(0, 3):
             hitdf = make_trkhitdf(f, plane)
 
             trk_keys = trkdf.index.unique()
