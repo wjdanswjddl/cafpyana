@@ -234,7 +234,7 @@ def make_mcprimdf(f):
     return mcprimdf
 
 def make_pandora_df_calo_update(f, **trkArgs):
-    pandoradf = make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, updatecalo=True, **trkArgs)
+    pandoradf = make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=True, requireFiducial=False, updatecalo=True, **trkArgs)
     return pandoradf
 
 def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, updatecalo=False, **trkArgs):
@@ -256,16 +256,17 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, 
             if ismc:
                 this_etau = CALO_PARAMS["etau"][0]
             new_dedx = caloh.new_dedx(hitdf, CALO_PARAMS["c_cal_frac"][plane], plane, CALO_PARAMS["alpha_emb"], CALO_PARAMS["beta_90"], CALO_PARAMS["R_emb"], this_etau, ismc)
-            #hitdf[('dedx', '')] = new_dedx
+            hitdf[('dedx', '')] = new_dedx
 
             for par in ['muon', 'pion', 'proton']:
                 this_chi2_new = hitdf.groupby(level=['entry', 'rec.slc..index', 'rec.slc.reco.pfp..index']).apply(lambda group: caloh.calculate_chi2_for_entry(group, par))
                 this_chi2_new = this_chi2_new.apply(pd.Series).rename(columns={0: "chi2", 1: "ndof"})
-
                 this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new', '')
                 this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new', '')
                 trkdf[this_chi2_col] = this_chi2_new.chi2
                 trkdf[this_ndof_col] = this_chi2_new.ndof
+                trkdf[this_chi2_col] = trkdf[this_chi2_col].fillna(0.)
+                trkdf[this_ndof_col] = trkdf[this_ndof_col].fillna(0)
                 
     slcdf = make_slcdf(f)
 
@@ -283,9 +284,6 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, 
     if requireFiducial:
         slcdf = slcdf[InFV(slcdf.slc.vertex, 50)]
 
-
-    print(slcdf.pfp.trk.chi2pid.head(50))
-    print(slcdf.pfp.trk.len)
     return slcdf
 
 def make_spine_df(f, trkDistCut=-1, requireFiducial=True, **trkArgs):

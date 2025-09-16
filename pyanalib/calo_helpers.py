@@ -49,14 +49,16 @@ def new_dedx(hit_df, c_cal_frac = 1.0, plane = 2, alpha_emb = alpha_emb_cv, beta
 def particle_chi2(dEdx, ResRange, particle, dedx_a0, dedx_a1):
     if particle != "kaon" and particle != "proton" and particle != "muon" and particle != "pion" :
         print("Not a valid particle input")
-        return 99999., -1
+        #return 99999., -1
+        return 0., 0
     if len(dEdx) < 1 or len(ResRange) < 1:
-        return 88888.0, 0
+        #return 88888.0, 0
+        return 0., 0
     
     N_max_hits = 1000
     this_N_calo = len(dEdx)
     this_N_hits = min(N_max_hits, this_N_calo)
-    N_skip = 0
+    N_skip = 1
     dEdx_truncate_upper = 1000.0
     dEdx_truncate_bellow = 0.0
     this_chi2 = 0.0
@@ -68,18 +70,17 @@ def particle_chi2(dEdx, ResRange, particle, dedx_a0, dedx_a1):
 
     v_chi2 = (dEdx - dedx_exp)**2 / (dedx_err**2 + dedx_res**2)
 
-    #when_chi2 = (ResRange < np.max(chi2pid_temp[particle]["chi2_rr_arrs"])) & (ResRange > 0.) & (dEdx < dEdx_truncate_upper)  & (dEdx > dEdx_truncate_bellow)
-    when_chi2 = (ResRange < 26.) & (ResRange > 0.) & (dEdx < dEdx_truncate_upper)  & (dEdx > dEdx_truncate_bellow)
-    
+    when_chi2 = (ResRange < 26.) & (ResRange > 0.) & (dEdx < dEdx_truncate_upper) & (dEdx > dEdx_truncate_bellow)
+
+    v_chi2= v_chi2.iloc[N_skip:-1 * N_skip]
     chi2_series = v_chi2[when_chi2]
-    #print(ResRange[when_chi2])
     len_all = len(chi2_series)
-    len_skipped = len(chi2_series.iloc[N_skip:len_all - 1 - N_skip])
 
-    if(len_skipped) < 1:
-        return 77777.0, 0
+    if(len_all) < 1:
+        #return 77777.0, 0
+        return 0., 0
 
-    return chi2_series.iloc[N_skip:len_all - 1 - N_skip].sum() / len_skipped, len_skipped
+    return chi2_series.sum() / len_all, len_all
 
 def calculate_chi2_for_entry(group, particle, dedx_a0 = 0.04231, dedx_a1 = 0.0001783):
     chi2, ndof = particle_chi2(group[('dedx', '')], group[('rr', '')], particle, dedx_a0, dedx_a1)
