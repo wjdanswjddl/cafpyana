@@ -42,7 +42,7 @@ def run_pool(output, inputs):
     os.nice(10)
     ntuples = NTupleGlob(inputs, None)
 
-    dfss = ntuples.dataframes(nproc='auto', fs=DFS)
+    dfss = ntuples.dataframes(nproc="auto", fs=DFS)
     output = output + ".df"
     k_idx = 0
     split_margin = args.SplitSize
@@ -69,7 +69,6 @@ def run_pool(output, inputs):
                         concat_df = pd.concat(buffer, ignore_index=False)
                         this_key = k + "_" + str(k_idx)
                         try:
-                            print(f"Saving {this_key}")
                             hdf_pd.put(key=this_key, value=concat_df, format="fixed")
                             print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
                         except Exception as e:
@@ -85,7 +84,6 @@ def run_pool(output, inputs):
                 concat_df = pd.concat(buffer, ignore_index=False)
                 this_key = k + "_" + str(k_idx)
                 try:
-                    print(f"Saving {this_key}")
                     hdf_pd.put(key=this_key, value=concat_df, format="fixed")
                     print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
                 except Exception as e:
