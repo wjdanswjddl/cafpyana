@@ -73,20 +73,18 @@ def make_mcnudf(f, include_weights=False, multisim_nuniv=250, wgt_types=["bnb","
     if include_weights:
         if len(wgt_types) == 0:
             print("include_weights is set to True, pass at least one type of wgt to save")
-
         else:
-            if det == "ICARUS":
-                wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
-            elif det == "SBND":
-                df_list = []
-                if "bnb" in wgt_types:
-                    bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
-                    df_list.append(bnbwgtdf)
-                if "genie" in wgt_types:
-                    geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
-                    df_list.append(geniewgtdf)
-                wgtdf = pd.concat(df_list, axis=1)
+            df_list = []
+            if "bnb" in wgt_types:
+                bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
+                df_list.append(bnbwgtdf)
+            if "genie" in wgt_types:
+                geniewgtdf = geniesyst.geniesyst(f, mcdf.ind)
+                df_list.append(geniewgtdf)
+
+            wgtdf = pd.concat(df_list, axis=1)
             mcdf = multicol_concat(mcdf, wgtdf)
+
     return mcdf
 
 def make_mchdf(f, include_weights=False):
