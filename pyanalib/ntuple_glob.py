@@ -66,6 +66,10 @@ def _loaddf(applyfs, g):
         print("Could not open file (%s) due to exception. Skipping..." % fname) 
         print(e)
         return None
+    if "recTree" not in f:
+        print("File (%s) missing recTree. Skipping..." % fname)
+        return None
+
     with f:
         try:
             dfs = [applyf(f) for applyf in applyfs]
