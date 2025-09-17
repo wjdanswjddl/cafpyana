@@ -23,14 +23,16 @@ hdrbranches = [
     "rec.hdr.cluster",
     "rec.hdr.fno",
     "rec.hdr.noffbeambnb",
+]
 
-    # "rec.hdr.triggerinfo.trigger_id",
-    # "rec.hdr.triggerinfo.gate_id",
-    # "rec.hdr.triggerinfo.trigger_count",
-    # "rec.hdr.triggerinfo.gate_count",
-    # "rec.hdr.triggerinfo.gate_delta",
-    # "rec.hdr.triggerinfo.global_trigger_time",
-    # "rec.hdr.triggerinfo.prev_global_trigger_time",
+trigger_info_branches = [
+    "rec.hdr.triggerinfo.trigger_id",
+    "rec.hdr.triggerinfo.gate_id",
+    "rec.hdr.triggerinfo.trigger_count",
+    "rec.hdr.triggerinfo.gate_count",
+    "rec.hdr.triggerinfo.gate_delta",
+    "rec.hdr.triggerinfo.global_trigger_time",
+    "rec.hdr.triggerinfo.prev_global_trigger_time",
 ]
 
 opflashbranches = [
@@ -80,6 +82,14 @@ crtspbranches = [
     "rec.crt_spacepoints.position_err.z",
     "rec.crt_spacepoints.time",
     "rec.crt_spacepoints.time_err"
+]
+
+crthitbranches = [
+  "rec.crt_hits.time",
+  "rec.crt_hits.t1",
+  "rec.crt_hits.t0",
+  "rec.crt_hits.pe",
+  "rec.crt_hits.plane",
 ]
 
 
@@ -166,10 +176,10 @@ trkhitbranches_perplane = lambda IPLANE : [
     #trkbranch + "calo.%i.points.mult"% IPLANE,
     #trkbranch + "calo.%i.points.tdc0"% IPLANE,
 
-    trkbranch + "calo.%i.points.truth.h_e"% IPLANE,
-    trkbranch + "calo.%i.points.truth.h_nelec"% IPLANE,
-    trkbranch + "calo.%i.points.truth.pitch"% IPLANE,
-    trkbranch + "calo.%i.points.truth.rr"% IPLANE,
+    # trkbranch + "calo.%i.points.truth.h_e"% IPLANE,
+    # trkbranch + "calo.%i.points.truth.h_nelec"% IPLANE,
+    # trkbranch + "calo.%i.points.truth.pitch"% IPLANE,
+    # trkbranch + "calo.%i.points.truth.rr"% IPLANE,
 ]
 
 trkhitbranches = trkhitbranches_perplane(2)
