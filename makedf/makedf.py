@@ -313,7 +313,6 @@ def make_stubs(f, det="ICARUS"):
     stubhitdf = stubhitdf.join(stubdf.efield_end)
 
     hdrdf = make_mchdrdf(f)
-    ismc = hdrdf.ismc.iloc[0]
     def dEdx2dQdx(dEdx): # MC parameters
         return recombination_sbnd(dEdx, np.pi/2) if det == "SBND" else recombination_icarus(dEdx, np.pi/2)
 
