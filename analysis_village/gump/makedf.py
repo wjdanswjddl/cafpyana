@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from makedf.makedf import *
 from makedf.constants import *
+from makedf import chi2pid
 from analysis_village.gump.kinematics import *
 from analysis_village.gump.gump_cuts import *
 
@@ -13,6 +14,8 @@ from analysis_village.gump.gump_cuts import *
 
 def make_pandora_no_cuts_df(f):
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+    if det.empty:
+        return pd.DataFrame()
 
     if (1 == det.unique()):
         DETECTOR = "SBND"
@@ -27,7 +30,19 @@ def make_pandora_no_cuts_df(f):
     trkdf = make_trkdf(f, False)
     trkdf = multicol_add(trkdf, dmagdf(slcdf.slc.vertex, trkdf.pfp.trk.start).rename(("pfp", "dist_to_vertex")))
     trkdf = trkdf[trkdf.pfp.dist_to_vertex < 10]
-    trkdf[("pfp", "trk", "chi2pid", "I2", "mu_over_p", "")] = trkdf.pfp.trk.chi2pid.I2.chi2_muon/trkdf.pfp.trk.chi2pid.I2.chi2_proton
+
+    # redo chi2 for ICARUS
+    if DETECTOR == "ICARUS":
+        trkhitdf = make_trkhitdf(f)
+        dedx_redo = chi2pid.dedx(trkhitdf, gain="ICARUS", calibrate="ICARUS")
+        trkhitdf["dedx_redo"] = dedx_redo
+        trkdf["chi2u"] = chi2pid.chi2u(trkhitdf, dedxname="dedx_redo")
+        trkdf["chi2p"] = chi2pid.chi2p(trkhitdf, dedxname="dedx_redo")
+    else:
+        trkdf["chi2u"] = trkdf.pfp.trk.chi2pid.I2.chi2_muon
+        trkdf["chi2p"] = trkdf.pfp.trk.chi2pid.I2.chi2_proton
+
+    trkdf[("pfp", "trk", "chi2pid", "I2", "mu_over_p", "")] = trkdf.chi2u / trkdf.chi2p
 
     # track containment
     trkdf[("pfp", "trk", "is_contained", "", "", "")] = fv_cut(trkdf.pfp.trk.start, DETECTOR) & fv_cut(trkdf.pfp.trk.end, DETECTOR)
@@ -105,10 +120,10 @@ def make_pandora_no_cuts_df(f):
     is_clear_cosmic = slcdf.slc.is_clear_cosmic
     other_shw_length = slcdf.other_shw_length
     other_trk_length = slcdf.other_trk_length
-    mu_chi2_of_mu_cand = slcdf.mu.pfp.trk.chi2pid.I2.chi2_muon
-    prot_chi2_of_mu_cand = slcdf.mu.pfp.trk.chi2pid.I2.chi2_proton
-    mu_chi2_of_prot_cand = slcdf.p.pfp.trk.chi2pid.I2.chi2_muon
-    prot_chi2_of_prot_cand = slcdf.p.pfp.trk.chi2pid.I2.chi2_proton
+    mu_chi2_of_mu_cand = slcdf.mu.chi2u
+    prot_chi2_of_mu_cand = slcdf.mu.chi2p
+    mu_chi2_of_prot_cand = slcdf.p.chi2u
+    prot_chi2_of_prot_cand = slcdf.p.chi2p
     mu_len = slcdf.mu.pfp.trk.len
     p_len = slcdf.p.pfp.trk.len
 
@@ -190,6 +205,9 @@ def make_pandora_no_cuts_df(f):
 
     return slcdf
 
+def make_gump_nuwgtdf(f):
+    return make_mcnudf(f, include_weights=True)
+
 def make_gump_nudf(f, is_slc=False):
     # note: setting is_slc to false results in pdg for the slice not being used
     # and instead only mcnu pdg info gets saved, but this excludes the -1 pdg for cosmic
@@ -198,6 +216,9 @@ def make_gump_nudf(f, is_slc=False):
 
     # wgtdf = pd.concat([bnbsyst.bnbsyst(f, nudf.ind), geniesyst.geniesyst_sbnd(f, nudf.ind)], axis=1)
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+
+    if det.empty:
+        return pd.DataFrame()
 
     if (1 == det.unique()):
         DETECTOR = "SBND"
