@@ -209,6 +209,28 @@ trkhitbranches = trkhitbranches_perplane(2)
 trkhitbranches_P1 = trkhitbranches_perplane(1)
 trkhitbranches_P0 = trkhitbranches_perplane(0)
 
+#### ICARUS flat.caf does not have efield and phi for each hit so far,
+trkhitbranches_perplane_icarus = lambda IPLANE : [
+    trkbranch + "calo.%i.points.dedx"% IPLANE,
+    trkbranch + "calo.%i.points.dqdx"% IPLANE,
+    trkbranch + "calo.%i.points.pitch"% IPLANE,
+    trkbranch + "calo.%i.points.integral"% IPLANE,
+    trkbranch + "calo.%i.points.rr"% IPLANE,
+    trkbranch + "calo.%i.points.phi"% IPLANE,
+    trkbranch + "calo.%i.points.efield"% IPLANE,
+    trkbranch + "calo.%i.points.wire"% IPLANE,
+    trkbranch + "calo.%i.points.tpc"% IPLANE,
+    trkbranch + "calo.%i.points.sumadc"% IPLANE,
+    trkbranch + "calo.%i.points.t"% IPLANE,
+    trkbranch + "calo.%i.points.x"% IPLANE,
+    trkbranch + "calo.%i.points.y"% IPLANE,
+    trkbranch + "calo.%i.points.z"% IPLANE,
+]
+
+trkhitbranches_icarus = trkhitbranches_perplane_icarus(2)
+trkhitbranches_P1_icarus = trkhitbranches_perplane_icarus(1)
+trkhitbranches_P0_icarus = trkhitbranches_perplane_icarus(0)
+
 for n in trueparticlenames: trkbranches.append(trkbranch + "truth.p." + n)
 
 slcbranches = [

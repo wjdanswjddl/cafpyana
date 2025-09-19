@@ -37,16 +37,6 @@ TRUE_KE_THRESHOLDS = {"nmu_27MeV": ["muon", 0.027],
                       "nn_0MeV": ["neutron", 0.0]
                       }
 
-## == For updating dE/dx and chi2_pid
-#### == use pandora_df_calo_update to apply these changes
-CALO_PARAMS = {
-    "alpha_emb": 0.904,
-    "beta_90": 0.204,
-    "R_emb": 1.25,
-    "c_cal_frac": [1., 1., 1.],
-    "etau": [100., 35.], ## first value for MC and second value for data
-}
-
 def make_hdrdf(f):
     hdr = loadbranches(f["recTree"], hdrbranches).rec.hdr
     return hdr
@@ -155,17 +145,16 @@ def make_trkhitdf_plane2(f):
     return make_trkhitdf(f, 2)
 
 def make_trkhitdf(f, plane=2):
-    branches = [trkhitbranches_P0, trkhitbranches_P1, trkhitbranches][plane]
-    #df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo.I2.points
-    df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo
-    df = df["I" + str(plane)].points
-
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
         det = "SBND"
     else:
         det = "ICARUS"
+
+    branches = [trkhitbranches_P0, trkhitbranches_P1, trkhitbranches][plane] if det = "SBND" else [trkhitbranches_P0_icarus, trkhitbranches_P1_icarus, trkhitbranches_icarus][plane]
+    df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo
+    df = df["I" + str(plane)].points
 
     # get the cryostat
     df = df.merge(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.producer"]).rec.slc.reco.pfp.trk.producer.rename("cryo"),  how="left", left_index=True, right_index=True)
