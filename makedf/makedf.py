@@ -41,7 +41,7 @@ CALO_PARAMS = {
     "beta_90": 0.204,
     "R_emb": 1.25,
     "c_cal_frac": [1., 1., 1.],
-    "etau": [100., 100.], ## first value for MC and second value for data
+    "etau": [100., 35.], ## first value for MC and second value for data
 }
 
 def make_hdrdf(f):

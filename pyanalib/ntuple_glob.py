@@ -11,6 +11,7 @@ import os
 import dill
 import sys
 from functools import partial
+import time
 
 CPU_COUNT = multiprocessing.cpu_count()
 
@@ -37,7 +38,16 @@ class NTupleProc(object):
         self.f = data["f"]
         self.name = data["name"]
 
-
+def _open_with_retries(path, attempts=5, sleep=2.0):
+    last_exc = None
+    for k in range(attempts):
+        try:
+            return uproot.open(path, timeout=120)
+        except (OSError, ValueError) as e:
+            last_exc = e
+            if k + 1 < attempts:
+                time.sleep(sleep * (k + 1))
+    raise last_exc
 
 def _loaddf(applyfs, g):
     # fname, index, applyfs = inp
@@ -51,44 +61,41 @@ def _loaddf(applyfs, g):
 
     madef = False
 
-    # TODO: make available?
-    # 
-    # Flatten non-flat cafs
-    # if "flat" not in fname.split("/")[-1].split("."):
-    #     flatcaf = "/tmp/" + fname.split("/")[-1].split(".")[0] + ".flat.root"
-    #     subprocess.run(["flatten_caf", fname, flatcaf],  stdout=subprocess.DEVNULL)
-    #     fname = flatcaf
-    #     madef = True
-   
     try:
-        f = uproot.open(fname, timeout=120)
+        # Open AND close strictly within the context manager
+        with _open_with_retries(fname) as f:
+            dfs = []
+            for applyf in applyfs:
+                df = applyf(f)  # must fully read from 'f' here
+                if df is None:
+                    dfs.append(None)
+                    continue
+
+                # --- CRITICAL: detach from file-backed/lazy data ---
+                # If it's a pandas obj, deep-copy; if not, try to materialize.
+                if isinstance(df, pd.DataFrame):
+                    df = df.copy(deep=True)
+                elif hasattr(df, "to_numpy"):  # Series / array-like
+                    df = pd.DataFrame(df.to_numpy()).copy(deep=True)
+                # ---------------------------------------------------
+
+                # Tag with __ntuple and move it to front of MultiIndex
+                df["__ntuple"] = index
+                df.set_index("__ntuple", append=True, inplace=True)
+                new_order = [df.index.nlevels - 1] + list(range(df.index.nlevels - 1))
+                df = df.reorder_levels(new_order)
+
+                dfs.append(df)
+
+            return dfs
     except (OSError, ValueError) as e:
-        print("Could not open file (%s) due to exception. Skipping..." % fname) 
+        print(f"Could not open file ({fname}). Skipping...")
         print(e)
         return None
-    with f:
-        try:
-            dfs = [applyf(f) for applyf in applyfs]
-        except Exception as e:
-            if True:
-                raise
-            print("Error processing file (%s). Skipping..." % fname)
-            print(e)
-            return None
-
-        # Set an index on the NTuple number to make sure we keep track of what is where
-        for i in range(len(dfs)):
-            if dfs[i] is not None:
-                dfs[i]["__ntuple"] = index
-                dfs[i].set_index("__ntuple", append=True, inplace=True)
-                dfs[i] = dfs[i].reorder_levels([dfs[i].index.nlevels-1] + list(range(0, dfs[i].index.nlevels-1)))
-            else:
-                dfs[i] = []
-
-    if madef:
-        os.remove(fname)
-
-    return dfs
+    except Exception as e:
+        # Let this bubble if you want the pool to fail fast,
+        # or return a tuple with traceback if you prefer soft-fail.
+        raise
 
 class NTupleGlob(object):
     def __init__(self, g, branches):

@@ -18,12 +18,13 @@ R_emb_cv = 1.25
 c_cal_data_cv = [0.0223037, 0.0219534, 0.0215156]
 c_cal_mc_cv = [0.0203521, 0.0202351, 0.0200727]
 
-def etau_corr(x, etau = etau_cv):
+def etau_corr(x, t, etau = etau_cv):
     ## == corr to update etau correction to etau_new from etau_cv
     x_max = 200.
     v_drift = 156.267 ## cm/ms
     x_clipped = x.clip(lower=-1. * x_max, upper=x_max)    
     t_drift = (x_max - np.abs(x_clipped)) / v_drift
+    t_drift_t = t / 2000. - 0.2 # ms
     corr = np.exp(t_drift / etau)
     return corr
 
@@ -40,7 +41,7 @@ def new_dedx(hit_df, c_cal_frac = 1.0, plane = 2, alpha_emb = alpha_emb_cv, beta
     
     dqdx_e = hit_df.dqdx / this_c_cal
     this_etau_corr = 1.
-    this_etau_corr = etau_corr(hit_df.x, etau)
+    this_etau_corr = etau_corr(hit_df.x, hit_df.t, etau)
 
     dqdx_e = dqdx_e * this_etau_corr
     dedx = np.exp(beta_emb * W_ion *dqdx_e) / beta_emb - alpha_emb/beta_emb
