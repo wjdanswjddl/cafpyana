@@ -5,6 +5,8 @@ from .util import *
 from .calo import *
 from . import numisyst, g4syst, geniesyst, bnbsyst
 
+pd.set_option('future.no_silent_downcasting', True)
+
 PDG = {
     "muon": [13, "muon", 0.105,],
     "proton": [2212, "proton", 0.938272,],
@@ -60,6 +62,9 @@ def make_potdf_numi(f):
     pot = loadbranches(f["recTree"], numipotbranches).rec.hdr.numiinfo
     return pot
 
+def make_triggerdf(f):
+    return  loadbranches(f["recTree"], trigger_info_branches).rec.hdr.triggerinfo
+
 def make_mcnuwgtdf(f):
     return make_mcnudf(f, include_weights=True, multisim_nuniv=1000)
 
@@ -79,20 +84,18 @@ def make_mcnudf(f, include_weights=False, multisim_nuniv=250, wgt_types=["bnb","
     if include_weights:
         if len(wgt_types) == 0:
             print("include_weights is set to True, pass at least one type of wgt to save")
-
         else:
-            if det == "ICARUS":
-                wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
-            elif det == "SBND":
-                df_list = []
-                if "bnb" in wgt_types:
-                    bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
-                    df_list.append(bnbwgtdf)
-                if "genie" in wgt_types:
-                    geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
-                    df_list.append(geniewgtdf)
-                wgtdf = pd.concat(df_list, axis=1)
+            df_list = []
+            if "bnb" in wgt_types:
+                bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
+                df_list.append(bnbwgtdf)
+            if "genie" in wgt_types:
+                geniewgtdf = geniesyst.geniesyst(f, mcdf.ind)
+                df_list.append(geniewgtdf)
+
+            wgtdf = pd.concat(df_list, axis=1)
             mcdf = multicol_concat(mcdf, wgtdf)
+
     return mcdf
 
 def make_mchdf(f, include_weights=False):
@@ -105,6 +108,10 @@ def make_mchdf(f, include_weights=False):
 def make_crtspdf(f):
     crtspdf = loadbranches(f["recTree"], crtspbranches).rec
     return crtspdf
+
+def make_crthitdf(f):
+    crthitdf = loadbranches(f["recTree"], crthitbranches).rec.crt_hits
+    return crthitdf
 
 def make_opflashdf(f):
     opflashdf = loadbranches(f["recTree"], opflashbranches).rec.opflashes
@@ -133,18 +140,44 @@ def make_trkdf(f, scoreCut=False, requiret0=False, requireCosmic=False, mcs=Fals
         cumlen = mcsdf.seg_length.groupby(level=mcsgroup).cumsum()*14 # convert rad length to cm
         maxlen = (cumlen*(mcsdf.seg_scatter_angles >= 0)).groupby(level=mcsgroup).max()
         trkdf[("pfp", "trk", "mcsP", "len", "", "")] = maxlen
-
-
     trkdf[("pfp", "tindex", "", "", "", "")] = trkdf.index.get_level_values(2)
 
     return trkdf
 
-def make_trkhitdf(f, plane = 2):
-    plane_str = str(plane)
-    df = loadbranches(f["recTree"], trkhitbranches_perplane(plane)).rec.slc.reco.pfp.trk.calo
-    df = df['I' + plane_str]
-    df = df.points
-    
+def make_trkhitdf(f, plane=2):
+    branches = [trkhitbranches_P0, trkhitbranches_P1, trkhitbranches][plane]
+    df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo.I2.points
+
+    # ----- sbnd or icarus? -----
+    det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+    if (1 == det.unique()):
+        det = "SBND"
+    else:
+        det = "ICARUS"
+
+    # get the cryostat
+    df = df.merge(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.producer"]).rec.slc.reco.pfp.trk.producer.rename("cryo"),  how="left", left_index=True, right_index=True)
+
+    # save the plane
+    df["plane"] = plane
+
+    # Add in the run, useful in calibrations
+    df = df.merge(loadbranches(f["recTree"], ["rec.hdr.run"]).rec.hdr, how="left", left_index=True, right_index=True)
+
+    # Add in the track phi angle
+    #
+    # TODO: (when ready) -- get this from the hitdf
+    with np.errstate(invalid='ignore'):
+        df = df.merge(np.arccos(np.abs(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.dir.x"]).rec.slc.reco.pfp.trk.dir.x)).rename("phi"), how="left", left_index=True, right_index=True) 
+
+    # Add in the efield
+    #
+    # TODO: (when ready) -- get this from the hitdf
+    df["efield"] = Efield_icarus if (det == "ICARUS") else Efield_sbnd
+
+    # and the density
+    df["rho"] = LAr_density_gmL_icarus if (det == "ICARUS") else LAr_density_gmL_sbnd
+
     # Firsthit and Lasthit info
     ihit = df.index.get_level_values(-1)
     df["firsthit"] = ihit == 0
@@ -152,14 +185,13 @@ def make_trkhitdf(f, plane = 2):
     lasthit = df.groupby(level=list(range(df.index.nlevels-1))).tail(1).copy()
     lasthit["lasthit"] = True
     df["lasthit"] = lasthit.lasthit
-    df.lasthit = df.lasthit.fillna(False)
+    df.lasthit = df.lasthit.fillna(False).infer_objects()
 
     return df
 
 def make_slcdf(f):
     slcdf = loadbranches(f["recTree"], slcbranches)
     slcdf = slcdf.rec
-
     slc_mcdf = make_mcdf(f, slc_mcbranches, slc_mcprimbranches)
     slc_mcdf.columns = pd.MultiIndex.from_tuples([tuple(["slc", "truth"] + list(c)) for c in slc_mcdf.columns])
     slcdf = multicol_merge(slcdf, slc_mcdf, left_index=True, right_index=True, how="left", validate="one_to_one")
@@ -305,11 +337,6 @@ def make_spine_df(f, trkDistCut=-1, requireFiducial=True, **trkArgs):
     return eslcdf
 
 def make_stubs(f, det="ICARUS"):
-    alpha_sbnd = 0.930                     
-    LAr_density_gmL_sbnd = 1.38434
-    Efield_sbnd = 0.5                           
-    beta_sbnd = 0.212 / (LAr_density_gmL_sbnd * Efield_sbnd)  
-    
     stubdf = loadbranches(f["recTree"], stubbranches)
     stubdf = stubdf.rec.slc.reco.stub
 
@@ -327,22 +354,9 @@ def make_stubs(f, det="ICARUS"):
     stubhitdf = stubhitdf.join(stubdf.efield_end)
 
     hdrdf = make_mchdrdf(f)
-    ismc = hdrdf.ismc.iloc[0]
-    def dEdx2dQdx_mc(dEdx): # MC parameters
-        if det == "SBND":
-            return np.log(alpha_sbnd + dEdx*beta_sbnd) / (Wion*beta_sbnd)
-        beta = MODB_mc / (LAr_density_gmL_mc * Efield_mc)
-        alpha = MODA_mc
-        return np.log(alpha + dEdx*beta) / (Wion*beta)
-    def dEdx2dQdx_data(dEdx): # data parameters
-        
-        if det == "SBND":
-            return np.log(alpha_sbnd + dEdx*beta_sbnd) / (Wion*beta_sbnd)
-        beta = MODB_data / (LAr_density_gmL_data * Efield_data)
-        alpha = MODA_data
-        return np.log(alpha + dEdx*beta) / (Wion*beta)
+    def dEdx2dQdx(dEdx): # MC parameters
+        return recombination_sbnd(dEdx, np.pi/2) if det == "SBND" else recombination_icarus(dEdx, np.pi/2)
 
-    dEdx2dQdx = dEdx2dQdx_mc if ismc else dEdx2dQdx_data
     MIP_dqdx = dEdx2dQdx(1.7) 
 
     stub_end_charge = stubhitdf.charge[stubhitdf.wire == stubhitdf.hit_w].groupby(level=[0,1,2,3]).first().groupby(level=[0,1,2]).first()
@@ -374,22 +388,17 @@ def make_stubs(f, det="ICARUS"):
     stubdf["truth_interaction_id"] = stubdf.truth.p.interaction_id 
     stubdf["truth_gen_E"] = stubdf.truth.p.genE 
 
-    # convert charge to energy
-    if ismc:
-        stubdf["ke"] = Q2KE_mc(stubdf.Q)
-        # also do calorimetric variations
-        # TODO: Systematic variations
-        stubdf["ke_callo"] = np.nan # Q2KE_mc_callo(stubdf.Q)
-        stubdf["ke_calhi"] = np.nan # Q2KE_mc_calhi(stubdf.Q)
-    else:
-        stubdf["ke"] = Q2KE_mc(stubdf.Q) ## FIXME
-        stubdf["ke_callo"] = np.nan
-        stubdf["ke_calhi"] = np.nan
+    # TODO: convert charge to energy
+    stubdf["ke"] = np.nan # Q2KE(stubdf.Q)
+    # TODO: also do calorimetric variations
+    stubdf["ke_callo"] = np.nan # Q2KE_mc_callo(stubdf.Q)
+    stubdf["ke_calhi"] = np.nan # Q2KE_mc_calhi(stubdf.Q)
 
     stubdf.ke = stubdf.ke.fillna(0)
     stubdf.Q = stubdf.Q.fillna(0)
 
     stubdf["dedx"] = stubdf.ke / stubdf.length
+
     stubdf["dedx_callo"] = stubdf.ke_callo / stubdf.length
     stubdf["dedx_calhi"] = stubdf.ke_calhi / stubdf.length
 
@@ -401,6 +410,7 @@ def make_stubs(f, det="ICARUS"):
         ((length > 1) & (dqdx > 3e5)) |\
         ((length > 2) & (dqdx > 2e5)))
 
+    stubdf["dqdx"] = dqdx 
     stubdf['pass_proton_stub'] = hasstub
     return stubdf
 

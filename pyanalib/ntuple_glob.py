@@ -92,10 +92,33 @@ def _loaddf(applyfs, g):
         print(f"Could not open file ({fname}). Skipping...")
         print(e)
         return None
-    except Exception as e:
-        # Let this bubble if you want the pool to fail fast,
-        # or return a tuple with traceback if you prefer soft-fail.
-        raise
+    if "recTree" not in f:
+        print("File (%s) missing recTree. Skipping..." % fname)
+        return None
+
+    with f:
+        try:
+            dfs = [applyf(f) for applyf in applyfs]
+        except Exception as e:
+            if True:
+                raise
+            print("Error processing file (%s). Skipping..." % fname)
+            print(e)
+            return None
+
+        # Set an index on the NTuple number to make sure we keep track of what is where
+        for i in range(len(dfs)):
+            if dfs[i] is not None:
+                dfs[i]["__ntuple"] = index
+                dfs[i].set_index("__ntuple", append=True, inplace=True)
+                dfs[i] = dfs[i].reorder_levels([dfs[i].index.nlevels-1] + list(range(0, dfs[i].index.nlevels-1)))
+            else:
+                dfs[i] = []
+
+    if madef:
+        os.remove(fname)
+
+    return dfs
 
 class NTupleGlob(object):
     def __init__(self, g, branches):
