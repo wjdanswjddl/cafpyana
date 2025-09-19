@@ -216,8 +216,6 @@ trkhitbranches_perplane_icarus = lambda IPLANE : [
     trkbranch + "calo.%i.points.pitch"% IPLANE,
     trkbranch + "calo.%i.points.integral"% IPLANE,
     trkbranch + "calo.%i.points.rr"% IPLANE,
-    trkbranch + "calo.%i.points.phi"% IPLANE,
-    trkbranch + "calo.%i.points.efield"% IPLANE,
     trkbranch + "calo.%i.points.wire"% IPLANE,
     trkbranch + "calo.%i.points.tpc"% IPLANE,
     trkbranch + "calo.%i.points.sumadc"% IPLANE,

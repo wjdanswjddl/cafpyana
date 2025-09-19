@@ -1,5 +1,4 @@
 from pyanalib.pandas_helpers import *
-import pyanalib.calo_helpers as caloh
 from .branches import *
 from .util import *
 from .calo import *
@@ -152,7 +151,7 @@ def make_trkhitdf(f, plane=2):
     else:
         det = "ICARUS"
 
-    branches = [trkhitbranches_P0, trkhitbranches_P1, trkhitbranches][plane] if det = "SBND" else [trkhitbranches_P0_icarus, trkhitbranches_P1_icarus, trkhitbranches_icarus][plane]
+    branches = [trkhitbranches_P0, trkhitbranches_P1, trkhitbranches][plane] if det == "SBND" else [trkhitbranches_P0_icarus, trkhitbranches_P1_icarus, trkhitbranches_icarus][plane]
     df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo
     df = df["I" + str(plane)].points
 
@@ -289,7 +288,7 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, 
         chi2_pids = []
         for plane in range(0, 3):
             trkhitdf = make_trkhitdf(f, plane)
-            dedx_redo = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, isMC=ismc)
+            dedx_redo = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc)
             trkhitdf["dedx_redo"] = dedx_redo
 
             for par in ['muon', 'proton']:

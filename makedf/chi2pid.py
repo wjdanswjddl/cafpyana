@@ -152,10 +152,15 @@ def dqdx(dqdxdf, gain=None, calibrate=None, isMC=False):
 
     return dqdx*gain_perhit
 
-def dedx(dqdxdf, gain=None, calibrate=None, scalegain=1, isMC=False):
+def dedx(dqdxdf, gain=None, calibrate=None, plane=2, isMC=False):
     dqdx_v = dqdx(dqdxdf, gain=gain, calibrate=calibrate, isMC=isMC)
-
-    return calo.recombination_cor(dqdx_v*scalegain, dqdxdf.phi, dqdxdf.efield, dqdxdf.rho)
+    if gain == "ICARUS":
+        scalegain = ICARUS_CALO_PARAMS['c_cal_frac'][plane]
+    elif gain == "SBND":
+        scalegain = SBND_CALO_PARAMS['c_cal_frac'][plane] if isMC else SBND_CALO_PARAMS['c_cal_frac'][plane]
+    else:
+        scalegain = 1.
+    return calo.recombination_cor(dqdx_v/scalegain, dqdxdf.phi, dqdxdf.efield, dqdxdf.rho)
 
 def _yz_ybin(y):
     return np.searchsorted(yz_ybin, y) - 1
