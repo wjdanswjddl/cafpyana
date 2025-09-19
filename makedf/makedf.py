@@ -4,6 +4,7 @@ from .branches import *
 from .util import *
 from .calo import *
 from . import numisyst, g4syst, geniesyst, bnbsyst
+from makedf import chi2pid
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -144,9 +145,20 @@ def make_trkdf(f, scoreCut=False, requiret0=False, requireCosmic=False, mcs=Fals
 
     return trkdf
 
+def make_trkhitdf_plane0(f):
+    return make_trkhitdf(f, 0)
+
+def make_trkhitdf_plane1(f):
+    return make_trkhitdf(f, 1)
+
+def make_trkhitdf_plane2(f):
+    return make_trkhitdf(f, 2)
+
 def make_trkhitdf(f, plane=2):
     branches = [trkhitbranches_P0, trkhitbranches_P1, trkhitbranches][plane]
-    df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo.I2.points
+    #df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo.I2.points
+    df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo
+    df = df["I" + str(plane)].points
 
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
@@ -166,14 +178,16 @@ def make_trkhitdf(f, plane=2):
 
     # Add in the track phi angle
     #
-    # TODO: (when ready) -- get this from the hitdf
-    with np.errstate(invalid='ignore'):
-        df = df.merge(np.arccos(np.abs(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.dir.x"]).rec.slc.reco.pfp.trk.dir.x)).rename("phi"), how="left", left_index=True, right_index=True) 
+    # TODO: (when ready) -- get this from the hitdf for ICARUS, SBND is ready
+    if det == "ICARUS":
+        with np.errstate(invalid='ignore'):
+            df = df.merge(np.arccos(np.abs(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.dir.x"]).rec.slc.reco.pfp.trk.dir.x)).rename("phi"), how="left", left_index=True, right_index=True)
 
     # Add in the efield
     #
-    # TODO: (when ready) -- get this from the hitdf
-    df["efield"] = Efield_icarus if (det == "ICARUS") else Efield_sbnd
+    # TODO: (when ready) -- get this from the hitdf for ICARUS, SBND is ready
+    if det == "ICARUS":
+        df["efield"] = Efield_icarus
 
     # and the density
     df["rho"] = LAr_density_gmL_icarus if (det == "ICARUS") else LAr_density_gmL_sbnd
@@ -273,33 +287,31 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, 
     # load
     trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
     if updatecalo:
+        # check detector
+        det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+        if (1 == det.unique()):
+            det = "SBND"
+        else:
+            det = "ICARUS"
+        #check ismc
         hdrdf = make_mchdrdf(f)
         ismc = hdrdf.ismc.iloc[0]
+
         chi2_pids = []
         for plane in range(0, 3):
-            hitdf = make_trkhitdf(f, plane)
+            trkhitdf = make_trkhitdf(f, plane)
+            dedx_redo = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, isMC=ismc)
+            trkhitdf["dedx_redo"] = dedx_redo
 
-            trk_keys = trkdf.index.unique()
-            hit_keys3 = hitdf.index.droplevel(-1)  # -1 since hitdf has an additional index
-            mask_match = hit_keys3.isin(trk_keys)
-            hitdf = hitdf[mask_match]
-            
-            this_etau = CALO_PARAMS["etau"][1]
-            if ismc:
-                this_etau = CALO_PARAMS["etau"][0]
-            new_dedx = caloh.new_dedx(hitdf, CALO_PARAMS["c_cal_frac"][plane], plane, CALO_PARAMS["alpha_emb"], CALO_PARAMS["beta_90"], CALO_PARAMS["R_emb"], this_etau, ismc)
-            hitdf[('dedx', '')] = new_dedx
-
-            for par in ['muon', 'pion', 'proton']:
-                this_chi2_new = hitdf.groupby(level=['entry', 'rec.slc..index', 'rec.slc.reco.pfp..index']).apply(lambda group: caloh.calculate_chi2_for_entry(group, par))
-                this_chi2_new = this_chi2_new.apply(pd.Series).rename(columns={0: "chi2", 1: "ndof"})
+            for par in ['muon', 'proton']:
+                this_chi2_new, this_chi2_ndof = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
                 this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new', '')
                 this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new', '')
-                trkdf[this_chi2_col] = this_chi2_new.chi2
-                trkdf[this_ndof_col] = this_chi2_new.ndof
+                trkdf[this_chi2_col] = this_chi2_new
+                trkdf[this_ndof_col] = this_chi2_ndof
                 trkdf[this_chi2_col] = trkdf[this_chi2_col].fillna(0.)
                 trkdf[this_ndof_col] = trkdf[this_ndof_col].fillna(0)
-                
+
     slcdf = make_slcdf(f)
 
     # merge in tracks
