@@ -153,7 +153,7 @@ def run_grid(inputfiles):
 
     submitCMD = '''jobsub_submit \\
 -G sbnd \\
---auth-methods="token" \\
+--auth-methods="token,proxy" \\
 -e LC_ALL=C \\
 --role=Analysis \\
 --resource-provides="usage_model=DEDICATED,OPPORTUNISTIC" \\
