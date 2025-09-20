@@ -23,16 +23,15 @@ hdrbranches = [
     "rec.hdr.cluster",
     "rec.hdr.fno",
     "rec.hdr.noffbeambnb",
-]
+    "rec.hdr.nbnbinfo",
 
-trigger_info_branches = [
-    "rec.hdr.triggerinfo.trigger_id",
-    "rec.hdr.triggerinfo.gate_id",
-    "rec.hdr.triggerinfo.trigger_count",
-    "rec.hdr.triggerinfo.gate_count",
-    "rec.hdr.triggerinfo.gate_delta",
-    "rec.hdr.triggerinfo.global_trigger_time",
-    "rec.hdr.triggerinfo.prev_global_trigger_time",
+    # "rec.hdr.triggerinfo.trigger_id",
+    # "rec.hdr.triggerinfo.gate_id",
+    # "rec.hdr.triggerinfo.trigger_count",
+    # "rec.hdr.triggerinfo.gate_count",
+    # "rec.hdr.triggerinfo.gate_delta",
+    # "rec.hdr.triggerinfo.global_trigger_time",
+    # "rec.hdr.triggerinfo.prev_global_trigger_time",
 ]
 
 opflashbranches = [
@@ -52,27 +51,6 @@ numipotbranches = [
 bnbpotbranches = [
     "rec.hdr.bnbinfo.TOR860",
     "rec.hdr.bnbinfo.TOR875",
-]
-
-sbndframebranches = [
-    "rec.sbnd_frames.frameApplyAtCaf",
-    "rec.sbnd_frames.frameHltBeamGate",
-    "rec.sbnd_frames.frameHltCrtt1",
-    "rec.sbnd_frames.frameTdcBes",
-    "rec.sbnd_frames.frameTdcCrtt1",
-    "rec.sbnd_frames.frameTdcRwm",
-    "rec.sbnd_frames.timingType",
-]
-
-sbndtimingbranches = [
-    "rec.sbnd_timings.hltBeamGate",
-    "rec.sbnd_timings.hltCrtt1",
-    "rec.sbnd_timings.hltEtrig",
-    "rec.sbnd_timings.rawDAQHeaderTimestamp",
-    "rec.sbnd_timings.tdcBes",
-    "rec.sbnd_timings.tdcCrtt1",
-    "rec.sbnd_timings.tdcEtrig",
-    "rec.sbnd_timings.tdcRwm",
 ]
 
 trueparticlenames = [
@@ -103,14 +81,6 @@ crtspbranches = [
     "rec.crt_spacepoints.position_err.z",
     "rec.crt_spacepoints.time",
     "rec.crt_spacepoints.time_err"
-]
-
-crthitbranches = [
-  "rec.crt_hits.time",
-  "rec.crt_hits.t1",
-  "rec.crt_hits.t0",
-  "rec.crt_hits.pe",
-  "rec.crt_hits.plane",
 ]
 
 
@@ -156,14 +126,22 @@ trkbranches = [
     trkbranch + "mcsP.fwdP_pion",
     trkbranch + "rangeP.p_proton",
     trkbranch + "mcsP.fwdP_proton",
-    trkbranch + "bestplane",
-    trkbranch + "crthit.distance",
-    trkbranch + "crthit.hit.time",
-    trkbranch + "crthit.hit.pe",
-    trkbranch + "chi2pid.2.pid_ndof",
+    # trkbranch + "bestplane",
+    # trkbranch + "crthit.distance",
+    # trkbranch + "crthit.hit.time",
+    # trkbranch + "crthit.hit.pe",
+    # trkbranch + "chi2pid.0.pid_ndof",
+    trkbranch + "chi2pid.0.chi2_muon",
+    trkbranch + "chi2pid.0.chi2_proton",
+    # trkbranch + "chi2pid.0.pida",
+    # trkbranch + "chi2pid.1.pid_ndof",
+    trkbranch + "chi2pid.1.chi2_muon",
+    trkbranch + "chi2pid.1.chi2_proton",
+    # trkbranch + "chi2pid.1.pida",
+    # trkbranch + "chi2pid.2.pid_ndof",
     trkbranch + "chi2pid.2.chi2_muon",
     trkbranch + "chi2pid.2.chi2_proton",
-    trkbranch + "chi2pid.2.pida",
+    # trkbranch + "chi2pid.2.pida",
 ] + pfpbranches
 
 trkmcsbranches = [
@@ -199,35 +177,15 @@ trkhitbranches_perplane = lambda IPLANE : [
     #trkbranch + "calo.%i.points.mult"% IPLANE,
     #trkbranch + "calo.%i.points.tdc0"% IPLANE,
 
-    # trkbranch + "calo.%i.points.truth.h_e"% IPLANE,
-    # trkbranch + "calo.%i.points.truth.h_nelec"% IPLANE,
-    # trkbranch + "calo.%i.points.truth.pitch"% IPLANE,
-    # trkbranch + "calo.%i.points.truth.rr"% IPLANE,
+    trkbranch + "calo.%i.points.truth.h_e"% IPLANE,
+    trkbranch + "calo.%i.points.truth.h_nelec"% IPLANE,
+    trkbranch + "calo.%i.points.truth.pitch"% IPLANE,
+    trkbranch + "calo.%i.points.truth.rr"% IPLANE,
 ]
 
 trkhitbranches = trkhitbranches_perplane(2)
 trkhitbranches_P1 = trkhitbranches_perplane(1)
 trkhitbranches_P0 = trkhitbranches_perplane(0)
-
-#### ICARUS flat.caf does not have efield and phi for each hit so far,
-trkhitbranches_perplane_icarus = lambda IPLANE : [
-    trkbranch + "calo.%i.points.dedx"% IPLANE,
-    trkbranch + "calo.%i.points.dqdx"% IPLANE,
-    trkbranch + "calo.%i.points.pitch"% IPLANE,
-    trkbranch + "calo.%i.points.integral"% IPLANE,
-    trkbranch + "calo.%i.points.rr"% IPLANE,
-    trkbranch + "calo.%i.points.wire"% IPLANE,
-    trkbranch + "calo.%i.points.tpc"% IPLANE,
-    trkbranch + "calo.%i.points.sumadc"% IPLANE,
-    trkbranch + "calo.%i.points.t"% IPLANE,
-    trkbranch + "calo.%i.points.x"% IPLANE,
-    trkbranch + "calo.%i.points.y"% IPLANE,
-    trkbranch + "calo.%i.points.z"% IPLANE,
-]
-
-trkhitbranches_icarus = trkhitbranches_perplane_icarus(2)
-trkhitbranches_P1_icarus = trkhitbranches_perplane_icarus(1)
-trkhitbranches_P0_icarus = trkhitbranches_perplane_icarus(0)
 
 for n in trueparticlenames: trkbranches.append(trkbranch + "truth.p." + n)
 
@@ -262,6 +220,7 @@ mcbranches = [
     "rec.mc.nu.pdg",
     "rec.mc.nu.iscc",
     "rec.mc.nu.genie_mode",
+    "rec.mc.nu.genweight",
     "rec.mc.nu.parent_pdg",
     "rec.mc.nu.parent_dcy_E",
 ]

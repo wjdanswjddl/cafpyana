@@ -1,5 +1,6 @@
 import numpy as np
 import sys
+import pandas as pd
 
 def mag(x, y, z):
     return np.sqrt(x**2 + y**2 + z**2)
@@ -19,7 +20,7 @@ def dotdf(df1, df2):
 def unitdf(df):
     return df.divide(magdf(df), axis=0)
 
-def InFV(df, inzback, inx=10, iny=10, inzfront=10, det="ICARUS"):
+def InFV(df, inzback=10, inx=10, iny=10, inzfront=10, det="SBND"):
     if det == "ICARUS":
         xmin_C0 = -358.49
         xmax_C0 = -61.94
@@ -48,13 +49,26 @@ def InFV(df, inzback, inx=10, iny=10, inzfront=10, det="ICARUS"):
             (df.y < ymax) & (df.y > ymin) & (df.z < zmax) & (df.z > zmin)
     
     elif det == "SBND":
-        xmin = -190
-        ymin = -190
-        zmin = 10
-        xmax = 190
-        ymax =  190
-        zmax =  450.
-        return (df.x > xmin) & (df.x < xmax) & (df.y > ymin) & (df.y < ymax) & (df.z > zmin) & (df.z < zmax)
+        
+        # perfect
+        # xmin = -190
+        # ymin = -190
+        # zmin = 10
+        # xmax = 190
+        # ymax =  190
+        # zmax =  450.
+        # return (df.x > xmin) & (df.x < xmax) & (df.y > ymin) & (df.y < ymax) & (df.z > zmin) & (df.z < zmax)
+
+        # from calibration, for NuINT
+        xmin = 10.
+        xmax = 190.
+        zmin = 10.
+        zmax = 450.
+        ymax_highz = 100.
+        pass_xz = (np.abs(df.x) > xmin) & (np.abs(df.x) < xmax) & (df.z > zmin) & (df.z < zmax)
+        pass_y = ((df.z < 250) & (np.abs(df.y) < 190.)) | ((df.z > 250) & (df.y > -190.) & (df.y < ymax_highz))
+        return pass_xz & pass_y
+
     
     else:
         raise NameError("DETECTOR not valid, should be SBND or ICARUS")
@@ -66,3 +80,15 @@ def SlcInFV(df):
     return InFV(df, 100.)
 
 
+# TODO: currently maybe too specific to the multiindex df structure..
+def avg_chi2(df, var_name):
+    planes = ['I0', 'I1', 'I2']
+    chi2_vals = []
+    for plane in planes:
+        chi2 = df['pfp']['trk']['chi2pid'][plane][var_name]
+        chi2_vals.append(chi2)
+    chi2_df = pd.concat(chi2_vals, axis=1)
+    # fill 0 with nan
+    chi2_df = chi2_df.replace(0, np.nan)
+    avg = chi2_df.mean(axis=1, skipna=True)
+    return avg
