@@ -20,6 +20,9 @@ plt.style.use("presentation.mplstyle")
 cmap = mpl.cm.viridis
 norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
 
+pdg_labels = [r"$\mu^{\pm}$", r"$p$", r"$\pi^{\pm}$", r"Other"]
+pdg_colors = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
+
 dpi = 300
 fig_ext = ".png"
 
@@ -239,6 +242,10 @@ def add_genie_version_text(textloc_x, textloc_y, textloc_ha):
             ha=textloc_ha, va='top',
             fontsize=11.5, color='gray')
 
+def format_singlebin_plot():
+    ax = plt.gcf().axes[0]
+    ax.set_xticks([])
+
 
 # ==== bar plot ====
 def bar_plot(breakdown_type="topology", 
@@ -319,10 +326,34 @@ def overlay_hists(breakdown_type="topology",
 
     # MC
     if mc_df is not None:
+
+        if dirt_df is not None:
+            # append to mc_df, bump up __ntuple index so that they are unique
+            ntuple_vals = mc_df.index.get_level_values(0)
+            ntuple_offset = ntuple_vals.max()+1
+            names = dirt_df.index.names
+            # __ntuple should be at level 0
+            if "__ntuple" in names:
+                idx_loc = names.index("__ntuple")
+            else:
+                idx_loc = 0
+            new_tuples = []
+            for tup in dirt_df.index:
+                tup = list(tup)
+                tup[idx_loc] = tup[idx_loc] + ntuple_offset
+                new_tuples.append(tuple(tup))
+            dirt_df.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
+        
         vardf, _        = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
 
         # breakdown MC events into truth categories
-        if breakdown_type == "topology":
+        if breakdown_type == "pdg":
+            # trk breakdown
+            labels = pdg_labels
+            colors = pdg_colors
+            cuts = get_pdg_category(mc_df, ret_cuts=True)
+
+        elif breakdown_type == "topology":
             labels = topology_labels
             colors = topology_colors
             cuts = get_topo_category(mc_df, ret_cuts=True)
@@ -481,7 +512,7 @@ def overlay_hists(breakdown_type="topology",
             hatch='xxx',                 # hatch pattern similar to ROOT's 3004
             linewidth=0.0,
             edgecolor='dimgray',            # outline color of the hatching
-            label='MC Stat. Unc.'
+            label='Syst. Unc.'
         )
  
     else:
@@ -512,16 +543,17 @@ def overlay_hists(breakdown_type="topology",
                 edgecolor='dimgray',
                 hatch='xxx',
                 linewidth=0.0,
-                label='MC Stat. Unc.'
+                label='Syst. Unc.'
             )
         else:
             print("No syst provided")
 
         # data/MC 
-        ax_r.errorbar(var_config.bin_centers, data_ratio, 
-                        yerr=np.vstack((data_ratio_eylow, data_ratio_eyhigh)),
-                        fmt='o', color='black',
-                        markersize=5, capsize=3, linewidth=1.5)
+        if data_df is not None:
+            ax_r.errorbar(var_config.bin_centers, data_ratio, 
+                            yerr=np.vstack((data_ratio_eylow, data_ratio_eyhigh)),
+                            fmt='o', color='black',
+                            markersize=5, capsize=3, linewidth=1.5)
 
     # ===============================
 
@@ -561,7 +593,10 @@ def overlay_hists(breakdown_type="topology",
             ordered_labels.extend(legend_labels[::-1])
 
         else:
-            mc_handles = [h for i, h in enumerate(handles) if i != data_handle_index and 'Unc.' not in labels_orig[i]]
+            if data_df is not None:
+                mc_handles = [h for i, h in enumerate(handles) if i != data_handle_index and 'Unc.' not in labels_orig[i]]
+            else:
+                mc_handles = [h for i, h in enumerate(handles) if 'Unc.' not in labels_orig[i]]
             mc_labels = [f"{label} ({frac*100:.1f}%)"
                                 for label, frac in zip(labels, breakdown_fractions)]
             ordered_handles.extend(mc_handles)
@@ -607,7 +642,12 @@ def overlay_hists(breakdown_type="topology",
     textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
     textloc_y = textloc[1]
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
-    add_genie_version_text(textloc_x, textloc_y-0.08, textloc_ha)
+
+    if breakdown_type != "pdg":
+        add_genie_version_text(textloc_x, textloc_y-0.08, textloc_ha)
+
+    if var_config.var_save_name == "integrated":
+        format_singlebin_plot()
 
     # ===============================
 
@@ -651,6 +691,8 @@ def plot_efficiency(df_dict={},
     fig, ax = plt.subplots()
     ax_eff = ax.twinx()
 
+    eff_list = []
+    eff_err_list = []
     for kidx, key in enumerate(keys):
         this_df = df_dict[key]
         this_signal_df = this_df[IsNuInFV_NumuCC_1p0pi(this_df)]
@@ -665,8 +707,11 @@ def plot_efficiency(df_dict={},
             print("final purity: {:.2f}%".format(100 * len(this_signal_df) / len(this_df)))
 
         this_eff = n / n_tot
-        this_eff_err = get_eff_err(n, n_tot)
+        stat_scale_factor = this_df.pot_weight.unique()[0]
+        this_eff_err = get_eff_err(n/stat_scale_factor, n_tot/stat_scale_factor)
         ax_eff.errorbar(bin_centers, this_eff, yerr=this_eff_err, fmt="o-", color=colors[kidx], label=this_label)
+        eff_list.append(this_eff)
+        eff_err_list.append(this_eff_err)
 
     ax.set_xlabel(var_config.var_labels[0])
     ax.set_ylabel("Events")
@@ -682,6 +727,9 @@ def plot_efficiency(df_dict={},
     textloc_y = textloc[1]
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
 
+    if var_config.var_save_name == "integrated":
+        format_singlebin_plot()
+
     if save_fig:
         plt.savefig(save_name+fig_ext, bbox_inches="tight", dpi=dpi)
 
@@ -689,6 +737,8 @@ def plot_efficiency(df_dict={},
         plt.show()
     else:
         plt.close()
+
+    return {"eff_list": eff_list, "eff_err_list": eff_err_list}
 
 
 def plot_univ_hists(
@@ -747,7 +797,7 @@ def plot_univ_hists(
     plt.xlim(var_config.bins[0], var_config.bins[-1])
     plt.xlabel(var_config.var_labels[1])
     plt.ylabel("Events / Bin")
-    plt.title(syst_name)
+    # plt.title(syst_name)
 
     plt.legend(frameon=False)
 
@@ -755,6 +805,9 @@ def plot_univ_hists(
     textloc_x, textloc_ha = get_textloc_x(cv_events, var_config.bins, textloc)
     textloc_y = textloc[1]
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
+
+    if var_config.var_save_name == "integrated":
+        format_singlebin_plot()
 
 
     if save_fig:
@@ -860,6 +913,9 @@ def plot_unfolded_result(unfold,
     textloc_y = textloc[1]
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
 
+    if var_config.var_save_name == "integrated":
+        format_singlebin_plot()
+
     if save_fig:
         plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
 
@@ -869,7 +925,7 @@ def plot_unfolded_result(unfold,
         plt.close()
 
 
-def variation_hists(evtdfs=None, var_name=None, 
+def variation_hists(evtdfs=None, var_name=None, breakdown_type=None,
                     nevts_list=None,
                     datadf=None,
                     bins=None,
@@ -900,16 +956,28 @@ def variation_hists(evtdfs=None, var_name=None,
             vardfs.append(vardf)
             wgtdfs.append(wgtdf)
 
-        # for sidx in range(n_vars):
             nevts, _ = np.histogram(vardf, bins=bins, weights=wgtdf)
             total_mc_err2, _ = np.histogram(vardf, bins=bins, weights=wgtdf**2)
             mc_stat_err = np.sqrt(total_mc_err2)
             nevts_list.append(nevts)
             mc_stat_err_list.append(mc_stat_err)
 
+        if breakdown_type is not None:
+            # plot breakdown for the first variation (CV)
+            if breakdown_type == "topology":
+                labels = topology_labels[::-1]
+                colors = topology_colors[::-1]
+                cuts = get_topo_category(evtdfs[0], ret_cuts=True)
+
+            elif breakdown_type == "genie":
+                labels = genie_mode_labels
+                colors = genie_mode_colors
+                cuts = get_genie_category(evtdfs[0], ret_cuts=True)
+
+
     if datadf is not None:
-        vardf_data, _   = get_clipped_evts(datadf, var_name, bins)
-        total_data, _ = np.histogram(vardf_data, bins=bins, weights=datadf.pot_weight)
+        vardf_data, wgtdf_data = get_clipped_evts(datadf, var_name, bins)
+        total_data, _ = np.histogram(vardf_data, bins=bins, weights=wgtdf_data)
         data_eylow, data_eyhigh = return_data_stat_err(total_data)
 
     # ===== plot =====
@@ -921,6 +989,22 @@ def variation_hists(evtdfs=None, var_name=None,
     ax_r = axs[1]
 
     for sidx in range(n_vars):
+        if sidx == 0:
+            if breakdown_type is not None:
+                vardf, wgtdf = get_clipped_evts(evtdfs[0], var_name, bins)
+                vardf_categ = [vardf[i] for i in cuts]
+                weights_categ = [list(evtdfs[0].loc[cuts[i], 'pot_weight']) for i in range(len(cuts))]
+                mc_stack, _, _ = ax.hist(vardf_categ,
+                                        weights=weights_categ,
+                                        bins=bins,
+                                        stacked=True,
+                                        color=colors,
+                                        label=labels,
+                                        linewidth=0,
+                                        edgecolor='none',
+                                        histtype='stepfilled')
+                continue
+
         ax.hist(bin_centers,
                 weights=nevts_list[sidx],
                 bins=bins, 
@@ -940,7 +1024,6 @@ def variation_hists(evtdfs=None, var_name=None,
     ax.set_ylabel(plot_labels[1])
     ax.set_title(plot_labels[2])
     ax.set_xlim(bins[0], bins[-1])
-    ax.legend(loc="best")
 
     # ==== var/CV ratio panel
     for sidx in range(n_vars):
@@ -978,6 +1061,7 @@ def variation_hists(evtdfs=None, var_name=None,
     textloc_x, textloc_ha = get_textloc_x(nevts_list[0], bins, textloc)
     textloc_y = textloc[1]
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
+    ax.legend(loc="best")
 
     # == save figure ==
     if save_fig:
@@ -1064,6 +1148,9 @@ def signal_hists(evtdf=None,  # df with selected & reco'ed events
         textloc_y = textloc[1]
         add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
 
+        if var_config.var_save_name == "integrated":
+            format_singlebin_plot()
+
         if save_fig:
             plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
 
@@ -1121,6 +1208,9 @@ def plot_frac_unc(frac_unc_list,
     textloc_x, textloc_ha = get_textloc_x(frac_unc, var_config.bins, textloc)
     textloc_y = textloc[1]
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
+
+    if var_config.var_save_name == "integrated":
+        format_singlebin_plot()
 
     if save_fig:
         plt.savefig(save_name+fig_ext, bbox_inches='tight')
