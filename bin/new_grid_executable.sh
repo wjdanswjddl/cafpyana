@@ -2,9 +2,9 @@
 outDir=$1
 DFPREFIX=$2
 nProcess=$PROCESS
-git clone https://github.com/gputnam/cafpyana.git
+git clone https://github.com/wjdanswjddl/cafpyana.git
 cd cafpyana
-git checkout remotes/origin/N8Dev
+git checkout feature/munjung-numuCC1p0pi_updates
 
 source setup.sh
 mkdir output
