@@ -14,7 +14,7 @@ SAVE_NTRKS    = 2
 TRACKSCORE_TH = 0.5
 VTXDIST_TH    = 1.2
 # pid cuts
-MU_CHI2MU_TH  = 30
+MU_CHI2MU_TH  = 25
 MU_CHI2P_TH   = 100
 MU_LEN_TH     = 50
 QUAL_TH       = 0.2
@@ -86,14 +86,14 @@ def cut_2prong_vtxdist(df, vtxdist_th=1.5):
 
 def get_mu_p_candidate(df, 
                        mu_chi2mu_th=30, mu_chi2p_th=100, mu_len_th=50, qual_th=0.25,
-                       p_chi2mu_th=30, p_chi2p_th=90, p_len_th=0):
+                       p_chi2mu_th=30, p_chi2p_th=90, p_len_th=0, score_tag=""):
 
     nlevels = len(df.index.names)
 
     trks = pd.concat([df.trk1, df.trk2])
 
-    chimu_avg = avg_chi2(trks, "chi2_muon")
-    chip_avg = avg_chi2(trks, "chi2_proton")
+    chimu_avg = avg_chi2(trks, f"chi2_muon{score_tag}")
+    chip_avg = avg_chi2(trks, f"chi2_proton{score_tag}")
 
     mcs_range_diff = np.abs((trks.pfp.trk.rangeP.p_muon - trks.pfp.trk.mcsP.fwdP_muon) / trks.pfp.trk.rangeP.p_muon)
 
@@ -110,7 +110,7 @@ def get_mu_p_candidate(df,
 
     # TODO: keep & use original trk index?
     not_mu_candidate = pd.concat([trks[~mu_cut], trks[mu_cut].groupby(level=list(range(nlevels))).nth(1)])
-    chip_avg = avg_chi2(not_mu_candidate, "chi2_proton")
+    chip_avg = avg_chi2(not_mu_candidate, f"chi2_proton{score_tag}")
     p_candidate = not_mu_candidate[(chip_avg > 0) & (chip_avg < p_chi2p_th) & (not_mu_candidate.pfp.trk.len > p_len_th)]
     p_candidate = p_candidate.groupby(level=list(range(nlevels))).nth(0)
 

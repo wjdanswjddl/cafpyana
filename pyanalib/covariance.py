@@ -7,6 +7,14 @@ def cov_from_fraccov(cov_frac, cv_vals):
             cov[i, j] = cov_frac[i, j] * (cv_vals[i] * cv_vals[j])
     return cov
 
+
+def fraccov_from_cov(cov, cv_vals):
+    cov_frac = np.zeros_like(cov)
+    for i in range(cov.shape[0]):
+        for j in range(cov.shape[1]):
+            cov_frac[i, j] = cov[i, j] / (cv_vals[i] * cv_vals[j])
+    return cov_frac
+
 def corr_from_fraccov(cov_frac):
     corr = np.zeros_like(cov_frac)
     for i in range(cov_frac.shape[0]):

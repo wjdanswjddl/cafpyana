@@ -52,7 +52,8 @@ def run_pool(output, inputs, nproc):
     except:
         PREPROCESS = []
 
-    dfss = ntuples.dataframes(nproc=nproc, fs=DFS, preprocess=PREPROCESS)
+
+    dfss = ntuples.dataframes(nproc=nproc, fs=DFS, args=ARGS, preprocess=PREPROCESS)
     output = pathlib.Path(output).with_suffix('.df')
     k_idx = 0
     split_margin = args.SplitSize

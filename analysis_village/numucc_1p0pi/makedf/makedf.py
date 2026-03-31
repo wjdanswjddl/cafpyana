@@ -8,6 +8,9 @@ from makedf.constants import *
 
 from analysis_village.numucc_1p0pi.makedf.selections import *
 from makedf.geniesyst import *
+from makedf.bnbsyst import *
+
+DETECTOR = "SBND_nohighyz"
 
 def make_spine_evtdf(f):
     # load slices and particles
@@ -54,7 +57,19 @@ def make_spine_evtdf(f):
 
 # ===== selection stages =====
 
-def make_pandora_evtdf_all(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+def make_pandora_evtdf_all_sce(f, sel_level="all", include_weights=False, multisim_nuniv=100, wgt_types=[], slim=True, 
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
+
+def make_pandora_evtdf_all(f, sel_level="all", include_weights=True, multisim_nuniv=100, wgt_types=["bnb","g4","genie"], slim=True, 
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
+
+def make_pandora_evtdf_cosmics(f, sel_level="all", include_weights=False, multisim_nuniv=100, wgt_types=[], slim=True, 
                        trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
@@ -75,7 +90,7 @@ def make_pandora_evtdf_mup(f, sel_level="mup", include_weights=False, multisim_n
 
 # ===== syst weights =====
 
-def make_pandora_evtdf_wgts(f, include_weights=True, multisim_nuniv=1000, wgt_types=["bnb","genie"], slim=True, 
+def make_pandora_evtdf_wgts(f, include_weights=True, multisim_nuniv=1000, wgt_types=["bnb","g4","genie"], slim=True, 
                        trkScoreCut=False, trkDistCut=10., cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
@@ -87,8 +102,40 @@ def make_pandora_evtdf_mup_wgts(f, sel_level="mup", include_weights=True, multis
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
-# ===== GENIE weights =====
+# ==== g4 weights ====
+def make_pandora_evtdf_mup_wgts_g4(f, sel_level="mup", include_weights=True, multisim_nuniv=1000, wgt_types=["g4"], slim=False, 
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
 
+# ===== BNB weights =====
+def make_pandora_evtdf_mup_wgts_flux(f, sel_level="mup", include_weights=True, multisim_nuniv=1000, wgt_types=["bnb"], slim=False, 
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_wgts_flux_beam(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["bnb"], slim=False, 
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, flux_systematics=bnb_systematics_beam, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, flux_systematics=flux_systematics, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_wgts_flux_hadron(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["bnb"], slim=False, 
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, flux_systematics=bnb_systematics_hadron,  **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, flux_systematics=flux_systematics, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_wgts_flux_xsec(f, sel_level="mup", include_weights=True, multisim_nuniv=1000, wgt_types=["bnb"], slim=False, 
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, flux_systematics=bnb_systematics_xsec,  **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, flux_systematics=flux_systematics, **trkArgs)
+    return df
+
+
+# ===== GENIE weights =====
 def make_pandora_evtdf_mup_wgts_genie(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=True, 
                        trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
@@ -104,6 +151,28 @@ def make_pandora_evtdf_mup_wgts_CCQE(f, sel_level="mup", include_weights=True, m
 
 def make_mcnudf_CCQE(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
     df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=qe_genie_systematics)
+    return df
+
+
+def make_pandora_evtdf_mup_wgts_ar23p(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=ar23p_genie_systematics, **trkArgs)
+    return df
+
+def make_mcnudf_ar23p(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
+    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=ar23p_genie_systematics)
+    return df
+
+
+def make_pandora_evtdf_mup_wgts_zexp(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=zexp_genie_systematics, **trkArgs)
+    return df
+
+def make_mcnudf_zexp(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
+    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=zexp_genie_systematics)
     return df
 
 
@@ -127,13 +196,13 @@ def make_mcnudf_RES(f, include_weights=True, multisim_nuniv=100, wgt_types=["gen
     df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=res_genie_systematics)
     return df
 
-def make_pandora_evtdf_mup_wgts_NonRES(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=True, 
+def make_pandora_evtdf_mup_wgts_nonRES(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
                        trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=nonres_genie_systematics, **trkArgs)
     return df
 
-def make_mcnudf_NonRES(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
+def make_mcnudf_nonRES(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
     df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=nonres_genie_systematics)
     return df
 
@@ -162,65 +231,143 @@ def make_mcnudf_Other(f, include_weights=True, multisim_nuniv=100, wgt_types=["g
 
 # ===== Calo variations =====
 
-def make_pandora_evtdf_all_updatecalo(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
-                       trkScoreCut=False, trkDistCut=100., updatecalo=True, cutClearCosmic=True, **trkArgs):
+def make_pandora_evtdf_mup_updatecalo(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+                       trkScoreCut=False, trkDistCut=100., updatecalo="CV", cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
-def make_pandora_evtdf_all_updatecalo_ccal_p(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+def make_pandora_evtdf_2prong_updatecalo(f, sel_level="2prong", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+                       trkScoreCut=False, trkDistCut=100., updatecalo="CV", cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
+
+
+def make_pandora_evtdf_2prong_vtxdist_updatecalo(f, sel_level="2prong_vtxdist", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+                       trkScoreCut=False, trkDistCut=100., updatecalo="CV", cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
+
+def make_pandora_evtdf_2prong_wcandidates_updatecalo(f, sel_level="2prong_wcandidates", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+                       trkScoreCut=False, trkDistCut=100., updatecalo="CV", cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
+
+def make_pandora_evtdf_all_updatecalo(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+                       trkScoreCut=False, trkDistCut=100., updatecalo="CV", cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
+
+def make_trkdf_updatecalo(f, trkScoreCut=False, trkDistCut=100., updatecalo=True, **trkArgs):
+    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_updatecalo_ccal_p(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
                        trkScoreCut=False, trkDistCut=100., updatecalo="ccal_p", cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
-def make_pandora_evtdf_all_updatecalo_ccal_m(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+def make_trkdf_updatecalo_ccal_p(f, trkScoreCut=False, trkDistCut=100., updatecalo="ccal_p", **trkArgs):
+    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_updatecalo_ccal_m(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
                        trkScoreCut=False, trkDistCut=100., updatecalo="ccal_m", cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
-def make_pandora_evtdf_all_updatecalo_alpha_p(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+def make_trkdf_updatecalo_ccal_m(f, trkScoreCut=False, trkDistCut=100., updatecalo="ccal_m", **trkArgs):
+    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_updatecalo_alpha_p(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
                        trkScoreCut=False, trkDistCut=100., updatecalo="alpha_p", cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
-def make_pandora_evtdf_all_updatecalo_alpha_m(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+def make_trkdf_updatecalo_alpha_p(f, trkScoreCut=False, trkDistCut=100., updatecalo="alpha_p", **trkArgs):
+    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_updatecalo_alpha_m(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
                        trkScoreCut=False, trkDistCut=100., updatecalo="alpha_m", cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
-def make_pandora_evtdf_all_updatecalo_beta_p(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+def make_trkdf_updatecalo_alpha_m(f, trkScoreCut=False, trkDistCut=100., updatecalo="alpha_m", **trkArgs):
+    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_updatecalo_beta_p(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
                        trkScoreCut=False, trkDistCut=100., updatecalo="beta_p", cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
-def make_pandora_evtdf_all_updatecalo_beta_m(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+def make_trkdf_updatecalo_beta_p(f, trkScoreCut=False, trkDistCut=100., updatecalo="beta_p", **trkArgs):
+    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_updatecalo_beta_m(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
                        trkScoreCut=False, trkDistCut=100., updatecalo="beta_m", cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
-def make_pandora_evtdf_all_updatecalo_R_p(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+def make_trkdf_updatecalo_beta_m(f, trkScoreCut=False, trkDistCut=100., updatecalo="beta_m", **trkArgs):
+    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_updatecalo_R_p(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
                        trkScoreCut=False, trkDistCut=100., updatecalo="R_p", cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
-def make_pandora_evtdf_all_updatecalo_R_m(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
+def make_trkdf_updatecalo_R_p(f, trkScoreCut=False, trkDistCut=100., updatecalo="R_p", **trkArgs):
+    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    return df
+
+def make_pandora_evtdf_mup_updatecalo_R_m(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
                        trkScoreCut=False, trkDistCut=100., updatecalo="R_m", cutClearCosmic=True, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, updatecalo=updatecalo, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
+def make_trkdf_updatecalo_R_m(f, trkScoreCut=False, trkDistCut=100., updatecalo="R_m", **trkArgs):
+    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    return df
+
+# for SystVar samples
+def make_metadf(f):
+    mcdf = make_mcnudf(f, include_weights=False)
+    metabranches = ["rec.hdr.pot",
+                     "rec.hdr.nbnbinfo",
+                     "rec.hdr.first_in_subrun",
+                     "rec.hdr.ismc",
+                     "rec.hdr.run",
+                     "rec.hdr.subrun",
+                     "rec.hdr.ngenevt",
+                     "rec.hdr.evt"]
+    hdrdf = loadbranches(f["recTree"], metabranches).rec.hdr
+    df = multicol_merge(mcdf.reset_index(), hdrdf.reset_index(), 
+                            left_on=["entry"], right_on=["entry"], 
+                            how="left")
+    return df
+
 # ================================================
 
 def make_pandora_evtdf(f, sel_level="all", 
-                       include_weights=True, multisim_nuniv=1000, wgt_types=[], slim=True, genie_systematics=None,
-                       trkScoreCut=False, trkDistCut=100., updatecalo=False,
+                       include_weights=True, multisim_nuniv=1000, wgt_types=[], slim=True, genie_systematics=None, flux_systematics=None,
+                       trkScoreCut=False, trkDistCut=100., updatecalo=None,
                        cutClearCosmic=True, **trkArgs):
 
     """
@@ -235,7 +382,7 @@ def make_pandora_evtdf(f, sel_level="all",
         "mup": final selection
     """
 
-    if sel_level not in ["all", "clearcosmic", "fv", "nu", "2prong", "2prong_contained", "2prong_trackscore", "2prong_vtxdist", "muX", "mup"]:
+    if sel_level not in ["all", "clearcosmic", "fv", "nu", "2prong", "2prong_contained", "2prong_trackscore", "2prong_vtxdist",  "2prong_wcandidates", "muX", "mup"]:
         raise ValueError("Invalid sel_level: {}".format(sel_level))
 
     def truth_match(this_evtdf, this_mcdf):
@@ -288,7 +435,8 @@ def make_pandora_evtdf(f, sel_level="all",
     p_Plo_th = 0.3
     p_Phi_th = 1
 
-    mcdf = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=genie_systematics)
+    mcdf = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=genie_systematics, flux_systematics=flux_systematics)
+
     # calculate TKI for MC 
     tki_var_names = ["del_alpha", "del_phi", "del_Tp", "del_p", "del_Tp_x", "del_Tp_y"]
     mc_mudf = mcdf.mu
@@ -300,7 +448,6 @@ def make_pandora_evtdf(f, sel_level="all",
         mcdf = multicol_add(mcdf, tki_mc[var_name].rename("{}".format(var_name)))
 
     slcdf = make_slcdf(f)
-    trkdf = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
 
     if sel_level == "all":
         return truth_match(slcdf, mcdf)
@@ -317,13 +464,15 @@ def make_pandora_evtdf(f, sel_level="all",
     if sel_level == "nu":
         return truth_match(slcdf, mcdf)
 
+    trkdf = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     trkdf = get_valid_trks(trkdf)
     trkdf = match_trkdf_to_slcdf(trkdf, slcdf)
     evtdf = get_trk_info(slcdf, trkdf, save_ntrks)
 
     evtdf = cut_2prong(evtdf)
     if sel_level == "2prong":
-        return truth_match(evtdf, mcdf)
+        ret = truth_match(evtdf, mcdf)
+        return ret
 
     evtdf = cut_2prong_contained(evtdf, det=DETECTOR)
     if sel_level == "2prong_contained":
@@ -337,9 +486,21 @@ def make_pandora_evtdf(f, sel_level="all",
     if sel_level == "2prong_vtxdist":
         return truth_match(evtdf, mcdf)
 
-    evtdf = get_mu_p_candidate(evtdf, 
-                                mu_chi2mu_th=mu_chi2mu_th, mu_chi2p_th=mu_chi2p_th, mu_len_th=mu_len_th, qual_th=qual_th, 
-                                p_chi2mu_th=-1, p_chi2p_th=p_chi2p_th, p_len_th=p_len_th)
+    if updatecalo is not None:
+        evtdf = get_mu_p_candidate(evtdf, 
+                                    mu_chi2mu_th=mu_chi2mu_th, mu_chi2p_th=mu_chi2p_th, mu_len_th=mu_len_th, qual_th=qual_th, 
+                                    p_chi2mu_th=-1, p_chi2p_th=p_chi2p_th, p_len_th=p_len_th, score_tag="_new")
+
+    else:
+        evtdf = get_mu_p_candidate(evtdf, 
+                                    mu_chi2mu_th=mu_chi2mu_th, mu_chi2p_th=mu_chi2p_th, mu_len_th=mu_len_th, qual_th=qual_th, 
+                                    p_chi2mu_th=-1, p_chi2p_th=p_chi2p_th, p_len_th=p_len_th, score_tag="")
+
+    evtdf = cut_2prong_vtxdist(evtdf, vtxdist_th)
+
+    if sel_level == "2prong_wcandidates":
+        return truth_match(evtdf, mcdf)
+
 
     evtdf = cut_has_mu(evtdf)
     evtdf = cut_mu_kinematics(evtdf, mu_Plo_th=mu_Plo_th, mu_Phi_th=mu_Phi_th)

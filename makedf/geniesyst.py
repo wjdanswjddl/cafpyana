@@ -91,10 +91,65 @@ regen_systematics = [
 
 
 # grouped syst knobs
+ar23p_genie_systematics = [
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_D_ZExp_b1',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_D_ZExp_b2',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_D_ZExp_b3',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_D_ZExp_b4',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b1',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b2',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b3',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b4',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin1',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin2',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin3',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin4',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin5',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin1',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin2',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin3',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin4',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin5',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_0',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_1',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_2',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_3',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_4',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_5',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_VecFFCCQEshape',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_CoulombCCQE',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_NormCCMEC',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_NormNCMEC',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_DecayAngMEC',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_MFP_pi',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrCEx_pi',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrInel_pi',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrAbs_pi',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrPiProd_pi',
+    'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin0',
+    'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin1',
+    'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin2',
+    'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin3',
+    'MECq0q3InterpWeighting_SuSAv2ToMartini_q0binned_MECResponse_q0bin0',
+    'MECq0q3InterpWeighting_SuSAv2ToMartini_q0binned_MECResponse_q0bin1',
+    'MECq0q3InterpWeighting_SuSAv2ToMartini_q0binned_MECResponse_q0bin2',
+    'MECq0q3InterpWeighting_SuSAv2ToMartini_q0binned_MECResponse_q0bin3'
+]
+
 qe_genie_systematics = [
 'GENIEReWeight_SBN_v1_multisim_RPA_CCQE',
 'GENIEReWeight_SBN_v1_multisim_CoulombCCQE',
 ]
+
+zexp_genie_systematics = [
+"GENIEReWeight_SBN_v1_multisigma_VecFFCCQEshape",
+
+'GENIEReWeight_SBN_v1_multisigma_ZExpA1CCQE',
+'GENIEReWeight_SBN_v1_multisigma_ZExpA2CCQE',
+'GENIEReWeight_SBN_v1_multisigma_ZExpA3CCQE',
+'GENIEReWeight_SBN_v1_multisigma_ZExpA4CCQE',
+]
+
 
 mec_genie_systematics = [
 'GENIEReWeight_SBN_v1_multisim_NormCCMEC',

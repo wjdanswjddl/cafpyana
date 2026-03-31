@@ -32,11 +32,11 @@ class VariableConfig:
             var_labels=[r"All Events", 
             r"All Events", ""],
             # use slc.producer as the dummy variable
-            bins=np.linspace(0, 1, 2),
+            bins=np.linspace(0., 1000., 2),
             var_evt_reco_col=('mc', 'iscc', '', '', '', '', ''),
             var_evt_truth_col=('mc', 'iscc', '', '', '', '', ''),
             var_nu_col=('mc', 'iscc', ''),
-            xsec_label=r"$\frac{d\sigma}{dAll Events}$ ($\mathrm{cm}^2$)"
+            xsec_label=r"$\sigma$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -51,7 +51,37 @@ class VariableConfig:
             var_evt_reco_col=('mu', 'pfp', 'trk', 'P', 'p_muon', '', ''),
             var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'totp', ''),
             var_nu_col=('mc', 'mu', 'totp'),
-            xsec_label=r"$\frac{d\sigma}{dP_\mu}$ ($\mathrm{cm}^2$ / GeV/c)"
+            xsec_label=r"$\frac{d\sigma}{dP_\mu}$ $\left(\frac{\mathrm{cm}^2}{(\mathrm{GeV}/c)\ \mathrm{Ar}}\right)$"
+        )
+
+    @classmethod
+    def muon_momentum_mcs(cls):
+        return cls(
+            var_save_name="muon-p",
+            var_plot_name="P_\mu",
+            var_labels=[r"$\mathrm{P_\mu}$ (GeV/c)", 
+            r"$\mathrm{P_\mu^{reco.}}$ (GeV/c)", 
+            r"$\mathrm{P_\mu^{true}}$ (GeV/c)"],
+            bins=np.array([0.22, 0.27, 0.32, 0.37, 0.42, 0.47, 0.52, 0.57, 0.62, 0.7, 0.8, 0.9, 1.0]),
+            var_evt_reco_col=('mu', 'pfp', 'trk', 'mcsP', 'fwdP_muon', '', ''),
+            var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'totp', ''),
+            var_nu_col=('mc', 'mu', 'totp'),
+            xsec_label=r"$\frac{d\sigma}{dP_\mu}$ $\left(\frac{\mathrm{cm}^2}{(\mathrm{GeV}/c)\ \mathrm{Ar}}\right)$"
+        )
+
+    @classmethod
+    def muon_momentum_hybrid(cls):
+        return cls(
+            var_save_name="muon-p",
+            var_plot_name="P_\mu",
+            var_labels=[r"$\mathrm{P_\mu}$ (GeV/c)", 
+            r"$\mathrm{P_\mu^{reco.}}$ (GeV/c)", 
+            r"$\mathrm{P_\mu^{true}}$ (GeV/c)"],
+            bins=np.array([0.22, 0.27, 0.32, 0.37, 0.42, 0.47, 0.52, 0.57, 0.62, 0.7, 0.8, 0.9, 1.0]),
+            var_evt_reco_col=('mu', 'pfp', 'trk', 'hybridP', 'p_muon', '', ''),
+            var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'totp', ''),
+            var_nu_col=('mc', 'mu', 'totp'),
+            xsec_label=r"$\frac{d\sigma}{dP_\mu}$ $\left(\frac{\mathrm{cm}^2}{(\mathrm{GeV}/c)\ \mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -66,7 +96,7 @@ class VariableConfig:
             var_evt_reco_col=('mu', 'pfp', 'trk', 'dir', 'z', '', ''),
             var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'dir', 'z'),
             var_nu_col=('mc', 'mu', 'dir', 'z'),
-            xsec_label=r"$\frac{d\sigma}{dcos(\theta_\mu)}$ ($\mathrm{cm}^2$)"
+            xsec_label=r"$\frac{d\sigma}{dcos(\theta_\mu)}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -81,7 +111,7 @@ class VariableConfig:
             var_evt_reco_col=('p', 'pfp', 'trk', 'P', 'p_proton', '', ''),
             var_evt_truth_col=('p', 'pfp', 'trk', 'truth', 'p', 'totp', ''),
             var_nu_col=('mc', 'p', 'totp'),
-            xsec_label=r"$\frac{d\sigma}{dP_p}$ ($\mathrm{cm}^2$ / GeV/c)"
+            xsec_label=r"$\frac{d\sigma}{dP_p}$ $\left(\frac{\mathrm{cm}^2}{(\mathrm{GeV}/c)\ \mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -96,7 +126,7 @@ class VariableConfig:
             var_evt_reco_col=('p', 'pfp', 'trk', 'dir', 'z', '', ''),
             var_evt_truth_col=('p', 'pfp', 'trk', 'truth', 'p', 'dir', 'z'),
             var_nu_col=('mc', 'p', 'dir', 'z'),
-            xsec_label=r"$\frac{d\sigma}{dcos(\theta_p)}$ ($\mathrm{cm}^2$)"
+            xsec_label=r"$\frac{d\sigma}{dcos(\theta_p)}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -107,11 +137,12 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\delta p}$ (GeV/c)", 
             r"$\mathrm{\delta p^{reco.}}$ (GeV/c)", 
             r"$\mathrm{\delta p^{true}}$ (GeV/c)"],
-            bins=np.array([0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.35, 0.45, 0.55, 0.65, 0.8, 1.0]),
+            bins=np.array([0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.45, 0.55, 0.65, 0.8, 1.0]),
             var_evt_reco_col=('del_p', '', '', '', '', '', ''),
-            var_evt_truth_col=('mc_del_p', '', '', '', '', '', ''),
-            var_nu_col=('mc', 'del_p', ''),
-            xsec_label=r"$\frac{d\sigma}{d\delta p}$ ($\mathrm{cm}^2$ / GeV/c)"
+            # var_evt_truth_col=('mc_del_p', '', '', '', '', '', ''),
+            var_evt_truth_col=('mc', 'del_p', '', '', '', '', ''),
+            var_nu_col=('del_p', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\delta p}$ $\left(\frac{\mathrm{cm}^2}{(\mathrm{GeV}/c)\ \mathrm{Ar}}\right)$"
         )
     
     @classmethod
@@ -122,11 +153,12 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\delta p_T}$ (GeV/c)", 
             r"$\mathrm{\delta p_T^{reco.}}$ (GeV/c)", 
             r"$\mathrm{\delta p_T^{true}}$ (GeV/c)"],
-            bins=np.array([0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.35, 0.45, 0.55, 0.65, 0.8, 1.0]),
+            bins=np.array([0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.45, 0.55, 0.65, 0.8, 1.0]),
             var_evt_reco_col=('del_Tp', '', '', '', '', '', ''),
-            var_evt_truth_col=('mc_del_Tp', '', '', '', '', '', ''),
+            # var_evt_truth_col=('mc_del_Tp', '', '', '', '', '', ''),
+            var_evt_truth_col=('mc', 'del_Tp', '', '', '', '', ''),
             var_nu_col=('del_Tp', '', ''),
-            xsec_label=r"$\frac{d\sigma}{d\delta p_T}$ ($\mathrm{cm}^2$ / GeV/c)"
+            xsec_label=r"$\frac{d\sigma}{d\delta p_T}$ $\left(\frac{\mathrm{cm}^2}{(\mathrm{GeV}/c)\ \mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -139,9 +171,10 @@ class VariableConfig:
             r"$\mathrm{\delta p_{T, x}^{true}}$ (GeV/c)"],
             bins=np.array([-0.7, -0.55, -0.45, -0.35, -0.25, -0.15, -0.05, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.7]),
             var_evt_reco_col=('del_Tp_x', '', '', '', '', '', ''),
-            var_evt_truth_col=('mc_del_Tp_x', '', '', '', '', '', ''),
+            # var_evt_truth_col=('mc_del_Tp_x', '', '', '', '', '', ''),
+            var_evt_truth_col=('mc', 'del_Tp_x', '', '', '', '', ''),
             var_nu_col=('del_Tp_x', '', ''),
-            xsec_label=r"$\frac{d\sigma}{d\delta p_T^x}$ ($\mathrm{cm}^2$ / GeV/c)"
+            xsec_label=r"$\frac{d\sigma}{d\delta p_T^x}$ $\left(\frac{\mathrm{cm}^2}{(\mathrm{GeV}/c)\ \mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -154,9 +187,10 @@ class VariableConfig:
             r"$\mathrm{\delta p_{T, y}^{true}}$ (GeV/c)"],
             bins=np.array([-0.7, -0.55, -0.45, -0.35, -0.25, -0.15, -0.05, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.7]),
             var_evt_reco_col=('del_Tp_y', '', '', '', '', '', ''),
-            var_evt_truth_col=('mc_del_Tp_y', '', '', '', '', '', ''),
+            # var_evt_truth_col=('mc_del_Tp_y', '', '', '', '', '', ''),
+            var_evt_truth_col=('mc', 'del_Tp_y', '', '', '', '', ''),
             var_nu_col=('del_Tp_y', '', ''),
-            xsec_label=r"$\frac{d\sigma}{d\delta p_T^y}$ ($\mathrm{cm}^2$ / GeV/c)"
+            xsec_label=r"$\frac{d\sigma}{d\delta p_T^y}$ $\left(\frac{\mathrm{cm}^2}{(\mathrm{GeV}/c)\ \mathrm{Ar}}\right)$"
         )
     
     @classmethod
@@ -169,9 +203,10 @@ class VariableConfig:
             r"$\mathrm{\delta \alpha_T^{true}}$ (deg)"],
             bins=np.array([0,25,50,75,100,120,140,160,180]),
             var_evt_reco_col=('del_alpha', '', '', '', '', '', ''),
-            var_evt_truth_col=('mc_del_alpha', '', '', '', '', '', ''),
+            # var_evt_truth_col=('mc_del_alpha', '', '', '', '', '', ''),
+            var_evt_truth_col=('mc', 'del_alpha', '', '', '', '', ''),
             var_nu_col=('del_alpha', '', ''),
-            xsec_label=r"$\frac{d\sigma}{d\delta \alpha_T}$ ($\mathrm{cm}^2$ / deg)"
+            xsec_label=r"$\frac{d\sigma}{d\delta \alpha_T}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg} \ \mathrm{Ar}}\right)$"
         )
     
     @classmethod
@@ -184,9 +219,10 @@ class VariableConfig:
             r"$\mathrm{\delta \phi_T^{true}}$ (deg)"],
             bins=np.array([0,10,20,30,40,55,70,90,110,130,150,180]),
             var_evt_reco_col=('del_phi', '', '', '', '', '', ''),
-            var_evt_truth_col=('mc_del_phi', '', '', '', '', '', ''),
+            # var_evt_truth_col=('mc_del_phi', '', '', '', '', '', ''),
+            var_evt_truth_col=('mc', 'del_phi', '', '', '', '', ''),
             var_nu_col=('del_phi', '', ''),
-            xsec_label=r"$\frac{d\sigma}{d\delta \phi_T}$ ($\mathrm{cm}^2$ / deg)"
+            xsec_label=r"$\frac{d\sigma}{d\delta \phi_T}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg} \ \mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -197,11 +233,11 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\theta_{\mu, p}}$ (deg)", 
             r"$\mathrm{\theta_{\mu, p}^{reco.}}$ (deg)", 
             r"$\mathrm{\theta_{\mu, p}^{true}}$ (deg)"],
-            bins=np.linspace(0., np.pi, 21),
+            bins=np.linspace(0., np.pi, 16),
             var_evt_reco_col=('theta_mu_p', '', '', '', '', '', ''),
             var_evt_truth_col=('mc_theta_mu_p', '', '', '', '', '', ''),
-            var_nu_col=('mc', 'theta_mu_p', ''),
-            xsec_label=r"$\frac{d\sigma}{d\theta_{\\mu p}}$ ($\mathrm{cm}^2$ / deg)"
+            var_nu_col=('theta_mu_p', ''),
+            xsec_label=r"$\frac{d\sigma}{d\theta_{\\mu p}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
         )
 
     # ==== additional variables for efficiency inspection ====
@@ -215,70 +251,267 @@ class VariableConfig:
             "", 
             ""],
             bins=np.linspace(0.2, 1.7, 16),
-            var_evt_reco_col=('', '', '', '', '', '', ''),
-            var_evt_truth_col=('', '', '', '', '', '', ''),
+            var_evt_reco_col=('mc', 'E', '', '', '', '', ''),
+            var_evt_truth_col=('mc', 'E', '', '', '', '', ''),
             var_nu_col=('mc', 'E', ''),
-            xsec_label=r"$\frac{d\sigma}{dE_{\nu}}$ ($\mathrm{cm}^2$ / GeV)"
+            xsec_label=r"$\frac{d\sigma}{dE_{\nu}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{GeV}}\right)$"
+        )
+
+    @classmethod
+    def vertex_x(cls):
+        return cls(
+            var_save_name="vertex_x",
+            var_plot_name="Neutrino Vertex X",
+            var_labels=["Neutrino Vertex X (cm)", 
+            "Slice Vertex X (cm)", 
+            ""],
+            bins=np.linspace(-200, 200, 51),
+            var_evt_reco_col=('slc', 'vertex', 'x', '', '', '', ''),
+            var_evt_truth_col=('mc', 'position', 'x', '', '', '', ''),
+            var_nu_col=('mc', 'position', 'x'),
+            xsec_label=r"$\frac{d\sigma}{d\mathrm{Vertex X}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{cm}}\right)$"
+        )
+
+    @classmethod
+    def vertex_y(cls):
+        return cls(
+            var_save_name="vertex_y",
+            var_plot_name="Neutrino Vertex Y",
+            var_labels=["Neutrino Vertex Y (cm)", 
+            "Slice Vertex Y (cm)", 
+            ""],
+            bins=np.linspace(-200, 200, 51),
+            var_evt_reco_col=('slc', 'vertex', 'y', '', '', '', ''),
+            var_evt_truth_col=('mc', 'position', 'y', '', '', '', ''),
+            var_nu_col=('mc', 'position', 'y'),
+            xsec_label=r"$\frac{d\sigma}{d\mathrm{Vertex X}}$ ($\mathrm{cm}^2$ / cm)"
+        )
+
+    @classmethod
+    def vertex_z(cls):
+        return cls(
+            var_save_name="vertex_z",
+            var_plot_name="Neutrino Vertex Z",
+            var_labels=["Neutrino Vertex Z (cm)", 
+            "Slice Vertex Z (cm)", 
+            ""],
+            bins=np.linspace(0, 500, 51),
+            var_evt_reco_col=('slc', 'vertex', 'z', '', '', '', ''),
+            var_evt_truth_col=('mc', 'position', 'z', '', '', '', ''),
+            var_nu_col=('mc', 'position', 'z'),
+            xsec_label=r"$\frac{d\sigma}{d\mathrm{Vertex X}}$ ($\mathrm{cm}^2$ / cm)"
         )
 
     @classmethod
     def muon_direction_x(cls):
         return cls(
             var_save_name="muon-dir_x",
-            var_plot_name="cos(\\theta_\mu^x)",
+            var_plot_name="cos($\\theta_\mu^x$)",
             var_labels=[r"$\mathrm{cos(\theta_\mu^x)}$", 
-            r"$\mathrm{cos(\theta_\mu^x^{reco.})}$", 
-            r"$\mathrm{cos(\theta_\mu^x^{true})}$"],
-            bins=np.array([-1, -0.75, -0.6, -0.45, -0.3, -0.15, 0, 0.15, 0.3, 0.45, 0.6, 0.7, 0.8, 0.9, 1]),
+            r"$\mathrm{cos(\theta_\mu^{x, reco.})}$", 
+            r"$\mathrm{cos(\theta_\mu^{x, true})}$"],
+            bins=np.linspace(-1, 1, 21),
             var_evt_reco_col=('mu', 'pfp', 'trk', 'dir', 'x', '', ''),
             var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'dir', 'x'),
             var_nu_col=('mc', 'mu', 'dir', 'x'),
-            xsec_label=r"$\frac{d\sigma}{dcos(\theta_{\\mu}^x)}$ ($\mathrm{cm}^2$)"
+            xsec_label=r"$\frac{d\sigma}{dcos(\theta_{\\mu}^x)}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
         )
 
     @classmethod
     def muon_direction_y(cls):
         return cls(
             var_save_name="muon-dir_y",
-            var_plot_name="cos(\\theta_\mu^y)",
+            var_plot_name="cos($\\theta_\mu^y$)",
             var_labels=[r"$\mathrm{cos(\theta_\mu^y)}$", 
-            r"$\mathrm{cos(\theta_\mu^y^{reco.})}$", 
-            r"$\mathrm{cos(\theta_\mu^y^{true})}$"],
-            bins=np.array([-1, -0.75, -0.6, -0.45, -0.3, -0.15, 0, 0.15, 0.3, 0.45, 0.6, 0.7, 0.8, 0.9, 1]),
+            r"$\mathrm{cos(\theta_\mu^{y, reco.})}$", 
+            r"$\mathrm{cos(\theta_\mu^{y, true})}$"],
+            bins=np.linspace(-1, 1, 21),
             var_evt_reco_col=('mu', 'pfp', 'trk', 'dir', 'y', '', ''),
             var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'dir', 'y'),
             var_nu_col=('mc', 'mu', 'dir', 'y'),
-            xsec_label=r"$\frac{d\sigma}{dcos(\theta_{\\mu}^y)}$ ($\mathrm{cm}^2$)"
+            xsec_label=r"$\frac{d\sigma}{dcos(\theta_{\\mu}^y)}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
+        )
+
+    @classmethod
+    def muon_direction_phi(cls):
+        return cls(
+            var_save_name="muon-dir_phi",
+            var_plot_name="$\\phi_\mu$",
+            var_labels=[r"$\mathrm{\phi_\mu}$ (deg)", 
+            r"$\mathrm{\phi_\mu^{reco.}}$ (deg)", 
+            r"$\mathrm{\phi_\mu^{true}}$ (deg)"],
+            bins=np.linspace(-180, 180, 21),
+            var_evt_reco_col=('mu', 'pfp', 'trk', 'phi', '', '', ''),
+            var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'phi', ''),
+            var_nu_col=('mc', 'mu', 'phi', ''),
+            xsec_label=r"$\frac{d\sigma}{d\phi_{\\mu}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
         )
 
     @classmethod
     def proton_direction_x(cls):
         return cls(
             var_save_name="proton-dir_x",
-            var_plot_name="cos(\\theta_p^x)",
+            var_plot_name="cos($\\theta_p^x$)",
             var_labels=[r"$\mathrm{cos(\theta_p^x)}$", 
-            r"$\mathrm{cos(\theta_p^x^{reco.})}$", 
-            r"$\mathrm{cos(\theta_p^x^{true})}$"],
-            bins=np.array([-1, -0.75, -0.6, -0.45, -0.3, -0.15, 0, 0.15, 0.3, 0.45, 0.6, 0.7, 0.8, 0.9, 1]),
+            r"$\mathrm{cos(\theta_p^{x, reco.})}$", 
+            r"$\mathrm{cos(\theta_p^{x, true})}$"],
+            bins=np.linspace(-1, 1, 21),
             var_evt_reco_col=('p', 'pfp', 'trk', 'dir', 'x', '', ''),
             var_evt_truth_col=('p', 'pfp', 'trk', 'truth', 'p', 'dir', 'x'),
             var_nu_col=('mc', 'p', 'dir', 'x'),
-            xsec_label=r"$\frac{d\sigma}{dcos(\theta_{\\p}^x)}$ ($\mathrm{cm}^2$)"
+            xsec_label=r"$\frac{d\sigma}{dcos(\theta_{\\p}^x)}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
         )
 
     @classmethod
     def proton_direction_y(cls):
         return cls(
             var_save_name="proton-dir_y",
-            var_plot_name="cos(\\theta_p^y)",
+            var_plot_name="cos($\\theta_p^y$)",
             var_labels=[r"$\mathrm{cos(\theta_p^y)}$", 
-            r"$\mathrm{cos(\theta_p^y^{reco.})}$", 
-            r"$\mathrm{cos(\theta_p^y^{true})}$"],
-            bins=np.array([-1, -0.75, -0.6, -0.45, -0.3, -0.15, 0, 0.15, 0.3, 0.45, 0.6, 0.7, 0.8, 0.9, 1]),
+            r"$\mathrm{cos(\theta_p^{y, reco.})}$", 
+            r"$\mathrm{cos(\theta_p^{y, true})}$"],
+            bins=np.linspace(-1, 1, 21),
             var_evt_reco_col=('p', 'pfp', 'trk', 'dir', 'y', '', ''),
             var_evt_truth_col=('p', 'pfp', 'trk', 'truth', 'p', 'dir', 'y'),
             var_nu_col=('mc', 'p', 'dir', 'y'),
-            xsec_label=r"$\frac{d\sigma}{dcos(\theta_{\\p}^y)}$ ($\mathrm{cm}^2$)"
+            xsec_label=r"$\frac{d\sigma}{dcos(\theta_{\\p}^y)}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
+        )
+
+
+    @classmethod
+    def proton_direction_phi(cls):
+        return cls(
+            var_save_name="proton-dir_phi",
+            var_plot_name="$\\phi_p$",
+            var_labels=[r"$\mathrm{\phi_p}$ (deg)", 
+            r"$\mathrm{\phi_p^{reco.}}$ (deg)", 
+            r"$\mathrm{\phi_p^{true}}$ (deg)"],
+            bins=np.linspace(-180, 180, 21),
+            var_evt_reco_col=('p', 'pfp', 'trk', 'phi', '', '', ''),
+            var_evt_truth_col=('p', 'pfp', 'trk', 'truth', 'p', 'phi', ''),
+            var_nu_col=('mc', 'p', 'phi', ''),
+            xsec_label=r"$\frac{d\sigma}{d\phi_{\\p}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
+        )
+
+    # ==== additional variables for event selection ====
+    @classmethod
+    def nu_score(cls):
+        return cls(
+            var_save_name="nu_score",
+            var_plot_name="$\\nu_{\\mathrm{score}}$",
+            var_labels=[r"Neutrino-like Score", 
+            "", 
+            ""],
+            bins=np.linspace(0, 1, 101),
+            var_evt_reco_col=('slc', 'nu_score', '', '', ''),
+            var_evt_truth_col=('slc', 'nu_score', '', '', ''),
+            var_nu_col=('slc', 'nu_score', ''),
+            xsec_label=r""
+        )
+
+    @classmethod
+    def n_trks(cls):
+        return cls(
+            var_save_name="n_trks",
+            var_plot_name="# of Tracks",
+            var_labels=[r"", 
+            "", 
+            ""],
+            bins=np.linspace(1, 7, 7),
+            var_evt_reco_col=('n_trks', '', '', '', '', '', ''),
+            var_evt_truth_col=('n_trks', '', '', '', '', '', ''),
+            var_nu_col=('n_trks', '', ''),
+            xsec_label=r""
+        )
+
+    @classmethod
+    def track_score(cls):
+        return cls(
+            var_save_name="track_score",
+            var_plot_name="PFP Track-like Score",
+            var_labels=[r"PFP Track-like Score", 
+            "", 
+            ""],
+            bins=np.linspace(0, 1, 51),
+            var_evt_reco_col=('pfp', 'trackScore', '', '', '', ''),
+            var_evt_truth_col=('pfp', 'trackScore', '', '', '', ''),
+            var_nu_col=('', '', ''),
+            xsec_label=r""
+        )
+
+    @classmethod
+    def vtx_dist(cls):
+        return cls(
+            var_save_name="vtx_dist",
+            var_plot_name="Slice Vertex - Track Start Distance (cm)",
+            var_labels=[r"Slice Vertex - Track Start Distance (cm)", 
+            "", 
+            ""],
+            bins=np.linspace(0, 6, 41),
+            var_evt_reco_col=('pfp', 'pfochar', 'vtxdist', '', '', ''),
+            var_evt_truth_col=('pfp', 'pfochar', 'vtxdist', '', '', ''),
+            var_nu_col=('trk', 'vtxdist', ''),
+            xsec_label=r""
+        )
+
+    @classmethod
+    def trk_len(cls):
+        return cls(
+            var_save_name="trk_len",
+            var_plot_name="Track Length",
+            var_labels=[r"$\mathrm{Track Length}$ (cm)", 
+            r"$\mathrm{Track Length^{reco.}}$ (cm)", 
+            r"$\mathrm{Track Length^{true}}$ (cm)"],
+            bins=np.linspace(0, 200,41),
+            var_evt_reco_col=('pfp', 'trk', 'len', '', '', ''),
+            var_evt_truth_col=('pfp', 'trk', 'truth', 'len', '', ''),
+            var_nu_col=('trk', 'len', ''),
+            xsec_label=r""
+        )
+
+    @classmethod
+    def mcs_range_diff(cls):
+        return cls(
+            var_save_name="mcs_range_diff",
+            var_plot_name="MCS Range Difference",
+            var_labels=[r"$\mathrm{MCS - Range}$", 
+            r"$\mathrm{(MCS - Range)^{reco.}}$", 
+            r"$\mathrm{(MCS - Range)^{true}}$"],
+            bins=np.linspace(-0.5, 0.5, 51),
+            var_evt_reco_col=('pfp', 'trk', 'mcs_range_diff', '', '', ''),
+            var_evt_truth_col=('pfp', 'trk', 'truth', 'mcs_range_diff', '', '', ''),
+            var_nu_col=('trk', 'mcs_range_diff', '', ''),
+            xsec_label=r""
+        )
+
+    @classmethod
+    def chi2_mu(cls):
+        return cls(
+            var_save_name="chi2_mu",
+            var_plot_name="$\\chi^2_{\\mu}$",
+            var_labels=[r"$\mathrm{\chi^2_{\mu}}$", 
+            r"$\mathrm{\chi^2_{\mu}^{reco.}}$", 
+            r"$\mathrm{\chi^2_{\mu}^{true}}$"],
+            bins=np.linspace(0, 60, 41),
+            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'avg', 'chi2_muon',  ''),
+            var_evt_truth_col=('', '', '', '', '', ''),
+            var_nu_col=('', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu}}$ ($\mathrm{cm}^2$)"
+        )
+
+    @classmethod
+    def chi2_proton(cls):
+        return cls(
+            var_save_name="chi2_p",
+            var_plot_name="$\\chi^2_{p}$",
+            var_labels=[r"$\mathrm{\chi^2_{p}}$", 
+            r"$\mathrm{\chi^2_{p}^{reco.}}$", 
+            r"$\mathrm{\chi^2_{p}^{true}}$"],
+            bins=np.linspace(0, 300, 41),
+            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'avg', 'chi2_proton',  ''),
+            var_evt_truth_col=('', '', '', '', '', ''),
+            var_nu_col=('', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p}}$ ($\mathrm{cm}^2$)"
         )
 
     @classmethod

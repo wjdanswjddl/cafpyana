@@ -54,6 +54,7 @@ def load_and_concat_mc_dfs(
 
     for tag in chunk_tags:
         mc_file = path.join(file_dir, sub_dir, sample_dir, tag+df_tag+".df")
+        print_keys(mc_file)
         mc_n_split = get_n_split(mc_file)
         print(f"Reading file with tag {tag}, mc_n_split: {mc_n_split}")
         mc_dfs = load_dfs(mc_file, keys2load, n_max_concat=n_max_concat)

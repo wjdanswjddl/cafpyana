@@ -32,6 +32,47 @@ SBND_CALO_PARAMS = {
     "etau": [100., 35.], ## first value for MC and second value for data
 }
 
+# calo variations
+# variations on recombination parameters are taken from the ICARUS measurement uncertainties
+CALO_VARIATIONS = {
+    "CV": SBND_CALO_PARAMS,
+    "ccal_p": {**SBND_CALO_PARAMS, "c_cal_frac": [1.02, 1.02, 1.02]},
+    "ccal_m": {**SBND_CALO_PARAMS, "c_cal_frac": [0.98, 0.98, 0.98]},
+    "alpha_p": {**SBND_CALO_PARAMS, "alpha_emb": [0.904+0.008, 0.904+0.008]},
+    "alpha_m": {**SBND_CALO_PARAMS, "alpha_emb": [0.904-0.008, 0.904-0.008]},
+    "beta_p": {**SBND_CALO_PARAMS, "beta_90": [0.204+0.008, 0.204+0.008]},
+    "beta_m": {**SBND_CALO_PARAMS, "beta_90": [0.204-0.008, 0.204-0.008]},
+    "R_p": {**SBND_CALO_PARAMS, "R_emb": [1.25+0.02, 1.25+0.02]},
+    "R_m": {**SBND_CALO_PARAMS, "R_emb": [1.25-0.02, 1.25-0.02]},
+}
+
+# ccal_unc = 0.02
+# alpha_unc = 0.008
+# beta_unc = 0.008
+# R_unc = 0.02
+CALO_UNCERTAINTIES = {
+    "c_cal_frac": 0.02,
+    "alpha_emb": 0.008,
+    "beta_90": 0.008,
+    "R_emb": 0.02,
+}
+
+SIGNS = {
+    "p": 1,
+    "cv": 0,
+    "m": -1,
+}
+# get all combinations of the variations (p,m,cv for each parameter)
+# for param in ["c_cal_frac", "alpha_emb", "beta_90", "R_emb"]:
+for ccal_var in ["p", "cv", "m"]:
+    for alpha_var in ["p", "cv", "m"]:
+        for beta_var in ["p", "cv", "m"]:
+            for R_var in ["p", "cv", "m"]:
+                CALO_VARIATIONS[f"ccal_{ccal_var}-alpha_{alpha_var}-beta_{beta_var}-R_{R_var}"] = \
+                    {**SBND_CALO_PARAMS, "c_cal_frac": [1.0+SIGNS[ccal_var]*CALO_UNCERTAINTIES["c_cal_frac"], 1.0+SIGNS[ccal_var]*CALO_UNCERTAINTIES["c_cal_frac"], 1.0+SIGNS[ccal_var]*CALO_UNCERTAINTIES["c_cal_frac"]], 
+                    "alpha_emb": [0.904+SIGNS[alpha_var]*CALO_UNCERTAINTIES["alpha_emb"], 0.904+SIGNS[alpha_var]*CALO_UNCERTAINTIES["alpha_emb"]],
+                    "beta_90": [0.204+SIGNS[beta_var]*CALO_UNCERTAINTIES["beta_90"], 0.204+SIGNS[beta_var]*CALO_UNCERTAINTIES["beta_90"]], 
+                    "R_emb": [1.25+SIGNS[R_var]*CALO_UNCERTAINTIES["R_emb"], 1.25+SIGNS[R_var]*CALO_UNCERTAINTIES["R_emb"]]}
 
 def chi2(hitdf, exprr, expdedx, experr, dedxname="dedx"):
     dedx_exp = pd.cut(hitdf.rr, exprr, labels=expdedx).astype(float)
@@ -165,21 +206,28 @@ def dqdx(dqdxdf, gain=None, calibrate=None, isMC=False):
     # print("gain_perhit", list(gain_perhit.head()))
     return dqdx*gain_perhit
 
-def dedx(dqdxdf, gain=None, calibrate=None, plane=2, isMC=False, smear=-1, scale=1):
+
+def dedx(dqdxdf, gain=None, calibrate=None, plane=2, isMC=False, smear=-1, scale=1, new_calo_params=None):
     dqdx_v = dqdx(dqdxdf, gain=gain, calibrate=calibrate, isMC=isMC)
-    if gain == "ICARUS":
+    if "SBND" in gain:
+
+        if new_calo_params is None:
+            calo_params = SBND_CALO_PARAMS
+        else:
+            calo_params = new_calo_params
+
+        scalegain = calo_params['c_cal_frac'][plane]
+        this_alpha_emb = calo_params["alpha_emb"][0] if isMC else calo_params["alpha_emb"][1]
+        this_beta_90 = calo_params["beta_90"][0] if isMC else calo_params["beta_90"][1]
+        this_R_emb = calo_params["R_emb"][0] if isMC else calo_params["R_emb"][1]
+        dedx = calo.recombination_cor(scale*dqdx_v/scalegain, dqdxdf.phi, dqdxdf.efield, dqdxdf.rho, this_alpha_emb, this_beta_90, this_R_emb)
+
+    elif gain == "ICARUS":
         scalegain = ICARUS_CALO_PARAMS['c_cal_frac'][plane]
-    elif "SBND" in gain:
-        scalegain = SBND_CALO_PARAMS['c_cal_frac'][plane]
+        dedx = calo.recombination_cor(scale*dqdx_v/scalegain, dqdxdf.phi, dqdxdf.efield, dqdxdf.rho)
+
     else:
         scalegain = 1.
-
-    if "SBND" in gain:
-        this_alpha_emb = SBND_CALO_PARAMS["alpha_emb"][0] if isMC else SBND_CALO_PARAMS["alpha_emb"][1]
-        this_beta_90 = SBND_CALO_PARAMS["beta_90"][0] if isMC else SBND_CALO_PARAMS["beta_90"][1]
-        this_R_emb = SBND_CALO_PARAMS["R_emb"][0] if isMC else SBND_CALO_PARAMS["R_emb"][1]
-        dedx = calo.recombination_cor(scale*dqdx_v/scalegain, dqdxdf.phi, dqdxdf.efield, dqdxdf.rho, this_alpha_emb, this_beta_90, this_R_emb)
-    else:
         dedx = calo.recombination_cor(scale*dqdx_v/scalegain, dqdxdf.phi, dqdxdf.efield, dqdxdf.rho)
 
     if smear > 0:

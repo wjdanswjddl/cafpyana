@@ -126,6 +126,9 @@ def WienerSVD(Response, Signal, Measure, Covariance, C_type, Norm_type):
     unfold = C_inv @ V @ W @ D_t @ U_t @ M_trans
     AddSmear = C_inv @ V @ W0 @ Vh @ C
 
+    # Unregularized (Standard Matrix Inversion)
+    unfold_unreg = C_inv @ V @ D_t @ U_t @ M_trans
+
     # Covariance rotation matrix (for systematics)
     CovRotation = C_inv @ V @ W @ D_t @ U_t @ Q
     SystUnfoldCov = CovRotation @ Covariance @ CovRotation.T
@@ -141,14 +144,24 @@ def WienerSVD(Response, Signal, Measure, Covariance, C_type, Norm_type):
     # Total unfolded covariance is sum of statistical and systematic
     UnfoldCov = SystUnfoldCov + StatUnfoldCov
 
+    # Calculate the bias: bias = unfolded - true signal (Signal)
+    # Note: Make sure Signal is in the same space as unfold
+    # bias = unfold - Signal
+
+
     return {
         'unfold': unfold,
+        'unfold_unreg': unfold_unreg,
         'AddSmear': AddSmear,
         'WF': WF,
+        "D": D,
+        "S_vec": S_vec,
+        'C0': C0,
         'CovRotation': CovRotation,
         'StatUnfoldCov': StatUnfoldCov,
         'SystUnfoldCov': SystUnfoldCov,
-        'UnfoldCov': UnfoldCov
+        'UnfoldCov': UnfoldCov,
+        # 'bias': bias
     }
 
 

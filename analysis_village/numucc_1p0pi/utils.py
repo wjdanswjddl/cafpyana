@@ -3,19 +3,24 @@ import pandas as pd
 from tqdm import tqdm
 import string
 import statsmodels.api as sm
+import pickle
 
 import sys
 sys.path.append('../../')
 from pyanalib.split_df_helpers import *
 from pyanalib.stat_helpers import *
+from pyanalib.covariance import *
+
 from makedf.constants import *
 from analysis_village.unfolding.wienersvd import *
 from analysis_village.numucc_1p0pi.categories import *
 from analysis_village.numucc_1p0pi.constants import *
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import matplotlib as mpl
+from matplotlib.legend import Legend
 plt.style.use("presentation.mplstyle")
 cmap = mpl.cm.viridis
 norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
@@ -25,6 +30,139 @@ pdg_colors = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
 
 dpi = 300
 fig_ext = ".png"
+
+# ======= util to load systematic uncertainties ======
+def get_syst_unc(var_config, plot=False, save_fig=False, save_name=None):
+    date_str = "20260220"
+    mcstat_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/mcstat_syst_dict.npz", allow_pickle=True)
+    mcstat_syst =dict(mcstat_syst)[var_config.var_save_name].item()['MCstat']['cov_frac']
+
+    g4_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/g4_syst_dict.npz", allow_pickle=True)
+    g4_syst =dict(g4_syst)[var_config.var_save_name].item()['G4']['cov_frac']
+
+    flux_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/flux_syst_dict.npz", allow_pickle=True)
+    flux_syst =dict(flux_syst)[var_config.var_save_name].item()['flux']['cov_frac']
+
+    date_str = "20260222"
+    cosmics_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/cosmics_syst_dict.npz", allow_pickle=True)
+    cosmics_syst =dict(cosmics_syst)[var_config.var_save_name].item()['Cosmics']['cov_frac']
+
+    date_str = "20260219"
+    genie_syst = pickle.load(open(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/cov_mat_dict-{date_str}.pkl", "rb"))
+    genie_syst = genie_syst[var_config.var_save_name]['genie'] 
+
+    detector_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics_studies_detvar-20260309/detector_syst_dict.npz", allow_pickle=True)
+    detector_syst =dict(detector_syst)['detector'].item()[var_config.var_save_name]['cov_frac']
+
+    # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
+    # detvar_syst = detvar_syst[var_config.var_save_name]['detvar']
+
+    # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
+    # detvar_syst = np.sqrt(detvar_syst[var_config.var_save_name]['ccal']**2 \
+    #     + detvar_syst[var_config.var_save_name]['alpha']**2 \
+    #     + detvar_syst[var_config.var_save_name]['beta']**2 \
+    #     + detvar_syst[var_config.var_save_name]['R']**2) / 2.
+
+
+    # flat uncertainties
+    pot_frac_unc = 0.02
+    ntargets_frac_unc = 0.01
+
+    # flat uncertainties
+    frac_uncert_total = np.zeros(len(var_config.bin_centers))
+    frac_cov_matrix_total = np.zeros((len(var_config.bin_centers), len(var_config.bin_centers)))
+    systs      = [mcstat_syst, genie_syst, flux_syst, g4_syst, cosmics_syst, detector_syst]
+    syst_names = ["MC stat.", "GENIE", "Flux", "G4", "Cosmics" , "Detector"]
+
+    for syst_name, syst in zip(syst_names, systs):
+        syst_uncert = np.sqrt(np.diag(syst))
+
+        if syst_name == "Cosmics":
+            syst_uncert = np.max(syst_uncert) * np.ones(len(var_config.bin_centers))
+
+        frac_uncert_total += syst_uncert ** 2
+        frac_cov_matrix_total += syst
+        if plot:
+            plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert * 1e2,   histtype="step", linewidth=2, label=syst_name)
+
+    flat_systs = [pot_frac_unc, ntargets_frac_unc]
+    flat_syst_names = ["POT", "Ntargets"]
+    for syst_name, syst in zip(flat_syst_names, flat_systs):
+        syst_uncert = syst * np.ones(len(var_config.bin_centers))
+        frac_uncert_total += syst_uncert ** 2
+        frac_cov_matrix_total += np.diag(syst_uncert ** 2)
+        if plot:
+            plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert * 1e2,   histtype="step", linewidth=2, label=syst_name)
+
+    # frac_uncert_total += detvar_syst ** 2
+
+    frac_uncert_total = np.sqrt(frac_uncert_total)
+    syst = frac_uncert_total
+
+    if plot:
+        plt.hist(var_config.bin_centers, bins=var_config.bins, weights=frac_uncert_total,    histtype="step", linewidth=2, color="k",  label="Total")
+
+        plt.xlim(var_config.bins[0], var_config.bins[-1])
+        plt.ylim(0, max(frac_uncert_total) * 1.4)
+
+        plt.xlabel(var_config.var_labels[1])
+        plt.ylabel("Uncertainty [%]")
+        plt.legend(fontsize=11, ncol=3, loc="upper center")
+
+        plt.grid(which='major', linestyle='-', linewidth=0.7, alpha=0.7)
+        plt.grid(which='minor', linestyle=':', linewidth=0.5, alpha=0.5)
+        plt.minorticks_on()
+
+        if save_fig:
+            plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
+
+        if not plot:
+            plt.close()
+        else:
+            plt.show();
+
+    return syst, frac_cov_matrix_total
+
+
+def get_frac_unc(mc_evt_df=None, intime_evt_df=None, offbeam_evt_df=None, var_config=None):
+
+    # nu mc unc
+    var = mc_evt_df[var_config.var_evt_reco_col]
+    var, weights = get_clipped_evts(mc_evt_df, var_config.var_evt_reco_col, var_config.bins)
+
+    # frac_unc = np.zeros(len(var_config.bin_centers))
+    n_cv, _ = np.histogram(var, bins=var_config.bins)
+    n_univs = []
+    for syst in ["G4", "GENIE", "Flux"]:
+    # for syst in ["GENIE", "Flux"]:
+        for i in range(100):
+            weights = mc_evt_df.mc[syst]["univ_{}".format(i)]
+            # set nan to 1
+            weights = weights.fillna(1)
+            # clip at 5
+            weights = np.clip(weights, 0, 5)
+            n_univ, _ = np.histogram(var, bins=var_config.bins, weights=weights)
+            n_univs.append(n_univ)
+
+        cov_mat = np.cov(np.array(n_univs).T)
+        nu_frac_unc = np.sqrt(np.diag(cov_mat / n_cv**2))
+        nu_frac_unc = np.where(n_cv == 0, 0, nu_frac_unc)
+
+    # cosmic mc unc is the difference between the intime mc and offbeam data
+    intime_var, intime_weights = get_clipped_evts(intime_evt_df, var_config.var_evt_reco_col, var_config.bins)
+    offbeam_var, offbeam_weights = get_clipped_evts(offbeam_evt_df, var_config.var_evt_reco_col, var_config.bins)
+    n_intime, _ = np.histogram(intime_var, bins=var_config.bins)
+    n_offbeam, _ = np.histogram(offbeam_var, bins=var_config.bins)
+    cosmic_mc_unc = np.sqrt(np.diag(np.cov(np.array([n_intime, n_offbeam]).T) / n_intime**2))
+    cosmic_mc_unc = np.where(n_intime == 0, 0, cosmic_mc_unc)
+    # also multiply to the cosmic component of nu mc
+    var_numc_cosmics = var[IsCosmic(mc_evt_df)]
+    n_numc_cosmics, _ = np.histogram(var_numc_cosmics, bins=var_config.bins)
+
+
+    tot_frac_unc = (nu_frac_unc * n_cv + cosmic_mc_unc * n_intime + cosmic_mc_unc * n_numc_cosmics) / (n_cv + n_intime)
+    # tot_frac_unc = (nu_frac_unc * n_cv + cosmic_mc_unc * n_intime) / (n_cv + n_intime)
+    return tot_frac_unc
 
 
 #  ====== calculation functions ======
@@ -78,12 +216,14 @@ def get_eff_err(success,total):  # success/total
 
 
 def get_univ_rates(cov_type="rate", 
+                    syst_type="GENIE",
                     evtdf=None, 
                     nudf=None, 
                     var_config=None, 
                     syst_name="", 
                     n_univ=100, 
                     bkgd_subtract=True,
+                    xsec_unit=0,
                     plot=False):
     """
     for the GENIE uncertainty on the xsec measurement
@@ -91,10 +231,14 @@ def get_univ_rates(cov_type="rate",
 
     if cov_type == "xsec":
         print("getting {} universes for {} uncertainty on the xsec".format(n_univ, syst_name))
-        scale_factor = XSEC_UNIT
+        scale_factor = xsec_unit
+        if xsec_unit == 0:
+            print("pass xsec_unit as an argument to get_univ_rates")
+
     elif cov_type == "rate":
         print("getting {} universes for {} uncertainty on the event rate".format(n_univ, syst_name))
         scale_factor = 1.0
+
     else:
         raise ValueError("Invalid covariance type: {}, choose in [xsec, rate]".format(cov_type))
 
@@ -113,12 +257,12 @@ def get_univ_rates(cov_type="rate",
     univ_effs   = []
     univ_smears = []
 
-    for uidx in range(n_univ):
-        univ_col = "univ_{}".format(uidx)
+    for uidx in tqdm(range(n_univ), desc="Getting universes"):
+        univ_col = f"univ_{uidx}"
 
         # ---- uncertainty on the signal rate ----
         # only consider effect on the response matrix for the signal channel
-        if cov_type == "xsec":
+        if cov_type == "xsec" and syst_type == "GENIE":
             # smearing matrix
             # handle case where there's a single bin, in which case there's no smearing
             if len(bins) == 2:
@@ -233,6 +377,13 @@ def add_approval_text(approval, textloc_x, textloc_y, textloc_ha):
         fontsize=20, color=textcolor
     )
 
+def add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y, textloc_ha):
+    ax = plt.gcf().axes[0]  # get the first axes of the current figure
+    ax.text(textloc_x, textloc_y, 
+            f"$\chi^2$/ndof = {chi2_val:.2f}/{ndof} (p-value = {p_val:.2f})",
+            transform=ax.transAxes, 
+            ha=textloc_ha, va='top',
+            fontsize=12, color='black')
 
 def add_genie_version_text(textloc_x, textloc_y, textloc_ha):
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
@@ -240,7 +391,7 @@ def add_genie_version_text(textloc_x, textloc_y, textloc_ha):
             r"GENIE v3.4.0 AR23_00i_00_000", 
             transform=ax.transAxes, 
             ha=textloc_ha, va='top',
-            fontsize=11.5, color='gray')
+            fontsize=12, color='gray')
 
 def format_singlebin_plot():
     ax = plt.gcf().axes[0]
@@ -256,14 +407,19 @@ def bar_plot(breakdown_type="topology",
              save_fig=False, save_name=None): 
 
     sizes = [] 
-    for df in [mc_df, intime_df, dirt_df]:
-        if df is not None:
-            scale = df.pot_weight.unique()[0]
-            cuts, labels, colors = get_category_cuts(breakdown_type, df, ret_cuts=True)
-            this_sizes = [scale*len(df[i]) for i in cuts]
-            sizes.append(this_sizes)
-        else:
-            continue
+    dfs_list = []
+    if mc_df is not None:
+        dfs_list.append(mc_df)
+    if intime_df is not None:
+        dfs_list.append(intime_df)
+    if dirt_df is not None:
+        dfs_list.append(dirt_df)
+    for df in dfs_list:
+        scale = df.pot_weight.unique()[0]
+        cuts, labels, colors = get_category_cuts(breakdown_type, df, ret_cuts=True)
+        # this_df = df[i].groupby(level=[0,1]).head()
+        this_sizes = [scale*len(df[i].groupby(level=[0,1]).head()) for i in cuts]
+        sizes.append(this_sizes)
     sizes = np.array(sizes).sum(axis=0)
 
     ncateg = len(cuts)
@@ -314,7 +470,9 @@ def overlay_hists(breakdown_type="topology",
                   plot_labels=["", "", ""],
                   ax_ylim_ratio=1.5,
                   ratio = False,
-                  syst = None,
+                  density = False,
+                  syst = None, # fractional cov matrix
+                  textchi2 = False,
                   vline = None,
                   textloc=[0.05, 0.55],
                   approval="internal",
@@ -327,22 +485,26 @@ def overlay_hists(breakdown_type="topology",
     # MC
     if mc_df is not None:
 
-        if dirt_df is not None:
-            # append to mc_df, bump up __ntuple index so that they are unique
-            ntuple_vals = mc_df.index.get_level_values(0)
-            ntuple_offset = ntuple_vals.max()+1
-            names = dirt_df.index.names
-            # __ntuple should be at level 0
-            if "__ntuple" in names:
-                idx_loc = names.index("__ntuple")
-            else:
-                idx_loc = 0
-            new_tuples = []
-            for tup in dirt_df.index:
-                tup = list(tup)
-                tup[idx_loc] = tup[idx_loc] + ntuple_offset
-                new_tuples.append(tuple(tup))
-            dirt_df.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
+        # TODO: uncomment this to append dirt_df to mc_df
+        # if dirt_df is not None:
+        #     dirt_df_ = dirt_df.copy()
+        #     # append to mc_df, bump up __ntuple index so that they are unique
+        #     ntuple_vals = mc_df.index.get_level_values(0)
+        #     ntuple_offset = ntuple_vals.max()+1
+        #     names = dirt_df_.index.names
+        #     # __ntuple should be at level 0
+        #     if "__ntuple" in names:
+        #         idx_loc = names.index("__ntuple")
+        #     else:
+        #         idx_loc = 0
+        #     new_tuples = []
+        #     for tup in dirt_df_.index:
+        #         tup = list(tup)
+        #         tup[idx_loc] = tup[idx_loc] + ntuple_offset
+        #         new_tuples.append(tuple(tup))
+        #     dirt_df_.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
+
+        #     mc_df = pd.concat([mc_df, dirt_df])
         
         vardf, _        = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
 
@@ -400,10 +562,47 @@ def overlay_hists(breakdown_type="topology",
         total_mc = None
         print("No MC data provided")
 
-    # Data
+ 
+    # Intime cosmics
+    if intime_df is not None:
+        vardf_intime, _ = get_clipped_evts(intime_df, var_config.var_evt_reco_col, var_config.bins)
+        total_intime, _ = np.histogram(vardf_intime, bins=var_config.bins, weights=intime_df.pot_weight)
+        # var_categ = [vardf_intime] + var_categ
+        # weights_categ = [list(intime_df.pot_weight)] + weights_categ
+        # colors = colors + ["silver"]
+        # labels = labels + ["In-time\nCosmic"]
+
+        # add to the cosmic item in existing list
+        var_categ[0] = pd.concat([vardf_intime, var_categ[0]])
+        weights_categ[0] = list(intime_df.pot_weight) + list(weights_categ[0])
+        
+        total_mc = total_mc + total_intime
+
+    else:
+        vardf_intime = None
+        print("No intime cosmics provided")
+
+
+    # Dirt cosmics
+    if dirt_df is not None:
+        vardf_dirt, _ = get_clipped_evts(dirt_df, var_config.var_evt_reco_col, var_config.bins)
+        total_dirt, _ = np.histogram(vardf_dirt, bins=var_config.bins, weights=dirt_df.pot_weight)
+        var_categ = [vardf_dirt] + var_categ
+        weights_categ = [list(dirt_df.pot_weight)] + weights_categ
+        colors = colors + ["black"]
+        labels = labels + ["Low E\nDirt"]
+        total_mc = total_mc + total_dirt
+
+    else:
+        vardf_dirt = None
+        print("No dirt cosmics provided")
+
+
+   # Data
     if data_df is not None:
         vardf_data, _   = get_clipped_evts(data_df, var_config.var_evt_reco_col, var_config.bins)
         total_data, _ = np.histogram(vardf_data, bins=var_config.bins, weights=data_df.pot_weight)
+        sum_data = np.sum(total_data)
         data_eylow, data_eyhigh = return_data_stat_err(total_data)
 
         # data/MC
@@ -420,17 +619,24 @@ def overlay_hists(breakdown_type="topology",
         total_data = None
         print("No data data provided")
 
-    # Intime cosmics
-    if intime_df is not None:
-        vardf_intime, _ = get_clipped_evts(intime_df, var_config.var_evt_reco_col, var_config.bins)
-        var_categ = [vardf_intime] + var_categ
-        weights_categ = [list(intime_df.pot_weight)] + weights_categ
-        colors = colors + ["silver"]
-        labels = labels + ["In-time\nCosmic"]
 
-    else:
-        vardf_intime = None
-        print("No intime cosmics provided")
+
+    # if density is True, area normalize to the data
+    if mc_df is not None and data_df is not None and density == True:
+        mc_area = np.sum(total_mc)
+
+        if intime_df is not None:
+            intime_area = np.sum(total_intime)
+            mc_area = mc_area + intime_area
+
+        if dirt_df is not None:
+            dirt_area = np.sum(total_dirt)
+            mc_area = mc_area + dirt_area
+
+        data_area = np.sum(total_data)
+        density_factor = data_area / mc_area
+
+        weights_categ = [np.array(w) * density_factor for w in weights_categ]
 
 
     # the order of cuts from get_*_category is reversed from the order of labels and colors
@@ -500,7 +706,8 @@ def overlay_hists(breakdown_type="topology",
 
     if syst is not None: # list of syst uncertainties 
         mc_stat_err_frac = mc_stat_err / total_mc
-        syst_err = np.sqrt(mc_stat_err_frac**2 + syst**2)
+        syst_err_frac = np.sqrt(np.diag(syst))
+        syst_err = np.sqrt(mc_stat_err_frac**2 + syst_err_frac**2) # fractional error
         syst_err = syst_err * total_mc
 
         ax.bar(
@@ -514,6 +721,13 @@ def overlay_hists(breakdown_type="topology",
             edgecolor='dimgray',            # outline color of the hatching
             label='Syst. Unc.'
         )
+
+        if data_df is not None:
+            data_stat_cov_frac = np.diag( (0.5*(data_eyhigh + data_eylow) / total_data ) ** 2)
+            mc_stat_cov_frac = np.diag(mc_stat_err_frac**2)
+            combined_cov_frac = syst + data_stat_cov_frac + mc_stat_cov_frac
+            combined_cov = cov_from_fraccov(combined_cov_frac, total_mc)
+            chi2_val, p_val = get_chi2(total_data, total_mc, combined_cov)
  
     else:
         print("no syst provided")
@@ -546,7 +760,7 @@ def overlay_hists(breakdown_type="topology",
                 label='Syst. Unc.'
             )
         else:
-            print("No syst provided")
+            pass
 
         # data/MC 
         if data_df is not None:
@@ -567,7 +781,10 @@ def overlay_hists(breakdown_type="topology",
         data_handle_index = labels_orig.index('Data')
         data_handle = handles[data_handle_index]
         ordered_handles.extend([data_handle])
-        ordered_labels.extend(['Data'])
+        data_text = 'Observed ({:.0f})'.format(sum_data)
+        # if textchi2 and syst is not None:
+        #     data_text += f" \n$\chi^2$/ndof = {chi2_val:.2f}/{len(var_config.bins)-1}\np-value = {p_val:.2f}"
+        ordered_labels.extend([data_text])
 
     if mc_df is not None:
         if breakdown_type == "genie_sb":
@@ -583,11 +800,11 @@ def overlay_hists(breakdown_type="topology",
                 if (i + 1 < n) and (labels[i + 1] == label_base): # paired S/B
                     frac1 = breakdown_fractions[i]
                     frac2 = breakdown_fractions[i+1]
-                    legend_label = f"{label_base}\n({frac2*100:.1f}%/{frac1*100:.1f}%)"
+                    legend_label = f"{label_base} ({frac2*100:.1f}%/{frac1*100:.1f}%)"
                     i += 2
                 else: # single
                     frac1 = breakdown_fractions[i]
-                    legend_label = f"{label_base}\n({frac1*100:.1f}%)"
+                    legend_label = f"{label_base} ({frac1*100:.1f}%)"
                     i += 1
                 legend_labels.append(legend_label)
             ordered_labels.extend(legend_labels[::-1])
@@ -602,6 +819,7 @@ def overlay_hists(breakdown_type="topology",
             ordered_handles.extend(mc_handles)
             ordered_labels.extend(mc_labels[::-1]) # note the reverse order of mc_labels
 
+
     if syst is not None:
         unc_handle = [h for i, h in enumerate(handles) if 'Unc.' in labels_orig[i]]
         unc_label = [l for l in labels_orig if 'Unc.' in l]
@@ -612,17 +830,44 @@ def overlay_hists(breakdown_type="topology",
     fontsize = 11.3
     ncol = 3
     if breakdown_type == "genie_sb":
-        fontsize = 10.5
-        ncol = 4
+        textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
+        fontsize = fontsize
+        ncol = 2
+
+        # separate legend box with S / B hatches
+        example_signal = Patch(facecolor="black", edgecolor='white', label='Signal')
+        example_background = Patch(facecolor="black", edgecolor='white', hatch='////', linewidth=0, label='Background')
+        # if textloc_x < 0.5:
+        #     box_ax = ax.inset_axes([0.17, 0.65, 0.13, 0.13], transform=ax.transAxes)
+        # else:
+        box_ax = ax.inset_axes([0.625, 0.66, 0.13, 0.13], transform=ax.transAxes)
+        box_ax.axis('off')
+        mini_legend = Legend(
+            box_ax,
+            handles=[example_signal, example_background],
+            labels=['Signal', 'Background'],
+            loc='center',
+            fontsize=fontsize,
+            frameon=False,
+            borderpad=0.7,
+            handlelength=2.1,
+            handleheight=0.9,
+            ncol=1,
+            fancybox=True,
+            framealpha=1.0
+        )
+        box_ax.add_artist(mini_legend)
 
     ax.legend(
         ordered_handles,
         ordered_labels,
         loc='upper left',
+        # loc='upper center',
         fontsize=fontsize,
         frameon=False,
         ncol=ncol,
-        bbox_to_anchor=(0.01, 0.99)
+        bbox_to_anchor=(0.05, 0.9, 0.8, 0.1),
+        mode='expand'
     )
 
     # ===============================
@@ -636,15 +881,49 @@ def overlay_hists(breakdown_type="topology",
     if vline is not None:
         for v in vline:
             ymax = ax.get_ylim()[1]
-            ax.vlines(x=v, ymin=0, ymax=ymax*0.75, color='red', linestyle='--')
+            ax.vlines(x=v[0], ymin=0, ymax=ymax*0.75, color='red', linestyle='--')
+            # Plot arrow if v[1] is specified (0: left, 1: right)
+            if len(v) > 1:
+                direction = v[1]
+                arrow_params = {
+                    'y': ymax * 0.4,
+                    'dx': 0.18 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable length
+                    'width': 0.025 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable width
+                    'color': 'red',
+                    'head_width': 0.04 * (ax.get_ylim()[1] - ax.get_ylim()[0]),  # adjustable head width
+                    'head_length': 0.03 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable head length
+                    'length_includes_head': True
+                }
+                if direction == 0:
+                    # Left arrow
+                    ax.arrow(v[0], arrow_params['y'], -arrow_params['dx'], 0, 
+                             width=arrow_params['width'],
+                             color=arrow_params['color'],
+                             head_width=arrow_params['head_width'],
+                             head_length=arrow_params['head_length'],
+                             length_includes_head=arrow_params['length_includes_head'],
+                             clip_on=True)
+                elif direction == 1:
+                    # Right arrow
+                    ax.arrow(v[0], arrow_params['y'], arrow_params['dx'], 0, 
+                             width=arrow_params['width'],
+                             color=arrow_params['color'],
+                             head_width=arrow_params['head_width'],
+                             head_length=arrow_params['head_length'],
+                             length_includes_head=arrow_params['length_includes_head'],
+                             clip_on=True)
 
     # textboxes
     textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
     textloc_y = textloc[1]
+
+    if textchi2 and syst is not None:
+        add_chi2_text(chi2_val, p_val, len(var_config.bins)-1, textloc_x, textloc_y+0.08, textloc_ha)
+
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
 
     if breakdown_type != "pdg":
-        add_genie_version_text(textloc_x, textloc_y-0.08, textloc_ha)
+        add_genie_version_text(textloc_x, textloc_y-0.06, textloc_ha)
 
     if var_config.var_save_name == "integrated":
         format_singlebin_plot()
@@ -749,6 +1028,7 @@ def plot_univ_hists(
                 approval="internal",
                 textloc=[0.05, 0.55],
                 plot=True,
+                ax_titles = ["", "", ""],
                 save_fig=False, 
                 save_name=None): 
 
@@ -796,8 +1076,11 @@ def plot_univ_hists(
 
     plt.xlim(var_config.bins[0], var_config.bins[-1])
     plt.xlabel(var_config.var_labels[1])
-    plt.ylabel("Events / Bin")
-    # plt.title(syst_name)
+    if ax_titles[1] != "":
+        plt.ylabel(ax_titles[1])
+    else:
+        plt.ylabel("Events / Bin")
+    plt.title(ax_titles[2])
 
     plt.legend(frameon=False)
 
@@ -823,16 +1106,22 @@ def plot_unfolded_result(unfold,
                          measured, 
                          models,
                          var_config, 
+                         chi2_list=[],
+                         xsec_unit=0,
                          textloc=[0.05, 0.55],
                          approval="internal",
+                         plot_labels=["", "", ""],
                          plot=True,
                          save_fig=False, 
                          save_name=None,
+                         data=False,
                          closure_test=False):
 
     bins = var_config.bins
     bin_centers = var_config.bin_centers
     bin_widths = np.diff(bins)
+    if len(var_config.bins) == 2:
+        bin_widths = np.array([1.0])
 
     # unfolded result
     Unfolded = unfold['unfold']
@@ -842,9 +1131,11 @@ def plot_unfolded_result(unfold,
     # --- stat uncertainties
     UnfoldCov_stat = unfold['StatUnfoldCov']
     Unfold_uncert_stat = np.diag(UnfoldCov_stat)
+
     # --- syst uncertainties
     UnfoldCov_syst = unfold['SystUnfoldCov']
     Unfold_uncert_syst = np.diag(UnfoldCov_syst)
+    UnfoldCov_syst_frac = fraccov_from_cov(UnfoldCov_syst, Unfolded)
 
     # --- decompose into norm and shape components
     # the first item in models dict is the nominal input model
@@ -852,6 +1143,7 @@ def plot_unfolded_result(unfold,
     SystUnfoldCov_norm, SystUnfoldCov_shape = Matrix_Decomp(models[norm_model], UnfoldCov_syst)
     Unfold_uncert_norm = np.sqrt(np.abs(np.diag(SystUnfoldCov_norm)))
     Unfold_uncert_shape = np.sqrt(np.abs(np.diag(SystUnfoldCov_shape)))
+
 
     # --- plot
     fig, ax = plt.subplots(figsize=(8.5, 7))
@@ -866,45 +1158,104 @@ def plot_unfolded_result(unfold,
         Unfold_uncert_shape_perwidth = Unfold_uncert_shape / bin_widths
         # Unfold_uncert_stat_shape_perwidth = Unfold_uncert_stat_perwidth + Unfold_uncert_shape_perwidth
         Unfold_uncert_stat_shape_perwidth = Unfold_uncert_shape_perwidth
-        bar_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=Unfold_uncert_stat_shape_perwidth, fmt='o', color='black')
+        bar_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=Unfold_uncert_stat_shape_perwidth, fmt='o', color='black', capsize=3)
 
         # plot syst norm component as histogram at the bottom
         Unfold_uncert_norm_perwidth = Unfold_uncert_norm / bin_widths
-        norm_handle = plt.bar(bin_centers, Unfold_uncert_norm_perwidth, width=bin_widths, label='Syst. error (norm)', alpha=0.5, color='gray')
+        if len(var_config.bins) != 2:
+            norm_handle = plt.bar(bin_centers, Unfold_uncert_norm_perwidth, width=bin_widths, label='Syst. error (norm)', alpha=0.5, color='gray')
+
+    if data: # get stat uncertainty for data
+        # data_eylow, data_eyhigh = return_data_stat_err(measured/xsec_unit)
+        # Data_frac_unc = (data_eyhigh - data_eylow) / (2 * measured/xsec_unit)
+        Data_frac_unc = (1/np.sqrt(measured / xsec_unit))
+        Data_stat = Unfolded_perwidth * Data_frac_unc
+        # Data_stat = Unfolded * Data_frac_unc
+        # factor = bin_widths.sum()/len(bin_widths)
+        # Data_stat = Data_stat / factor
+        Data_stat_frac_unc_smeared = (unfold['AddSmear'] @ Data_frac_unc)
+        # Data_frac_unc_smeared = (1/np.sqrt(unfold['AddSmear'] @ measured / xsec_unit))
+        Data_stat_smeared = Unfolded_perwidth * Data_stat_frac_unc_smeared
+
+        Data_stat_frac_cov = np.diag(Data_frac_unc**2)
+        Data_stat_cov = cov_from_fraccov(Data_stat_frac_cov, Unfolded_perwidth)
+        Data_stat_frac_cov_smeared = np.diag((unfold['AddSmear'] @ Data_frac_unc)**2)
+        Data_stat_cov_smeared = cov_from_fraccov(Data_stat_frac_cov_smeared, Unfolded_perwidth)
+
+        if len(var_config.bins) == 2:
+            tot_err = np.sqrt(Data_stat**2 + Unfold_uncert_norm_perwidth**2)
+        else:
+            tot_err = np.sqrt(Data_stat**2 + Unfold_uncert_stat_shape_perwidth**2)
+        Data_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=tot_err, fmt='o', color='black', capsize=3)
+        handles = [bar_handle, Data_handle]
+        labels = ['SBND Development Data', 'Measured Signal']
+        UnfoldCov_syst = cov_from_fraccov(UnfoldCov_syst_frac, Unfolded_perwidth)
+
+        UnfoldCov_syst = UnfoldCov_syst + Data_stat_cov
+        UnfoldCov_syst_smeared = UnfoldCov_syst + Data_stat_cov_smeared
 
     # divide measured & model by bin width
     measured_perwidth = measured / bin_widths
-    reco_handle, = plt.step(bins, np.append(measured_perwidth, measured_perwidth[-1]), where='post', label='Meausred Signal (Input)')
+    if data == False:
+        reco_handle, = plt.step(bins, np.append(measured_perwidth, measured_perwidth[-1]), where='post', label='Measured Signal (Input)')
 
     # --- get chi2 values for each model to compare
-    chi2_vals = []
-    p_values = []
+    if len(chi2_list) == 0:
+        chi2_vals = []
+        p_values = []
+    else:
+        chi2_vals = chi2_list
     model_handles = []
     model_labels = []
     for midx, mkey in enumerate(models.keys()):
         model_smeared = unfold['AddSmear'] @ models[mkey]
-
-        chi2_val, p_val = get_chi2(Unfolded, model_smeared, UnfoldCov_syst)
-        chi2_vals.append(chi2_val)
-        p_values.append(p_val)
-
+        # if "SBN" in mkey:
         model_smeared_perwidth = model_smeared / bin_widths
+
+        # else:
+        #     model_smeared_perwidth = model_smeared 
+
+        if len(chi2_list) == 0:
+            # remove bins with <= 0 events
+            # Fix chi2 mask logic: mask just once, store, reuse, improve clarity
+            mask = (Unfolded_perwidth > 0) & (model_smeared_perwidth > 0)
+            Unfolded_perwidth_safe = Unfolded_perwidth[mask]
+            model_smeared_perwidth_safe = model_smeared_perwidth[mask]
+            UnfoldCov_syst_safe = UnfoldCov_syst[np.ix_(mask, mask)]
+            chi2_val, p_val = get_chi2(Unfolded_perwidth_safe, model_smeared_perwidth_safe, UnfoldCov_syst_safe)
+            # chi2_val, p_val = get_chi2(Unfolded_perwidth, model_smeared_perwidth, UnfoldCov_syst_smeared)
+            chi2_vals.append(chi2_val)
+            p_values.append(p_val)
+
+        print("Unfolded perwidth: ", Unfolded_perwidth)
+        print("Model smeared perwidth: ", model_smeared_perwidth)
+
         model_handle, = plt.step(bins, np.append(model_smeared_perwidth, model_smeared_perwidth[-1]), where='post')
         model_handles.append(model_handle)
-        model_labels.append(f'$A_c \\otimes$ {mkey} ($\chi^2$ = {chi2_vals[midx]:.2f}/{len(bins)-1}), p-value = {p_values[midx]:.3f}')
+        # model_labels.append(f'$A_c \\otimes$ {mkey} ($\chi^2$ = {chi2_vals[midx]:.2f}/{len(bins)-1}), p-value = {p_values[midx]:.3f}')
+        # model_labels.append(f'$A_c \\otimes$ {mkey} ($\chi^2$ = {chi2_vals[midx]:.2f}/{len(bins)-1})')
+        model_labels.append(f'$A_c \\otimes$ {mkey}')
 
     # legend
     if closure_test:
         handles = [bar_handle, reco_handle] + model_handles
         labels = ['Unfolded Asimov Data', 'Measured Signal'] + model_labels
+    elif data:
+        if len(var_config.bins) == 2:
+            handles = [bar_handle] + model_handles
+            labels = ['Data (Syst. Unc. + Stat. Unc.)'] + model_labels
+        else:
+            handles = [bar_handle, norm_handle] + model_handles
+            labels = ['Data (Shape Syst. Unc. + Stat. Unc.)', 'Norm. Syst. Unc.'] + model_labels
     else:
         handles = [bar_handle, norm_handle, reco_handle] + model_handles
-        labels = ['Unfolded', 'Norm. Syst. Unc.', 'Measured Signal'] + model_labels
+        labels = ['SBND Development Data', 'Norm. Syst. Unc.', 'Measured Signal'] + model_labels
     plt.legend(handles, labels, 
                loc='upper left', fontsize=12, frameon=False, ncol=1, bbox_to_anchor=(0.02, 0.98))
 
-    plt.xlabel(var_config.var_labels[0])
-    plt.ylabel(var_config.xsec_label)
+    plt.xlabel(var_config.var_labels[0], fontsize=20)
+    plt.ylabel(var_config.xsec_label, fontsize=20)
+    plt.title(plot_labels[2])
     plt.xlim(bins[0], bins[-1])
     plt.ylim(0., np.max(Unfolded_perwidth)*1.7)
 
@@ -912,6 +1263,8 @@ def plot_unfolded_result(unfold,
     textloc_x, textloc_ha = get_textloc_x(Unfolded_perwidth, var_config.bins, textloc)
     textloc_y = textloc[1]
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
+
+    add_genie_version_text(textloc_x, textloc_y-0.1, textloc_ha)
 
     if var_config.var_save_name == "integrated":
         format_singlebin_plot()
@@ -1074,6 +1427,13 @@ def variation_hists(evtdfs=None, var_name=None, breakdown_type=None,
 
     return nevts_list
 
+def signal_cut(df, detector=DETECTOR):
+    print("DETECTOR: ", detector)
+    signal_cut =  (df.mc.nmu_220MeVc == 1) & (df.mc.np_300MeVc == 1) & (df.mc.npi_70MeVc == 0) & (df.mc.npi0 == 0) &\
+                    (np.sqrt(df.mc.mu.genp.x**2 + df.mc.mu.genp.y**2 + df.mc.mu.genp.z**2) < 1) &\
+                    (np.sqrt(df.mc.p.genp.x**2 + df.mc.p.genp.y**2 + df.mc.p.genp.z**2) < 1) &\
+                        InFV(df.mc.mu.start, det=detector) & InFV(df.mc.p.start, det=detector) 
+    return df[signal_cut]
 
 def signal_hists(evtdf=None,  # df with selected & reco'ed events
                  nudf=None,   # df with all MC truth
@@ -1082,6 +1442,7 @@ def signal_hists(evtdf=None,  # df with selected & reco'ed events
                  plot=True,
                  textloc=[0.05, 0.55],
                  approval="internal",
+                 mode="reco",
                  save_fig=False, 
                  save_name=None):
     """
@@ -1122,6 +1483,12 @@ def signal_hists(evtdf=None,  # df with selected & reco'ed events
         nudf_signal = nudf[nudf.topo_categ == 1]
         var_allmc, wgt_allmc = get_clipped_evts(nudf_signal, nu_col, bins)
         nevts_allmc, _ = np.histogram(var_allmc, weights=wgt_allmc, bins=bins)
+        if mode == "unfold":
+            # don't consider containment
+
+            nudf_signal = signal_cut(nudf)
+            var_allmc, wgt_allmc = get_clipped_evts(nudf_signal, nu_col, bins)
+            nevts_allmc, _ = np.histogram(var_allmc, weights=wgt_allmc, bins=bins)
     else:
         var_allmc = None
         wgt_allmc = None
@@ -1187,6 +1554,7 @@ def signal_hists(evtdf=None,  # df with selected & reco'ed events
 def plot_frac_unc(frac_unc_list, 
                   var_config, 
                   plot_labels=["", "", ""],
+                  legends = None,
                   textloc=[0.05, 0.55],
                   approval="internal",
                   plot=True,
@@ -1205,6 +1573,9 @@ def plot_frac_unc(frac_unc_list,
     plt.title(plot_labels[2])
     plt.grid(True)
 
+    if legends is not None:
+        plt.legend(legends)
+
     textloc_x, textloc_ha = get_textloc_x(frac_unc, var_config.bins, textloc)
     textloc_y = textloc[1]
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
@@ -1213,7 +1584,7 @@ def plot_frac_unc(frac_unc_list,
         format_singlebin_plot()
 
     if save_fig:
-        plt.savefig(save_name+fig_ext, bbox_inches='tight')
+        plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
 
     if plot == True:
         plt.show()
@@ -1240,6 +1611,7 @@ def plot_heatmap(matrix,
                  approval="internal",
                  verbose=False,
                  plot=True,
+                 cmap="bwr",
                  save_fig=False, 
                  save_name=None):
 
@@ -1253,21 +1625,45 @@ def plot_heatmap(matrix,
     x_labels, y_labels = bin_range_labels(x_edges), bin_range_labels(y_edges)
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    plt.imshow(matrix, extent=extent, origin="lower")
+    if cmap == "bwr":
+        plt.imshow(matrix, extent=extent, origin="lower", vmin=-1, vmax=1, cmap=cmap)
+    else:
+        plt.imshow(matrix, extent=extent, origin="lower", cmap=cmap)
+
+    # Find the power-of-10 exponent from one of the (non-NaN) values
+    exponent = 0
+    flat_matrix = matrix[~np.isnan(matrix)]
+    if flat_matrix.size > 0 and np.any(flat_matrix != 0):
+        example_value = flat_matrix[0]
+        exponent = np.floor(np.log10(abs(example_value)))
+        # if exponent is infinite (matrix contains only zeros), set to 0
+        if np.isinf(exponent):
+            exponent = 0
+        exponent = int(exponent)
+
+        # # Round to nearest multiple of 3 for best tick label presentation
+        # exponent = 3 * int(np.floor(exponent / 3))
+
+        formatter = mpl.ticker.FuncFormatter(lambda x, _: f"{x/10**exponent:.2f}")
+        cbar = plt.colorbar(shrink=0.7)
+        cbar.set_label(f"{plot_labels[2]} [10$^{{{exponent}}}$]", fontsize=16)
+        cbar.ax.yaxis.set_major_formatter(formatter)
+    else:
+        plt.colorbar(shrink=0.7, label=plot_labels[2])
 
     for i in range(nbins-1):      # rows (y)
         for j in range(nbins-1):  # columns (x)
             value = matrix[i, j]
             if not np.isnan(value):  # skip NaNs
+                significand = value / 10**exponent
                 plt.text(
                     j + 0.5, i + 0.5,
-                    f"{value:.2f}",
-                    ha="center", va="center",   
+                    f"{significand:.2f}",
+                    ha="center", va="center",
                     color=get_text_color(value),
                     fontsize=10
                 )
 
-    plt.colorbar(shrink=0.7, label=plot_labels[2])
     plt.xticks(x_tick_positions, x_labels, rotation=45, ha="right")
     plt.yticks(y_tick_positions, y_labels)
     plt.xlabel(plot_labels[0], fontsize=20)
@@ -1293,3 +1689,76 @@ def plot_heatmap(matrix,
     else:
         plt.close()
 
+
+
+
+####
+# Exposure Accounting
+
+def get_integrated_flux(fluxfile, plot=False):
+    # flux file, units: /m^2/10^6 POT 
+    # 50 MeV bins
+    flux = uproot.open(fluxfile)
+    numu_flux = flux["flux_sbnd_numu"].to_numpy()
+    bin_edges = numu_flux[1]
+    flux_vals = numu_flux[0]
+
+    if plot:
+        fig, ax = plt.subplots()
+        plt.hist(bin_edges[:-1], bins=bin_edges, weights=flux_vals, histtype="step", linewidth=2, color="C0")
+        plt.xlim(0, 3)
+        plt.xlabel("Neutrino Energy [GeV]")
+        plt.ylabel("Flux [/m$^{2}$/10$^{6}$ POT]")
+        plt.title("SBND $\\nu_\\mu$ Flux")
+        plt.savefig("sbnd-flux.pdf", bbox_inches='tight')
+
+    integrated_flux = flux_vals.sum() / (1e4  * 1e6) # to cm2 # to POT
+    print("Integrated flux: %.3e" % integrated_flux)
+    return integrated_flux
+
+
+def get_active_volume(detector="SBND"):
+    if detector == "SBND":
+        V_SBND = 380 * 380 * 440 # cm3, the active volume of the detector 
+
+    elif detector == "SBND_nohighyz":
+        V_SBND = 380 * 380 * 440 - 380* (190 - 100) *(450-250) 
+
+    elif detector == "SBND_face":
+        V_SBND = 380 * 380 * 50
+
+    elif detector == "SBND_face_yzcut":
+        V_SBND = 380 * 380 * 50 - 380* (190 - 100) * 50 
+
+    elif detector == "SBND_end":
+        V_SBND = 380 * 380 * 50
+
+    return V_SBND
+
+
+def get_xsec_unit(tot_pot, 
+                  fluxfile="/exp/sbnd/data/users/munjung/flux/sbnd_original_flux.root", 
+                  detector="SBND",
+                  volume=None):
+
+    tot_flux = get_integrated_flux(fluxfile, plot=False)
+    tot_flux *= tot_pot
+    print("integrated flux: ", tot_flux)
+
+    V_SBND = get_active_volume(detector)
+    if volume is not None:
+        print("using custom volume: ", volume)
+        V_SBND = volume
+
+    NTARGETS = RHO * V_SBND * (N_A / M_AR) #/ 40 # divide by 40 to make this per-argon nucleus
+    print("# of targets: ", NTARGETS)
+
+    xsec_unit = 1 / (tot_flux * NTARGETS)
+    # # TODO: fix scalar overflow error in python v3.10+
+    # if xsec_unit == 0:
+    #     print("XSEC_UNIT is 0, setting to 1e-38")
+    #     xsec_unit = 1e-38
+    print("xsec unit: ", xsec_unit)
+    return xsec_unit
+
+    

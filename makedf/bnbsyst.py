@@ -18,8 +18,34 @@ regen_systematics = [
     'piplus_Flux'
 ]
 
-def bnbsyst(f, nuind, multisim_nuniv=250, slim=False):
-    bnbwgtdf = getsyst.getsyst(f, regen_systematics, nuind, multisim_nuniv=multisim_nuniv, slim=slim, slimname="Flux")
+bnb_systematics_beam = [
+    'expskin_Flux',
+    'horncurrent_Flux',
+]
+
+bnb_systematics_hadron = [
+    'kminus_Flux',
+    'kplus_Flux',
+    'kzero_Flux',
+    'piminus_Flux',
+    'piplus_Flux'
+]
+
+bnb_systematics_xsec = [
+    'pioninexsec_Flux',
+    'pionqexsec_Flux',
+    'piontotxsec_Flux',
+    'nucleoninexsec_Flux',
+    'nucleonqexsec_Flux',
+    'nucleontotxsec_Flux',
+]
+
+
+def bnbsyst(f, nuind, multisim_nuniv=1000, slim=False, systematics=None):
+    if systematics is None:
+        systematics = regen_systematics
+
+    bnbwgtdf = getsyst.getsyst(f, systematics, nuind, multisim_nuniv=multisim_nuniv, slim=slim, slimname="Flux")
 
     if slim:  # keep only the multiplied "Flux.univ_" columns
         flux_cols = [c for c in bnbwgtdf.columns if c[0] == "Flux"]

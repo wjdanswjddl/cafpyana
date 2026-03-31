@@ -18,6 +18,10 @@ import tempfile
 from makedf.makedf import make_histpotdf
 from makedf.makedf import make_histgenevtdf
 
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+
 CPU_COUNT = multiprocessing.cpu_count()
 
 if CPU_COUNT == 0:
@@ -54,7 +58,7 @@ def _open_with_retries(path, attempts=5, sleep=2.0):
                 time.sleep(sleep * (k + 1))
     raise last_exc
 
-def _loaddf(applyfs, preprocess, g):
+def _loaddf(applyfs, args, preprocess, g):
     # fname, index, applyfs = inp
     index, fname = g
     # Convert pnfs to xroot URL's
@@ -80,14 +84,20 @@ def _loaddf(applyfs, preprocess, g):
         # Open AND close strictly within the context manager
         with _open_with_retries(fname) as f:
             dfs = []
-            totevt = f['TotalEvents'].values()[0]
+            #totevt = f['TotalEvents'].values()[0]
             if "recTree" not in f:
                 print("File (%s) missing recTree. Try only histpotdf & histgenevtdf and skipping other dfs..." % fname)
-            elif totevt < 1e-6:
-                print("File (%s) has 0 in TotalEvents. Try only histpotdf & histgenevtdf and skipping other dfs..." % fname)
+            #elif totevt < 1e-6:
+            #    print("File (%s) has 0 in TotalEvents. Try only histpotdf & histgenevtdf and skipping other dfs..." % fname)
             else:
-                for applyf in applyfs:
-                    df = applyf(f)  # must fully read from 'f' here
+                for aidx, applyf in enumerate(applyfs):
+                    try:
+                        if args is not None:
+                            df = applyf(f, **args[aidx])
+                        else:
+                            df = applyf(f)
+                    except Exception as e:
+                        continue
                     if df is None:
                         dfs.append(None)
                         continue
@@ -154,7 +164,7 @@ class NTupleGlob(object):
             self.glob = glob.glob(g, raise_error=True)
         self.branches = branches
 
-    def dataframes(self, fs, maxfile=None, nproc=1, savemeta=False, preprocess=None):
+    def dataframes(self, fs, maxfile=None, nproc=1, savemeta=False, args=None, preprocess=None):
         if not isinstance(fs, list):
             fs = [fs]
 
@@ -163,7 +173,7 @@ class NTupleGlob(object):
             thisglob = thisglob[:maxfile]
 
         if nproc == "auto":
-            CPU_COUNT_use = int(CPU_COUNT * 0.8)
+            CPU_COUNT_use = int(CPU_COUNT * 0.2)
             nproc = min(CPU_COUNT_use, len(thisglob))
             print("CPU_COUNT : " + str(CPU_COUNT) + ", len(thisglob): " + str(len(thisglob)) + ", nproc: " + str(nproc))
 
@@ -171,7 +181,7 @@ class NTupleGlob(object):
 
         try:
             with Pool(processes=nproc) as pool:
-                for i, dfs in enumerate(tqdm(pool.imap_unordered(partial(_loaddf, fs, preprocess), enumerate(thisglob)), total=len(thisglob), unit="file", delay=5, smoothing=0.2)):
+                for i, dfs in enumerate(tqdm(pool.imap_unordered(partial(_loaddf, fs, args, preprocess), enumerate(thisglob)), total=len(thisglob), unit="file", delay=5, smoothing=0.2)):
                     if dfs is not None:
                         ret.append(dfs)
         # Ctrl-C handling

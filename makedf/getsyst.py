@@ -49,9 +49,12 @@ def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="sli
 
             if slim:
                 for i in range(multisim_nuniv):
-                    seed_input = str(id(f)) + str(nuind) + s + str(i)
+                    #seed_input = str(id(f)) + str(nuind) + s + str(i)
+                    seed_input = s + str(i) + str(id(f))
                     np.random.seed(hash(seed_input) % (2**32))
                     wgt = 1 + (s_morph - 1) * 2 * np.abs(np.random.normal(0, 1)) # std -> unc.
+                    # set negative weights to 0
+                    wgt = np.maximum(wgt, 0)
                     systs_slim[(slimname, f"univ_{i}")] = systs_slim[(slimname, f"univ_{i}")].values * wgt
 
             else:
@@ -68,10 +71,13 @@ def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="sli
 
                 if slim and isigma == 0: # use ps1
                     for i in range(multisim_nuniv):
-                        seed_input = str(id(f)) + str(nuind) + s + str(i)
+                        #seed_input = str(id(f)) + str(nuind) + s + str(i)
+                        seed_input = s + str(i) + str(id(f))
                         np.random.seed(hash(seed_input) % (2**32))
                         wgt = 1 + (s_ps - 1) * np.random.normal(0, 1)
                         wgt = wgt.reset_index(level=2, drop=True)  # Drop the 'iwgt' level to match systs_slim index
+                        # set negative weights to 0
+                        wgt = np.maximum(wgt, 0)
                         systs_slim[(slimname, f"univ_{i}")] = systs_slim[(slimname, f"univ_{i}")].values * wgt
     
                 else:

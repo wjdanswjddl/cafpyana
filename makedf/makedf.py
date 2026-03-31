@@ -3,6 +3,7 @@ from .branches import *
 from .util import *
 from .calo import *
 from . import numisyst, g4syst, geniesyst, bnbsyst, getenv
+# from makedf import chi2pid, chi2pid_cccal_m, chi2pid_cccal_p, chi2pid_alpha_m, chi2pid_alpha_p, chi2pid_beta_m, chi2pid_beta_p, chi2pid_R_m, chi2pid_R_p
 from makedf import chi2pid
 
 pd.set_option('future.no_silent_downcasting', True)
@@ -37,6 +38,7 @@ TRUE_KE_THRESHOLDS = {"nmu_27MeV": ["muon", 0.027],
                       }
 
 TRUE_P_THRESHOLDS = {"nmu_220MeVc": ["muon", 0.22],
+                        "nmu_100MeVc": ["muon", 0.1],
                       "np_300MeVc": ["proton", 0.3],
                       "np_200MeVc": ["proton", 0.2],
                       "npi_70MeVc": ["pipm", 0.07],
@@ -95,10 +97,13 @@ def make_mcnuwgtdf(f):
     return make_mcnudf(f, include_weights=True, multisim_nuniv=100)
 
 def make_mcnuwgtdf_slim(f):
-    return make_mcnudf(f, include_weights=True, multisim_nuniv=100, slim=True)
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000, genie_multisim_nuniv=100, slim=True)
+
+def make_mcnudf_wgts_genie(f):
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000, genie_multisim_nuniv=100, wgt_types=["genie"], slim=True)
 
 # TODO: zip the nuniv configs
-def make_mcnudf(f, include_weights=False, multisim_nuniv=100, genie_multisim_nuniv=100, wgt_types=["bnb","genie"], slim=False, genie_systematics=None):
+def make_mcnudf(f, include_weights=False, multisim_nuniv=100, genie_multisim_nuniv=100, wgt_types=["bnb","genie"], slim=False, genie_systematics=None, flux_systematics=None):
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
@@ -114,7 +119,7 @@ def make_mcnudf(f, include_weights=False, multisim_nuniv=100, genie_multisim_nun
         else:
             df_list = []
             if "bnb" in wgt_types:
-                bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
+                bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim, systematics=flux_systematics)
                 df_list.append(bnbwgtdf)
             if "genie" in wgt_types:
                 geniewgtdf = geniesyst.geniesyst(f, mcdf.ind, multisim_nuniv=genie_multisim_nuniv, slim=slim, systematics=genie_systematics)
@@ -187,7 +192,7 @@ def make_opflashdf(f):
     opflashdf = loadbranches(f["recTree"], opflashbranches).rec.opflashes
     return opflashdf
 
-def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=False, mcs=False):
+def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=False, mcs=False, updatecalo=None):
     trkdf = loadbranches(f["recTree"], trkbranches)
     if scoreCut:
         trkdf = trkdf.rec.slc.reco[trkdf.rec.slc.reco.pfp.trackScore > 0.5]
@@ -210,6 +215,29 @@ def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=Fal
         cumlen = mcsdf.seg_length.groupby(level=mcsgroup).cumsum()*14 # convert rad length to cm
         maxlen = (cumlen*(mcsdf.seg_scatter_angles >= 0)).groupby(level=mcsgroup).max()
         trkdf[("pfp", "trk", "mcsP", "len", "", "")] = maxlen
+
+    if updatecalo is not None:
+        hdrdf = make_mchdrdf(f)
+        ismc = hdrdf.ismc.iloc[0]
+
+        for plane in range(0, 3):
+            trkhitdf = make_trkhitdf(f, plane)
+            trkhitdf = trkhitdf[InFV(df=trkhitdf, det=det)]
+
+            dedx_redo = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc, new_calo_params=chi2pid.CALO_VARIATIONS[updatecalo])
+
+            trkhitdf["dedx_redo"] = dedx_redo
+            # TODO: check if score is reproduced
+            # dedx_bias = (dedx_redo - trkhitdf.dedx) / trkhitdf.dedx
+            # trkhitdf["dedx_bias"] = dedx_bias
+            # print("bias", list(dedx_bias.head()))
+            for par in ['muon', 'proton']:
+                this_chi2_new, this_chi2_ndof = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
+                this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new', '')
+                this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new', '')
+                trkdf[this_chi2_col] = this_chi2_new.fillna(0.)
+                trkdf[this_ndof_col] = this_chi2_ndof.fillna(0.)
+
     trkdf[("pfp", "tindex", "", "", "", "")] = trkdf.index.get_level_values(2)
 
     # pre-calculate additional stuff
@@ -222,6 +250,9 @@ def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=Fal
         trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "P", "p_{}".format(particle), "", "")] = trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "mcsP", "fwdP_{}".format(particle), "", "")]
 
     trkdf.loc[:, ("pfp","trk","truth","p","totp","")] = np.sqrt(trkdf.pfp.trk.truth.p.genp.x**2 + trkdf.pfp.trk.truth.p.genp.y**2 + trkdf.pfp.trk.truth.p.genp.z**2)
+    trkdf.loc[:, ("pfp","trk","truth","p","dir","x")] = trkdf.pfp.trk.truth.p.genp.x / trkdf.pfp.trk.truth.p.totp
+    trkdf.loc[:, ("pfp","trk","truth","p","dir","y")] = trkdf.pfp.trk.truth.p.genp.y / trkdf.pfp.trk.truth.p.totp
+    trkdf.loc[:, ("pfp","trk","truth","p","dir","z")] = trkdf.pfp.trk.truth.p.genp.z / trkdf.pfp.trk.truth.p.totp
 
     return trkdf
 

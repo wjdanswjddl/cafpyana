@@ -1,8 +1,8 @@
 from . import getsyst
 
 g4_systematics = [
-     'reinteractions_kminus_Geant4',
-    'reinteractions_kplus_Geant4',
+    #  'reinteractions_kminus_Geant4',
+    # 'reinteractions_kplus_Geant4',
     'reinteractions_neutron_Geant4',
     'reinteractions_piminus_Geant4',
     'reinteractions_piplus_Geant4',
@@ -10,7 +10,7 @@ g4_systematics = [
 ]
 
 
-def g4syst(f, nuind, multisim_nuniv=250, slim=False):
+def g4syst(f, nuind, multisim_nuniv=100, slim=False):
     g4wgtdf = getsyst.getsyst(f, g4_systematics, nuind, multisim_nuniv=multisim_nuniv, slim=slim, slimname="G4")
 
     if slim:  # keep only the multiplied "g4.univ_" columns

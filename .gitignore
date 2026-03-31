@@ -10,3 +10,5 @@ envs/xrootd-5.6.1/
 #*
 .#
 *~
+makedf_*.sh
+envs/*
