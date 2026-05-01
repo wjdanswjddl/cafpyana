@@ -61,12 +61,12 @@ def _open_with_retries(path, attempts=5, sleep=2.0):
 def _loaddf(applyfs, args, preprocess, g):
     # fname, index, applyfs = inp
     index, fname = g
-    # Convert pnfs to xroot URL's
-    if fname.startswith("/pnfs"):
-        fname = fname.replace("/pnfs", "root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr")
-    # fix xroot URL's
-    elif fname.startswith("xroot"):
-        fname = fname[1:]
+    ## Convert pnfs to xroot URL's
+    #if fname.startswith("/pnfs"):
+    #    fname = fname.replace("/pnfs", "root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr")
+    ## fix xroot URL's
+    #elif fname.startswith("xroot"):
+    #    fname = fname[1:]
 
     madef = False
 
@@ -129,8 +129,8 @@ def _loaddf(applyfs, args, preprocess, g):
             dfs.append(df_histpot)
 
             df_histgenevt = make_histgenevtdf(f)
-            if "TotalGenEvents" not in f:
-                print(f"File ({fname}) missing TotalGenEvents histogram. Using empty DataFrame.")
+            #if "TotalGenEvents" not in f:
+            #    print(f"File ({fname}) missing TotalGenEvents histogram. Using empty DataFrame.")
             df_histgenevt["__ntuple"] = index
             df_histgenevt.set_index("__ntuple", append=True, inplace=True)
             new_order = [df_histgenevt.index.nlevels - 1] + list(range(df_histgenevt.index.nlevels - 1))

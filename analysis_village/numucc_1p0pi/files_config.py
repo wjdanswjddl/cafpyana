@@ -108,7 +108,7 @@ def get_ana_dfs(option="", syst_tag=""):
     elif option == "selected_events":
         mc_dfs = load_and_concat_mc_dfs(
             file_dir=file_dir,
-            chunk_tags=generate_tags("bl")[1:],
+            chunk_tags=generate_tags("ba")[1:],
             df_tag="",
             keys2load=['hdr', 'evt'],
             n_max_concat=n_max_concat,
@@ -127,9 +127,11 @@ def get_ana_dfs(option="", syst_tag=""):
         dirt_hdr_df = dirt_dfs['hdr']
 
         ## -- Data
-        data_file = path.join(file_dir, "data", "BNB", "_Fixed_mup.df")
+        # data_file = path.join(file_dir, "data", "BNB", "Dev_mup.df")
+        data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/Gen1_mup.df"
         data_dfs = load_dfs(data_file, 
-                            ['evt', 'hdr', 'bnbpot'], 
+                            ['evt', 'hdr'], 
+                            # ['evt', 'hdr', 'bnbpot'], 
                             n_max_concat=n_max_concat)
         data_evt_df = data_dfs['evt']
         data_hdr_df = data_dfs['hdr']
@@ -202,10 +204,13 @@ def get_ana_dfs(option="", syst_tag=""):
         mc_evt_df = concat_dfs['evt']        
 
         ## -- Data
-        data_file = path.join(file_dir, "data", "BNB", "_Fixed_mup.df")
+        # data_file = path.join(file_dir, "data", "BNB", "_Fixed_mup.df")
         # data_file = path.join(file_dir, "data", "BNB", "_Rolling_mup.df")
+        # data_file = path.join(file_dir, "data", "BNB", "Gen1_mup.df")
+        data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/Gen1_mup.df"
         data_dfs = load_dfs(data_file, 
-                            ['evt', 'hdr', 'bnbpot'], 
+                            ['evt', 'hdr'], 
+                            # ['evt', 'hdr', 'bnbpot'], 
                             n_max_concat=n_max_concat)
         data_evt_df = data_dfs['evt']
         data_hdr_df = data_dfs['hdr']
@@ -239,7 +244,7 @@ def get_ana_dfs(option="", syst_tag=""):
         if syst_tag == "":
             mc_dfs = load_and_concat_mc_dfs(
                 file_dir=file_dir,
-                chunk_tags=generate_tags("ag"),
+                chunk_tags=generate_tags("ad"),
                 df_tag="-sel_all-wgts",
                 # chunk_tags=[""],
                 # df_tag="evt_sel-test",
@@ -279,7 +284,7 @@ def get_ana_dfs(option="", syst_tag=""):
         ## -- low E MC
         dirt_dfs = load_and_concat_mc_dfs(
             file_dir=file_dir,
-            chunk_tags=[t for t in generate_tags("al") if t != "ah"],
+            chunk_tags=[t for t in generate_tags("ac") if t != "ah"],
             df_tag="_all",
             keys2load=mc_keys2load,
             n_max_concat=n_max_concat,
@@ -292,7 +297,8 @@ def get_ana_dfs(option="", syst_tag=""):
         dirt_mcnu_df = dirt_dfs['mcnu']
 
         ## -- Data
-        data_file = path.join(file_dir, "data", "BNB", "_Fixed_all.df")
+        # data_file = path.join(file_dir, "data", "BNB", "_Fixed_all.df")
+        data_file = path.join(file_dir, "data", "BNB", "Gen1_all.df")
         data_dfs = load_dfs(data_file, 
                             ['evt', 'trk', 'hdr', 'bnbpot'], 
                             n_max_concat=n_max_concat)
@@ -320,7 +326,7 @@ def get_ana_dfs(option="", syst_tag=""):
         intime_keys2load = ['hdr', 'evt', 'trk']
         intime_dfs = load_and_concat_mc_dfs(
             file_dir=file_dir,
-            chunk_tags=generate_tags("ag"),
+            chunk_tags=generate_tags("ah"),
             df_tag="_all",
             keys2load=intime_keys2load,
             n_max_concat=n_max_concat,

@@ -211,4 +211,5 @@ def Matrix_Decomp(matrix_pred, matrix_syst):
             matrix_norm[i, j] = N_i * N_j * M_kl / (N_T * N_T)
 
     matrix_norm_plus_mixed = matrix_norm + matrix_mixed
-    return matrix_norm_plus_mixed, matrix_shape
+    # return matrix_norm_plus_mixed, matrix_shape
+    return matrix_norm, matrix_mixed, matrix_shape

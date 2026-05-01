@@ -30,7 +30,7 @@ def InAV(df,det="SBND"):
         zmax = 495
     return (df.x > xmin) & (df.x < xmax) & (df.y > ymin) & (df.y < ymax) & (df.z > zmin) & (df.z < zmax)
 
-def InFV(df, inzback=10, inx=10, iny=10, inzfront=10, det="ICARUS"):
+def InFV(df, inzback=10, inx=10, iny=10, inzfront=10, incathode=5, det="ICARUS"):
     if det == "ICARUS":
         xmin_C0 = -358.49
         xmax_C0 = -61.94
@@ -75,6 +75,16 @@ def InFV(df, inzback=10, inx=10, iny=10, inzfront=10, det="ICARUS"):
         pass_xz = (np.abs(df.x) < xmax) & (df.z > zmin) & (df.z < zmax)
         pass_y = ((df.z < 250) & (np.abs(df.y) < 190.)) | ((df.z > 250) & (df.y > -190.) & (df.y < ymax_highz))
         return pass_xz & pass_y
+
+    elif det == "SBND_TPC1":
+        xmin_tpc1 = -190.
+        xmax_tpc1 = -1 * incathode
+        return (df.x > xmin_tpc1) & (df.x < xmax_tpc1)
+
+    elif det == "SBND_TPC2":
+        xmin_tpc2 = incathode
+        xmax_tpc2 = 190.
+        return (df.x > xmin_tpc2) & (df.x < xmax_tpc2)
 
     else:
         raise NameError("DETECTOR not valid, should be SBND or ICARUS")

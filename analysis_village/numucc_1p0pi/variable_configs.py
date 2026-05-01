@@ -265,9 +265,11 @@ class VariableConfig:
             var_labels=["Neutrino Vertex X (cm)", 
             "Slice Vertex X (cm)", 
             ""],
-            bins=np.linspace(-200, 200, 51),
-            var_evt_reco_col=('slc', 'vertex', 'x', '', '', '', ''),
-            var_evt_truth_col=('mc', 'position', 'x', '', '', '', ''),
+            bins=np.linspace(-200, 200, 21),
+            # var_evt_reco_col=('slc', 'vertex', 'x', '', '', '', ''),
+            # var_evt_truth_col=('mc', 'position', 'x', '', '', '', ''),
+            var_evt_reco_col=('slc', 'vertex', 'x', '', ''),
+            var_evt_truth_col=('mc', 'position', 'x', '', ''),
             var_nu_col=('mc', 'position', 'x'),
             xsec_label=r"$\frac{d\sigma}{d\mathrm{Vertex X}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{cm}}\right)$"
         )
@@ -280,7 +282,7 @@ class VariableConfig:
             var_labels=["Neutrino Vertex Y (cm)", 
             "Slice Vertex Y (cm)", 
             ""],
-            bins=np.linspace(-200, 200, 51),
+            bins=np.linspace(-200, 200, 21),
             var_evt_reco_col=('slc', 'vertex', 'y', '', '', '', ''),
             var_evt_truth_col=('mc', 'position', 'y', '', '', '', ''),
             var_nu_col=('mc', 'position', 'y'),
@@ -295,7 +297,7 @@ class VariableConfig:
             var_labels=["Neutrino Vertex Z (cm)", 
             "Slice Vertex Z (cm)", 
             ""],
-            bins=np.linspace(0, 500, 51),
+            bins=np.linspace(0, 500, 21),
             var_evt_reco_col=('slc', 'vertex', 'z', '', '', '', ''),
             var_evt_truth_col=('mc', 'position', 'z', '', '', '', ''),
             var_nu_col=('mc', 'position', 'z'),
@@ -343,8 +345,68 @@ class VariableConfig:
             bins=np.linspace(-180, 180, 21),
             var_evt_reco_col=('mu', 'pfp', 'trk', 'phi', '', '', ''),
             var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'phi', ''),
-            var_nu_col=('mc', 'mu', 'phi', ''),
+            var_nu_col=('mc', 'mu', 'phi', '', '', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\phi_{\\mu}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
+        )
+
+    @classmethod
+    def muon_end_x(cls):
+        return cls(
+            var_save_name="muon-end_x",
+            var_plot_name="x_\mu",
+            var_labels=[r"Muon End X (cm)", 
+            r"Muon End X (cm)", 
+            r"Muon End X (cm)"],
+            bins=np.linspace(-200, 200, 21),
+            var_evt_reco_col=('mu', 'pfp', 'trk', 'end', 'x', '', ''),
+            var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'end', 'x'),
+            var_nu_col=('mc', 'mu', 'end', 'x'),
+            xsec_label=r"$\frac{d\sigma}{dx_\mu}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
+        )
+
+    @classmethod
+    def muon_end_y(cls):
+        return cls(
+            var_save_name="muon-end_y",
+            var_plot_name="y_\mu",
+            var_labels=[r"Muon End Y (cm)", 
+            r"Muon End Y (cm)", 
+            r"Muon End Y (cm)"],
+            bins=np.linspace(-200, 200, 21),
+            var_evt_reco_col=('mu', 'pfp', 'trk', 'end', 'y', '', ''),
+            var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'end', 'y'),
+            var_nu_col=('mc', 'mu', 'end', 'y'),
+            xsec_label=r"$\frac{d\sigma}{dy_\mu}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
+        )
+
+    @classmethod
+    def muon_end_z(cls):
+        return cls(
+            var_save_name="muon-end_z",
+            var_plot_name="z_\mu",
+            var_labels=[r"Muon End Z (cm)", 
+            r"Muon End Z (cm)", 
+            r"Muon End Z (cm)"],
+            bins=np.linspace(0, 500, 21),
+            var_evt_reco_col=('mu', 'pfp', 'trk', 'end', 'z', '', ''),
+            var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'end', 'z'),
+            var_nu_col=('mc', 'mu', 'end', 'z'),
+            xsec_label=r"$\frac{d\sigma}{dz_\mu}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
+        )
+
+    @classmethod
+    def muon_momentum_mcs(cls):
+        return cls(
+            var_save_name="muon-p",
+            var_plot_name="P_\mu",
+            var_labels=[r"$\mathrm{P_\mu}$ (GeV/c)", 
+            r"$\mathrm{P_\mu^{reco.}}$ (GeV/c)", 
+            r"$\mathrm{P_\mu^{true}}$ (GeV/c)"],
+            bins=np.array([0.22, 0.27, 0.32, 0.37, 0.42, 0.47, 0.52, 0.57, 0.62, 0.7, 0.8, 0.9, 1.0]),
+            var_evt_reco_col=('mu', 'pfp', 'trk', 'mcsP', 'fwdP_muon', '', ''),
+            var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'totp', ''),
+            var_nu_col=('mc', 'mu', 'totp'),
+            xsec_label=r"$\frac{d\sigma}{dP_\mu}$ $\left(\frac{\mathrm{cm}^2}{(\mathrm{GeV}/c)\ \mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -432,11 +494,26 @@ class VariableConfig:
             var_labels=[r"PFP Track-like Score", 
             "", 
             ""],
-            bins=np.linspace(0, 1, 51),
+            bins=np.linspace(0.2, 0.9, 71),
             var_evt_reco_col=('pfp', 'trackScore', '', '', '', ''),
             var_evt_truth_col=('pfp', 'trackScore', '', '', '', ''),
             var_nu_col=('', '', ''),
             xsec_label=r""
+        )
+
+    @classmethod
+    def track_end_x(cls):
+        return cls(
+            var_save_name="track_end_x",
+            var_plot_name="Track End X",
+            var_labels=[r"Track End X (cm)", 
+            "", 
+            ""],
+            bins=np.linspace(-10, 10, 41),
+            var_evt_reco_col=('pfp', 'trk', 'end', 'x', '', ''),
+            var_evt_truth_col=('pfp', 'trk', 'truth', 'end', 'x', ''),
+            var_nu_col=('trk', 'end', 'x'),
+            xsec_label=r"$\frac{d\sigma}{d\mathrm{Track End X}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{cm}}\right)$"
         )
 
     @classmethod
@@ -459,10 +536,10 @@ class VariableConfig:
         return cls(
             var_save_name="trk_len",
             var_plot_name="Track Length",
-            var_labels=[r"$\mathrm{Track Length}$ (cm)", 
+            var_labels=[r"$\mathrm{Track \, \, Length}$ (cm)", 
             r"$\mathrm{Track Length^{reco.}}$ (cm)", 
             r"$\mathrm{Track Length^{true}}$ (cm)"],
-            bins=np.linspace(0, 200,41),
+            bins=np.linspace(0, 100, 26),
             var_evt_reco_col=('pfp', 'trk', 'len', '', '', ''),
             var_evt_truth_col=('pfp', 'trk', 'truth', 'len', '', ''),
             var_nu_col=('trk', 'len', ''),
@@ -474,10 +551,10 @@ class VariableConfig:
         return cls(
             var_save_name="mcs_range_diff",
             var_plot_name="MCS Range Difference",
-            var_labels=[r"$\mathrm{MCS - Range}$", 
+            var_labels=[r"$\mathrm{(MCS - Range) \, / \, Range}$", 
             r"$\mathrm{(MCS - Range)^{reco.}}$", 
             r"$\mathrm{(MCS - Range)^{true}}$"],
-            bins=np.linspace(-0.5, 0.5, 51),
+            bins=np.linspace(-0.6, 0.4, 51),
             var_evt_reco_col=('pfp', 'trk', 'mcs_range_diff', '', '', ''),
             var_evt_truth_col=('pfp', 'trk', 'truth', 'mcs_range_diff', '', '', ''),
             var_nu_col=('trk', 'mcs_range_diff', '', ''),
@@ -492,7 +569,7 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\chi^2_{\mu}}$", 
             r"$\mathrm{\chi^2_{\mu}^{reco.}}$", 
             r"$\mathrm{\chi^2_{\mu}^{true}}$"],
-            bins=np.linspace(0, 60, 41),
+            bins=np.linspace(0, 55, 31),
             var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'avg', 'chi2_muon',  ''),
             var_evt_truth_col=('', '', '', '', '', ''),
             var_nu_col=('', '', ''),

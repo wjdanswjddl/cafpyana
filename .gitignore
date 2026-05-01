@@ -1,4 +1,6 @@
 *.swp
+*.gif
+*.h5
 .python-version
 __pycache__/
 *.df

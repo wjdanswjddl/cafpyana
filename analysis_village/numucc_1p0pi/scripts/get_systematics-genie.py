@@ -76,20 +76,22 @@ if __name__ == "__main__":
     save_fig = True
 
     syst_dict = {} 
-    # syst_lists = [qe_genie_systematics, mec_genie_systematics, res_genie_systematics, nonres_genie_systematics, dis_genie_systematics, other_genie_systematics, ar23p_genie_systematics]
-    # for gidx, genie_tag in tqdm(enumerate(["CCQE", "MEC", "RES", "nonRES", "DIS", "Other", "Ar23p"])):
+    #syst_lists = [qe_genie_systematics, mec_genie_systematics, res_genie_systematics, nonres_genie_systematics, dis_genie_systematics, other_genie_systematics, ar23p_genie_systematics]
+    #for gidx, genie_tag in tqdm(enumerate(["CCQE", "MEC", "RES", "nonRES", "DIS", "Other", "Ar23p"])):
+    syst_lists = [qe_genie_systematics, mec_genie_systematics, dis_genie_systematics, other_genie_systematics, ar23p_genie_systematics]
+    for gidx, genie_tag in tqdm(enumerate(["CCQE", "MEC", "DIS", "Other", "Ar23p"])):
 
     # syst_lists = [ar23p_genie_systematics]
 
-    zexp_genie_systematics = [
-        'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b1',
-        'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b2',
-        'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b3',
-        'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b4',
-    ]
-    syst_lists = [zexp_genie_systematics]
+    #zexp_genie_systematics = [
+    #    'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b1',
+    #    'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b2',
+    #    'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b3',
+    #    'ZExpPCAWeighter_SBNNuSyst_multisigma_MvA_ZExp_b4',
+    #]
+    #syst_lists = [zexp_genie_systematics]
 
-    for gidx, genie_tag in tqdm(enumerate(["Ar23p"])):
+    #for gidx, genie_tag in tqdm(enumerate(["Ar23p"])):
 
         syst_type = f"genie-{genie_tag}"
         syst_list = syst_lists[gidx]
@@ -114,8 +116,8 @@ if __name__ == "__main__":
 
         concat_dfs = load_and_concat_mc_dfs(
             file_dir=file_dir,
-            # chunk_tags=generate_tags("ak"),
-            chunk_tags=["batch1_aa", "batch1_ab", "batch1_ac", "batch1_ad", "batch1_ae", "batch1_af", "batch1_ag"],
+             chunk_tags=generate_tags("ak"),
+            #chunk_tags=["batch1_aa", "batch1_ab", "batch1_ac", "batch1_ad", "batch1_ae", "batch1_af", "batch1_ag"],
             df_tag=df_tag,
             keys2load=mc_keys2load,
             n_max_concat=n_max_concat,
@@ -127,6 +129,11 @@ if __name__ == "__main__":
         mc_nu_df  = concat_dfs['mcnu']
         mc_evt_df = concat_dfs['evt']
 
+        mc_nu_df[('mu', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_nu_df['mu', 'pfp', 'trk', 'dir', 'x', '', ''], mc_nu_df['mu', 'pfp', 'trk', 'dir', 'y', '', '']))
+        mc_nu_df[('p', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_nu_df['p', 'pfp', 'trk', 'dir', 'x', '', ''], mc_nu_df['p', 'pfp', 'trk', 'dir', 'y', '', '']))
+        mc_evt_df[('mu', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_evt_df['mu', 'pfp', 'trk', 'dir', 'x', '', ''], mc_evt_df['mu', 'pfp', 'trk', 'dir', 'y', '', '']))
+        mc_evt_df[('p', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_evt_df['p', 'pfp', 'trk', 'dir', 'x', '', ''], mc_evt_df['p', 'pfp', 'trk', 'dir', 'y', '', '']))
+
         # ===== total pot =====
         mc_tot_pot = mc_hdr_df['pot'].sum()
         print("mc_tot_pot: %.3e" %(mc_tot_pot))
@@ -135,25 +142,27 @@ if __name__ == "__main__":
         mc_nu_df["pot_weight"]  = mc_pot_scale * np.ones(len(mc_nu_df))
 
         # ===== variables to process =====
-        var_configs = [VariableConfig.all_events(),
-                    VariableConfig.vertex_x(),
-                    VariableConfig.vertex_y(),
-                    VariableConfig.vertex_z(),
-                    VariableConfig.muon_momentum(),
-                    VariableConfig.muon_direction(),
-                    VariableConfig.muon_direction_x(),
-                    VariableConfig.muon_direction_y(),
-                    VariableConfig.proton_momentum(),
-                    VariableConfig.proton_direction(),
-                    VariableConfig.proton_direction_x(),
-                    VariableConfig.proton_direction_y(),
-                    VariableConfig.opening_angle(),
-                    VariableConfig.tki_del_alpha(),
-                    VariableConfig.tki_del_phi(),
-                    VariableConfig.tki_del_Tp(),
-                    VariableConfig.tki_del_p(),
-                    VariableConfig.tki_del_Tp_x(),
-                    VariableConfig.tki_del_Tp_y()]
+        var_configs = [#VariableConfig.all_events(),
+                       #VariableConfig.vertex_x(),
+                       #VariableConfig.vertex_y(),
+                       #VariableConfig.vertex_z(),
+                       #VariableConfig.muon_momentum(),
+                       #VariableConfig.muon_direction(),
+                    VariableConfig.muon_direction_phi(),
+                       #VariableConfig.muon_direction_x(),
+                       #VariableConfig.muon_direction_y(),
+                       #VariableConfig.proton_momentum(),
+                       #VariableConfig.proton_direction(),
+                       #VariableConfig.proton_direction_x(),
+                       #VariableConfig.proton_direction_y(),
+                       #VariableConfig.opening_angle(),
+                       #VariableConfig.tki_del_alpha(),
+                       #VariableConfig.tki_del_phi(),
+                       #VariableConfig.tki_del_Tp(),
+                       #VariableConfig.tki_del_p(),
+                       #VariableConfig.tki_del_Tp_x(),
+                       #VariableConfig.tki_del_Tp_y()
+                       ]
 
         # ===== systs to process =====
         syst_names = [("mc", syst_list[sidx]) for sidx in range(len(syst_list))]
@@ -175,7 +184,7 @@ if __name__ == "__main__":
         print("saving dict with keys: ", syst_dict.keys())
         print("for systs: ", syst_dict[list(syst_dict.keys())[0]].keys())
         # save_filename = f"{save_fig_base_dir}/genie-{genie_tag}_syst_dict.npz"
-        save_filename = f"{save_fig_base_dir}/genie-zexp_syst_dict.npz"
+        save_filename = f"{save_fig_base_dir}/genie-phi_syst_dict.npz"
         print("saving syst_dict as npz in %s" % (save_filename))
         np.savez(save_filename, **syst_dict)
 
@@ -185,6 +194,6 @@ if __name__ == "__main__":
     if len(syst_lists) > 5:
         print("saving dict with keys: ", syst_dict.keys())
         print("for systs: ", syst_dict[list(syst_dict.keys())[0]].keys())
-        save_filename = f"{save_fig_base_dir}/genie-all_syst_dict.npz"
+        save_filename = f"{save_fig_base_dir}/genie-phi_syst_dict.npz"
         print("saving syst_dict as npz in %s" % (save_filename))
         np.savez(save_filename, **syst_dict)
