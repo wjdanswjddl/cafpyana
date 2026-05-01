@@ -375,6 +375,7 @@ def make_pandora_evtdf(f, sel_level="all",
     if sel_level not in ["all", "clearcosmic", "fv", "nu", "2prong", "2prong_contained", "2prong_trackscore", "2prong_vtxdist",  "2prong_wcandidates", "muX", "mup"]:
         raise ValueError("Invalid sel_level: {}".format(sel_level))
 
+    print("CHECKPOINT 1")
 
     def truth_match(this_evtdf, this_mcdf):
         # ---- truth match ----
@@ -428,6 +429,8 @@ def make_pandora_evtdf(f, sel_level="all",
 
     mcdf = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=genie_systematics, flux_systematics=flux_systematics)
 
+    print("CHECKPOINT 2")
+
     # calculate TKI for MC 
     tki_var_names = ["del_alpha", "del_phi", "del_Tp", "del_p", "del_Tp_x", "del_Tp_y"]
     mc_mudf = mcdf.mu
@@ -437,8 +440,12 @@ def make_pandora_evtdf(f, sel_level="all",
     tki_mc = get_cc1p0pi_tki(mc_mudf, mc_pdf, mc_P_mu_col, mc_P_p_col)
     for var_name in tki_var_names:
         mcdf = multicol_add(mcdf, tki_mc[var_name].rename("{}".format(var_name)))
+
+    print("CHECKPOINT 3")
     
     slcdf = make_slcdf(f)
+
+    print("CHECKPOINT 4")
 
     if sel_level == "all":
         return truth_match(slcdf, mcdf)
