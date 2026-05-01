@@ -273,8 +273,13 @@ def make_pfpdf(f, update_shw=True):
     pfpdf[("pfp", "tindex", "", "", "", "")] = pfpdf.index.get_level_values(2)
     return pfpdf
 
+def make_trkhitdf_planeall(f):
+    df = make_trkhitdf(f, -1)
+    return df
+
 def make_trkhitdf_plane0(f):
-    return make_trkhitdf(f, 0)
+    df = make_trkhitdf(f, 0)
+    return df
 
 def make_trkhitdf_plane1(f):
     return make_trkhitdf(f, 1)
@@ -290,11 +295,8 @@ def make_trkhitdf(f, plane=2):
     else:
         det = "ICARUS"
 
-    print("HITS FOR PLANE", plane)
-    print("DETECTOR", det)
-
     branches = [trkhitbranches_P0, trkhitbranches_P1, trkhitbranches][plane] if det == "SBND" else [trkhitbranches_P0_icarus, trkhitbranches_P1_icarus, trkhitbranches_icarus][plane]
-    print("BRANCHES", len(branches))
+
     df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo
     df = df["I" + str(plane)].points
 

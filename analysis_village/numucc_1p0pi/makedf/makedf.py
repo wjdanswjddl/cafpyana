@@ -60,7 +60,8 @@ def make_pandora_evtdf_all(f, sel_level="all", include_weights=False, multisim_n
                        trkScoreCut=False, trkDistCut=1000., cutClearCosmic=False, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
-    print("CHECKPOINT LAST")
+    #print("LEN OF DF:", len(df))
+    #print("CHECKPOINT LAST")
     return df
 
 def make_pandora_evtdf_2prong(f, sel_level="2prong", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -376,7 +377,6 @@ def make_pandora_evtdf(f, sel_level="all",
     if sel_level not in ["all", "clearcosmic", "fv", "nu", "2prong", "2prong_contained", "2prong_trackscore", "2prong_vtxdist",  "2prong_wcandidates", "muX", "mup"]:
         raise ValueError("Invalid sel_level: {}".format(sel_level))
 
-    print("CHECKPOINT 1")
 
     def truth_match(this_evtdf, this_mcdf):
         # ---- truth match ----
@@ -430,7 +430,6 @@ def make_pandora_evtdf(f, sel_level="all",
 
     mcdf = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=genie_systematics, flux_systematics=flux_systematics)
 
-    print("CHECKPOINT 2")
 
     # calculate TKI for MC 
     tki_var_names = ["del_alpha", "del_phi", "del_Tp", "del_p", "del_Tp_x", "del_Tp_y"]
@@ -442,14 +441,11 @@ def make_pandora_evtdf(f, sel_level="all",
     for var_name in tki_var_names:
         mcdf = multicol_add(mcdf, tki_mc[var_name].rename("{}".format(var_name)))
 
-    print("CHECKPOINT 3")
     
     slcdf = make_slcdf(f)
 
-    print("CHECKPOINT 4")
 
     if sel_level == "all":
-        print("CHECKPOINT 5")
         return truth_match(slcdf, mcdf)
 
     slcdf = cut_clear_cosmic(slcdf)
@@ -500,7 +496,6 @@ def make_pandora_evtdf(f, sel_level="all",
 
     if sel_level == "2prong_wcandidates":
         return truth_match(evtdf, mcdf)
-
 
     evtdf = cut_has_mu(evtdf)
     evtdf = cut_mu_kinematics(evtdf, mu_Plo_th=mu_Plo_th, mu_Phi_th=mu_Phi_th)
