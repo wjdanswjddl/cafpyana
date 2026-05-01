@@ -60,6 +60,7 @@ def make_pandora_evtdf_all(f, sel_level="all", include_weights=False, multisim_n
                        trkScoreCut=False, trkDistCut=1000., cutClearCosmic=False, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
+    print("CHECKPOINT LAST")
     return df
 
 def make_pandora_evtdf_2prong(f, sel_level="2prong", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -448,6 +449,7 @@ def make_pandora_evtdf(f, sel_level="all",
     print("CHECKPOINT 4")
 
     if sel_level == "all":
+        print("CHECKPOINT 5")
         return truth_match(slcdf, mcdf)
 
     slcdf = cut_clear_cosmic(slcdf)
