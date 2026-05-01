@@ -56,21 +56,8 @@ def make_spine_evtdf(f):
     return df
 
 # ===== selection stages =====
-
-def make_pandora_evtdf_all_sce(f, sel_level="all", include_weights=False, multisim_nuniv=100, wgt_types=[], slim=True, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
-    return df
-
-def make_pandora_evtdf_all(f, sel_level="all", include_weights=True, multisim_nuniv=100, wgt_types=["bnb","g4","genie"], slim=True, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
-    return df
-
-def make_pandora_evtdf_cosmics(f, sel_level="all", include_weights=False, multisim_nuniv=100, wgt_types=[], slim=True, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
+def make_pandora_evtdf_all(f, sel_level="all", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=False, 
+                       trkScoreCut=False, trkDistCut=1000., cutClearCosmic=False, **trkArgs):
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
@@ -86,7 +73,6 @@ def make_pandora_evtdf_mup(f, sel_level="mup", include_weights=False, multisim_n
     df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
-
 
 # ===== syst weights =====
 
@@ -389,6 +375,7 @@ def make_pandora_evtdf(f, sel_level="all",
     if sel_level not in ["all", "clearcosmic", "fv", "nu", "2prong", "2prong_contained", "2prong_trackscore", "2prong_vtxdist",  "2prong_wcandidates", "muX", "mup"]:
         raise ValueError("Invalid sel_level: {}".format(sel_level))
 
+
     def truth_match(this_evtdf, this_mcdf):
         # ---- truth match ----
         bad_tmatch = np.invert(this_evtdf.slc.tmatch.eff > 0.5) & (this_evtdf.slc.tmatch.idx >= 0)
@@ -450,7 +437,7 @@ def make_pandora_evtdf(f, sel_level="all",
     tki_mc = get_cc1p0pi_tki(mc_mudf, mc_pdf, mc_P_mu_col, mc_P_p_col)
     for var_name in tki_var_names:
         mcdf = multicol_add(mcdf, tki_mc[var_name].rename("{}".format(var_name)))
-
+    
     slcdf = make_slcdf(f)
 
     if sel_level == "all":
