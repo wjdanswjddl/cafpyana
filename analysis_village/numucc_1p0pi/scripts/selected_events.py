@@ -90,15 +90,35 @@ def get_syst_unc(var_config):
 save_fig = True
 
 today_str = datetime.now().strftime("%Y%m%d")
-save_fig_dir = path.join(save_fig_base_dir, f"selected_events-DATA-1e20/chunk{args.chunk_idx}")
+save_fig_dir = path.join(save_fig_base_dir, f"selected_events-data-1e20/chunk{args.chunk_idx}")
 save_fig_dir_perTPC = path.join(save_fig_base_dir, f"selected_events-DATA-1e20-perTPC/chunk{args.chunk_idx}")
 save_fig_dir_TPC1 = path.join(save_fig_base_dir, f"selected_events-DATA-1e20-TPC1/chunk{args.chunk_idx}")
 save_fig_dir_TPC2 = path.join(save_fig_base_dir, f"selected_events-DATA-1e20-TPC2/chunk{args.chunk_idx}")
+save_fig_dir_fwd = path.join(save_fig_base_dir, f"selected_events-data-1e20-fwd_muons/chunk{args.chunk_idx}")
+save_fig_dir_bwd = path.join(save_fig_base_dir, f"selected_events-data-1e20-bwd_muons/chunk{args.chunk_idx}")
+save_fig_dir_crosser_fwd = path.join(save_fig_base_dir, f"selected_events-data-1e20-crosser_muons_fwd/chunk{args.chunk_idx}")
+save_fig_dir_crosser_bwd = path.join(save_fig_base_dir, f"selected_events-data-1e20-crosser_muons_bwd/chunk{args.chunk_idx}")
 
 if save_fig:
     if not path.exists(save_fig_dir):
         makedirs(save_fig_dir)
     print("saving plots in ", save_fig_dir)
+
+    if not path.exists(save_fig_dir_fwd):
+        makedirs(save_fig_dir_fwd)
+    print("saving plots in ", save_fig_dir_fwd)
+
+    if not path.exists(save_fig_dir_bwd):
+        makedirs(save_fig_dir_bwd)
+    print("saving plots in ", save_fig_dir_bwd)
+
+    if not path.exists(save_fig_dir_crosser_fwd):
+        makedirs(save_fig_dir_crosser_fwd)
+    print("saving plots in ", save_fig_dir_crosser_fwd)
+
+    if not path.exists(save_fig_dir_crosser_bwd):
+        makedirs(save_fig_dir_crosser_bwd)
+    print("saving plots in ", save_fig_dir_crosser_bwd)
 
     if not path.exists(save_fig_dir_perTPC):
         makedirs(save_fig_dir_perTPC)
@@ -209,6 +229,35 @@ data_evt_df_TPC2 = data_evt_df[inTPC2_cut(data_evt_df)]
 intime_evt_df_TPC2 = intime_evt_df[inTPC2_cut(intime_evt_df)]
 
 
+def fwd_muons_cut(df):
+    cut = df.mu.pfp.trk.dir.z > 0
+    return cut
+
+mc_evt_df_fwd_muons = mc_evt_df[fwd_muons_cut(mc_evt_df)]
+data_evt_df_fwd_muons = data_evt_df[fwd_muons_cut(data_evt_df)]
+intime_evt_df_fwd_muons = intime_evt_df[fwd_muons_cut(intime_evt_df)]
+
+def bwd_muons_cut(df):
+    cut = df.mu.pfp.trk.dir.z < 0
+    return cut
+
+mc_evt_df_bwd_muons = mc_evt_df[bwd_muons_cut(mc_evt_df)]
+data_evt_df_bwd_muons = data_evt_df[bwd_muons_cut(data_evt_df)]
+intime_evt_df_bwd_muons = intime_evt_df[bwd_muons_cut(intime_evt_df)]
+
+def crosser_muons_cut(df):
+    cut = df.mu.pfp.trk.end.x * df.p.pfp.trk.start.x < 0
+    return cut
+
+mc_evt_df_crosser_muons_fwd = mc_evt_df[crosser_muons_cut(mc_evt_df) & fwd_muons_cut(mc_evt_df)]
+data_evt_df_crosser_muons_fwd = data_evt_df[crosser_muons_cut(data_evt_df) & fwd_muons_cut(data_evt_df)]
+intime_evt_df_crosser_muons_fwd = intime_evt_df[crosser_muons_cut(intime_evt_df) & fwd_muons_cut(intime_evt_df)]
+
+mc_evt_df_crosser_muons_bwd = mc_evt_df[crosser_muons_cut(mc_evt_df) & bwd_muons_cut(mc_evt_df)]
+data_evt_df_crosser_muons_bwd = data_evt_df[crosser_muons_cut(data_evt_df) & bwd_muons_cut(data_evt_df)]
+intime_evt_df_crosser_muons_bwd = intime_evt_df[crosser_muons_cut(intime_evt_df) & bwd_muons_cut(intime_evt_df)]
+
+
 # ===- plotter per cut ====
 
 eps = 1e-8
@@ -273,30 +322,87 @@ data_vs_mc_plotter_TPC2 = partial(
     plot=False
 )
 
+data_vs_mc_plotter_fwd_muons = partial(
+    overlay_hists,
+    mc_df=mc_evt_df_fwd_muons,
+    data_df=data_evt_df_fwd_muons,
+    intime_df=intime_evt_df_fwd_muons,
+    dirt_df = None,
+    ax_ylim_ratio=ax_ylim_ratio,
+    ratio=ratio,
+    textloc=textloc,
+    approval=approval,
+    save_fig=save_fig, 
+    plot=False
+)
+
+data_vs_mc_plotter_bwd_muons = partial(
+    overlay_hists,
+    mc_df=mc_evt_df_bwd_muons,
+    data_df=data_evt_df_bwd_muons,
+    intime_df=intime_evt_df_bwd_muons,
+    dirt_df = None,
+    ax_ylim_ratio=ax_ylim_ratio,
+    ratio=ratio,
+    textloc=textloc,
+    approval=approval,
+    save_fig=save_fig, 
+    plot=False
+)
+
+
+data_vs_mc_plotter_crosser_muons_fwd = partial(
+    overlay_hists,
+    mc_df=mc_evt_df_crosser_muons_fwd,
+    data_df=data_evt_df_crosser_muons_fwd,
+    intime_df=intime_evt_df_crosser_muons_fwd,
+    dirt_df = None,
+    ax_ylim_ratio=ax_ylim_ratio,
+    ratio=ratio,
+    textloc=textloc,
+    approval=approval,
+    plot=False,
+    save_fig=save_fig, 
+)
+
+data_vs_mc_plotter_crosser_muons_bwd = partial(
+    overlay_hists,
+    mc_df=mc_evt_df_crosser_muons_bwd,
+    data_df=data_evt_df_crosser_muons_bwd,
+    intime_df=intime_evt_df_crosser_muons_bwd,
+    dirt_df = None,
+    ax_ylim_ratio=ax_ylim_ratio,
+    ratio=ratio,
+    textloc=textloc,
+    approval=approval,
+    plot=False,
+    save_fig=save_fig, 
+)
+
 
 # ==== plots ====
 
 # approved vars
 var_configs = [
     VariableConfig.all_events(),
-    VariableConfig.muon_momentum(),
-    VariableConfig.muon_direction(),
-    VariableConfig.proton_momentum(),
-    VariableConfig.proton_direction(),
+    # VariableConfig.muon_momentum(),
+    # VariableConfig.muon_direction(),
+    # VariableConfig.proton_momentum(),
+    # VariableConfig.proton_direction(),
     VariableConfig.tki_del_Tp(),
-    VariableConfig.tki_del_Tp_x(),
-    VariableConfig.tki_del_Tp_y(),
-    VariableConfig.tki_del_p(),
-    VariableConfig.tki_del_alpha(),
-    VariableConfig.tki_del_phi()
+    # VariableConfig.tki_del_Tp_x(),
+    # VariableConfig.tki_del_Tp_y(),
+    # VariableConfig.tki_del_p(),
+    # VariableConfig.tki_del_alpha(),
+    # VariableConfig.tki_del_phi()
     ]
 
-#for var_config in var_configs:
+for var_config in var_configs:
 #
-#    cov, frac_uncert = get_syst_unc(var_config)
+   cov, frac_uncert = get_syst_unc(var_config)
 #    plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
 #
-#    for breakdown_type in ["topology", "genie_sb"]:
+   for breakdown_type in ["topology"]:
 #        ret = data_vs_mc_plotter(breakdown_type=breakdown_type,
 #                                var_config=var_config,
 #                                plot_labels=plot_labels_hist,
@@ -333,22 +439,55 @@ var_configs = [
 #        #                         textchi2=True,
 #        #                         save_name=path.join(save_fig_dir, "{}_{}-syst-decomp".format(var_config.var_save_name, breakdown_type)))
 
+        # plot_labels_hist = [var_config.var_labels[1], pot_label, "Forward Muons"]
+        # ret = data_vs_mc_plotter_fwd_muons(breakdown_type=breakdown_type,
+        #                         var_config=var_config,
+        #                         plot_labels=plot_labels_hist,
+        #                         syst=cov,
+        #                         textchi2=True,
+        #                         save_name=path.join(save_fig_dir_fwd, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+
+        # plot_labels_hist = [var_config.var_labels[1], pot_label, "Backward Muons"]
+        # ret = data_vs_mc_plotter_bwd_muons(breakdown_type=breakdown_type,
+        #                         var_config=var_config,
+        #                         plot_labels=plot_labels_hist,
+        #                         syst=cov,
+        #                         textchi2=True,
+        #                         save_name=path.join(save_fig_dir_bwd, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+
+
+        plot_labels_hist = [var_config.var_labels[1], pot_label, "Crosser Muons (Forward)"]
+        ret = data_vs_mc_plotter_crosser_muons_fwd(breakdown_type=breakdown_type,
+                                var_config=var_config,
+                                plot_labels=plot_labels_hist,
+                                syst=cov,
+                                textchi2=True,
+                                save_name=path.join(save_fig_dir_crosser_fwd, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+
+        plot_labels_hist = [var_config.var_labels[1], pot_label, "Crosser Muons (Backward)"]
+        ret = data_vs_mc_plotter_crosser_muons_bwd(breakdown_type=breakdown_type,
+                                var_config=var_config,
+                                plot_labels=plot_labels_hist,
+                                syst=cov,
+                                textchi2=True,
+                                save_name=path.join(save_fig_dir_crosser_bwd, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+
 
 # more vars
 
 var_configs = [
     VariableConfig.muon_direction_phi(),
     VariableConfig.proton_direction_phi(),
-    VariableConfig.vertex_x(),
+    # VariableConfig.vertex_x(),
     VariableConfig.muon_end_x(),
-    VariableConfig.muon_direction_x(),
-    VariableConfig.muon_direction_y(),
-    VariableConfig.proton_direction_x(),
-    VariableConfig.proton_direction_y(),
-    VariableConfig.vertex_y(),
-    VariableConfig.vertex_z(),
-    VariableConfig.muon_end_y(),
-    VariableConfig.muon_end_z()
+    # VariableConfig.muon_direction_x(),
+    # VariableConfig.muon_direction_y(),
+    # VariableConfig.proton_direction_x(),
+    # VariableConfig.proton_direction_y(),
+    # VariableConfig.vertex_y(),
+    # VariableConfig.vertex_z(),
+    # VariableConfig.muon_end_y(),
+    # VariableConfig.muon_end_z()
     ]
 
 for var_config in var_configs:
@@ -357,37 +496,71 @@ for var_config in var_configs:
     for breakdown_type in ["topology"]:
     # for breakdown_type in ["topology", "genie", "genie_sb"]:
         frac_unc, cov = get_frac_unc(mc_evt_df, intime_evt_df, intime_evt_df, var_config)
-        plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
-        ret = data_vs_mc_plotter(breakdown_type=breakdown_type,
-                                var_config=var_config,
-                                plot_labels=plot_labels_hist,
-                                syst=cov,
-                                textchi2=True,
-                                save_name=path.join(save_fig_dir, "{}_{}".format(var_config.var_save_name, breakdown_type)))
 
-        plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
-        frac_unc, cov = get_frac_unc(mc_evt_df_perTPC, intime_evt_df_perTPC, intime_evt_df_perTPC, var_config)
-        ret = data_vs_mc_plotter_perTPC(breakdown_type=breakdown_type,
-                                var_config=var_config,
-                                plot_labels=plot_labels_hist,
-                                syst=cov,
-                                textchi2=True,
-                                save_name=path.join(save_fig_dir_perTPC, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+        # plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
+        # ret = data_vs_mc_plotter(breakdown_type=breakdown_type,
+        #                         var_config=var_config,
+        #                         plot_labels=plot_labels_hist,
+        #                         syst=cov,
+        #                         textchi2=True,
+        #                         save_name=path.join(save_fig_dir, "{}_{}".format(var_config.var_save_name, breakdown_type)))
 
-        plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
-        frac_unc, cov = get_frac_unc(mc_evt_df_TPC1, intime_evt_df_TPC1, intime_evt_df_TPC1, var_config)
-        ret = data_vs_mc_plotter_TPC1(breakdown_type=breakdown_type,
-                                var_config=var_config,
-                                plot_labels=plot_labels_hist,
-                                syst=cov,
-                                textchi2=True,
-                                save_name=path.join(save_fig_dir_TPC1, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+        # plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
+        # frac_unc, cov = get_frac_unc(mc_evt_df_perTPC, intime_evt_df_perTPC, intime_evt_df_perTPC, var_config)
+        # ret = data_vs_mc_plotter_perTPC(breakdown_type=breakdown_type,
+        #                         var_config=var_config,
+        #                         plot_labels=plot_labels_hist,
+        #                         syst=cov,
+        #                         textchi2=True,
+        #                         save_name=path.join(save_fig_dir_perTPC, "{}_{}".format(var_config.var_save_name, breakdown_type)))
 
-        plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
-        frac_unc, cov = get_frac_unc(mc_evt_df_TPC2, intime_evt_df_TPC2, intime_evt_df_TPC2, var_config)
-        ret = data_vs_mc_plotter_TPC2(breakdown_type=breakdown_type,
+        # plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
+        # frac_unc, cov = get_frac_unc(mc_evt_df_TPC1, intime_evt_df_TPC1, intime_evt_df_TPC1, var_config)
+        # ret = data_vs_mc_plotter_TPC1(breakdown_type=breakdown_type,
+        #                         var_config=var_config,
+        #                         plot_labels=plot_labels_hist,
+        #                         syst=cov,
+        #                         textchi2=True,
+        #                         save_name=path.join(save_fig_dir_TPC1, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+
+        # plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
+        # frac_unc, cov = get_frac_unc(mc_evt_df_TPC2, intime_evt_df_TPC2, intime_evt_df_TPC2, var_config)
+        # ret = data_vs_mc_plotter_TPC2(breakdown_type=breakdown_type,
+        #                         var_config=var_config,
+        #                         plot_labels=plot_labels_hist,
+        #                         syst=cov,
+        #                         textchi2=True,
+        #                         save_name=path.join(save_fig_dir_TPC2, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+
+
+        # plot_labels_hist = [var_config.var_labels[1], pot_label, "Forward Muons"]
+        # ret = data_vs_mc_plotter_fwd_muons(breakdown_type=breakdown_type,
+        #                         var_config=var_config,
+        #                         plot_labels=plot_labels_hist,
+        #                         syst=cov,
+        #                         textchi2=True,
+        #                         save_name=path.join(save_fig_dir_fwd, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+
+        # plot_labels_hist = [var_config.var_labels[1], pot_label, "Backward Muons"]
+        # ret = data_vs_mc_plotter_bwd_muons(breakdown_type=breakdown_type,
+        #                         var_config=var_config,
+        #                         plot_labels=plot_labels_hist,
+        #                         syst=cov,
+        #                         textchi2=True,
+        #                         save_name=path.join(save_fig_dir_bwd, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+
+        plot_labels_hist = [var_config.var_labels[1], pot_label, "Crosser Muons (Forward)"]
+        ret = data_vs_mc_plotter_crosser_muons_fwd(breakdown_type=breakdown_type,
                                 var_config=var_config,
                                 plot_labels=plot_labels_hist,
                                 syst=cov,
                                 textchi2=True,
-                                save_name=path.join(save_fig_dir_TPC2, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+                                save_name=path.join(save_fig_dir_crosser_fwd, "{}_{}".format(var_config.var_save_name, breakdown_type)))
+
+        plot_labels_hist = [var_config.var_labels[1], pot_label, "Crosser Muons (Backward)"]
+        ret = data_vs_mc_plotter_crosser_muons_bwd(breakdown_type=breakdown_type,
+                                var_config=var_config,
+                                plot_labels=plot_labels_hist,
+                                syst=cov,
+                                textchi2=True,
+                                save_name=path.join(save_fig_dir_crosser_bwd, "{}_{}".format(var_config.var_save_name, breakdown_type)))

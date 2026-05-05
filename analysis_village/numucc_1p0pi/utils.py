@@ -384,10 +384,11 @@ def add_approval_text(approval, textloc_x, textloc_y, textloc_ha):
         fontsize=20, color=textcolor
     )
 
-def add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y, textloc_ha):
+def add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y, textloc_ha, label=""):
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
+    prefix = f"{label} " if label else ""
     ax.text(textloc_x, textloc_y, 
-            f"$\chi^2$/ndof = {chi2_val:.2f}/{ndof} (p-value = {p_val:.2f})",
+            f"{prefix}$\chi^2$/ndof = {chi2_val:.2f}/{ndof} (p-value = {p_val:.2f})",
             transform=ax.transAxes, 
             ha=textloc_ha, va='top',
             fontsize=12, color='black')
@@ -1147,7 +1148,8 @@ def overlay_hists(breakdown_type="topology",
         ax, ax_r = axs[0], axs[1]
         fig.subplots_adjust(hspace=0.1)
         ax_r.axhline(1.0, color='red', linestyle='--', linewidth=1)
-        ax_r.set_ylim(0.5, 1.5)
+        # ax_r.set_ylim(0.5, 1.5)
+        ax_r.set_ylim(0., 2.)
         ax_r.set_xlabel(plot_labels[0])
         ax_r.set_ylabel("Data/MC")
         ax_r.grid(True)
@@ -1273,10 +1275,9 @@ def overlay_hists(breakdown_type="topology",
 
 
         if data_df is not None:
-            data_stat_cov_frac = np.diag( (0.5*(data_eyhigh + data_eylow) / total_data ) ** 2)
-            mc_stat_cov_frac = np.diag(mc_stat_err_frac**2)
-            combined_cov_frac = syst + data_stat_cov_frac + mc_stat_cov_frac
-            combined_cov = cov_from_fraccov(combined_cov_frac, total_mc)
+            data_stat_cov = np.diag( (0.5*(data_eyhigh + data_eylow)) ** 2 )  # absolute units
+            syst_cov = cov_from_fraccov(syst, total_mc)                        # frac syst -> absolute
+            combined_cov = syst_cov + data_stat_cov
             chi2_val, p_val = get_chi2(total_data, total_mc, combined_cov)
  
     else:
@@ -1493,6 +1494,7 @@ def overlay_hists(breakdown_type="topology",
 
     # y-axis limit
     ax.set_ylim(0., ax_ylim_ratio* np.max(total_mc))
+    # ax.set_yscale("log")
 
     # vertical lines
     if vline is not None:
@@ -1545,6 +1547,7 @@ def overlay_hists(breakdown_type="topology",
     if var_config.var_save_name == "integrated":
         format_singlebin_plot()
 
+
     # ===============================
 
     # == save figure ==
@@ -1556,7 +1559,11 @@ def overlay_hists(breakdown_type="topology",
     else:
         plt.close()
 
-    return {"cuts": cuts, 
+    return {"breakdown_type": breakdown_type,
+            "var_name": var_config.var_save_name,
+            "bins": var_config.bins,
+            # "cuts": cuts, 
+            "mc_stack": mc_stack,
             "total_mc": total_mc, 
             "total_mc_bkgd": total_mc_bkgd,
             "total_data": total_data}

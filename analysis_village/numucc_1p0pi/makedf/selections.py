@@ -48,12 +48,12 @@ def get_trk_info(evtdf, trkdf, save_ntrks=3):
     nlevels = len(trkdf.index.names)
     ntrks = trkdf.pfp.id.groupby(level=list(range(nlevels-1))).count()
     ntrks.reindex(evtdf.index, fill_value=0)
-    evtdf["n_trks"] = ntrks
+    evtdf.loc[:, "n_trks"] = ntrks.copy()
 
     good_trks = cut_good_trks(trkdf).copy()
     ntrks = good_trks.pfp.id.groupby(level=list(range(nlevels-1))).count()
     ntrks.reindex(evtdf.index, fill_value=0)
-    evtdf["n_good_trks"] = ntrks
+    evtdf.loc[:, "n_good_trks"] = ntrks.copy()
 
     trks_sorted = trkdf.sort_values(by=('pfp','trk','len'), ascending=False)
     good_trks_sorted = good_trks.sort_values(by=('pfp','trk','len'), ascending=False)

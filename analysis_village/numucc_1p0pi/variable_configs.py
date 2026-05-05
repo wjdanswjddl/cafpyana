@@ -241,6 +241,8 @@ class VariableConfig:
         )
 
     # ==== additional variables for efficiency inspection ====
+
+
     # only use var_nu_col
     @classmethod
     def neutrino_energy(cls):
@@ -589,6 +591,37 @@ class VariableConfig:
             var_evt_truth_col=('', '', '', '', '', ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p}}$ ($\mathrm{cm}^2$)"
+        )
+
+    @classmethod
+    def prim_direction_phi(cls):
+        return cls(
+            var_save_name="trk_dir_phi",
+            var_plot_name="$\\phi_{\\mathrm{trk}}$",
+            var_labels=[r"$\mathrm{\phi}$ (deg)", 
+            r"$\mathrm{\phi^{reco.}}$ (deg)", 
+            r"$\mathrm{\phi^{true}}$ (deg)"],
+            bins=np.linspace(-180, 180, 21),
+            # var_evt_reco_col=('prim', 'pfp', 'trk', 'phi', '', ''),
+            var_evt_reco_col=('prim_trk_phi', '', '', '', ''),
+            var_evt_truth_col=('prim', 'pfp', 'trk', 'truth', 'phi', ''),
+            var_nu_col=('prim', 'trk', 'phi', '', '', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\phi_{\\mathrm{trk}}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
+        )
+
+    @classmethod
+    def trk_direction_phi(cls):
+        return cls(
+            var_save_name="trk_dir_phi",
+            var_plot_name="$\\phi_{\\mathrm{trk}}$",
+            var_labels=[r"$\mathrm{\phi}$ (deg)", 
+            r"$\mathrm{\phi^{reco.}}$ (deg)", 
+            r"$\mathrm{\phi^{true}}$ (deg)"],
+            bins=np.linspace(-180, 180, 21),
+            var_evt_reco_col=('pfp', 'trk', 'phi', '', '', ''),
+            var_evt_truth_col=('pfp', 'trk', 'truth', 'phi', '', ''),
+            var_nu_col=('trk', 'phi', '', '', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\phi_{\\mathrm{trk}}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
         )
 
     @classmethod
