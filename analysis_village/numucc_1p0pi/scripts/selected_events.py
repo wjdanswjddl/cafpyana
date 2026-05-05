@@ -90,14 +90,14 @@ def get_syst_unc(var_config):
 save_fig = True
 
 today_str = datetime.now().strftime("%Y%m%d")
-save_fig_dir = path.join(save_fig_base_dir, f"selected_events-data-1e20/chunk{args.chunk_idx}")
-save_fig_dir_perTPC = path.join(save_fig_base_dir, f"selected_events-DATA-1e20-perTPC/chunk{args.chunk_idx}")
-save_fig_dir_TPC1 = path.join(save_fig_base_dir, f"selected_events-DATA-1e20-TPC1/chunk{args.chunk_idx}")
-save_fig_dir_TPC2 = path.join(save_fig_base_dir, f"selected_events-DATA-1e20-TPC2/chunk{args.chunk_idx}")
-save_fig_dir_fwd = path.join(save_fig_base_dir, f"selected_events-data-1e20-fwd_muons/chunk{args.chunk_idx}")
-save_fig_dir_bwd = path.join(save_fig_base_dir, f"selected_events-data-1e20-bwd_muons/chunk{args.chunk_idx}")
-save_fig_dir_crosser_fwd = path.join(save_fig_base_dir, f"selected_events-data-1e20-crosser_muons_fwd/chunk{args.chunk_idx}")
-save_fig_dir_crosser_bwd = path.join(save_fig_base_dir, f"selected_events-data-1e20-crosser_muons_bwd/chunk{args.chunk_idx}")
+save_fig_dir = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20/chunk{args.chunk_idx}")
+save_fig_dir_perTPC = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-perTPC/chunk{args.chunk_idx}")
+save_fig_dir_TPC1 = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-TPC1/chunk{args.chunk_idx}")
+save_fig_dir_TPC2 = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-TPC2/chunk{args.chunk_idx}")
+save_fig_dir_fwd = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-fwd_muons/chunk{args.chunk_idx}")
+save_fig_dir_bwd = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-bwd_muons/chunk{args.chunk_idx}")
+save_fig_dir_crosser_fwd = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-crosser_muons_fwd/chunk{args.chunk_idx}")
+save_fig_dir_crosser_bwd = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-crosser_muons_bwd/chunk{args.chunk_idx}")
 
 if save_fig:
     if not path.exists(save_fig_dir):
@@ -144,16 +144,25 @@ dirt_evt_df   = dfs["dirt"]
 dirt_hdr_df   = dfs["dirt_hdr"]
 # pot_label     = dfs["pot_label"]
 
-mc_evt_df[('mu', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_evt_df['mu', 'pfp', 'trk', 'dir', 'x', '', ''], mc_evt_df['mu', 'pfp', 'trk', 'dir', 'y', '', '']))
-mc_evt_df[('p', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_evt_df['p', 'pfp', 'trk', 'dir', 'x', '', ''], mc_evt_df['p', 'pfp', 'trk', 'dir', 'y', '', '']))
 
-data_evt_df_['mu', 'pfp', 'trk', 'phi', '', '', ''] = np.degrees(np.arctan2(data_evt_df_['mu', 'pfp', 'trk', 'dir', 'x', '', ''], data_evt_df_['mu', 'pfp', 'trk', 'dir', 'y', '', '']))
-data_evt_df_['p', 'pfp', 'trk', 'phi', '', '', ''] = np.degrees(np.arctan2(data_evt_df_['p', 'pfp', 'trk', 'dir', 'x', '', ''], data_evt_df_['p', 'pfp', 'trk', 'dir', 'y', '', '']))
+from pyanalib.split_df_helpers_new import *
+df_dir = "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_05_164044__sel_2prong-data-BNB_cosmics"
+keys2load_data = ['hdr', 'evt']
+df_data = dfs_from_dir(search_dir=df_dir, filename_str="sel_2prong-data-BNB_cosmics", keys2load=keys2load_data, n_max_concat=999)
+data_evt_df_ = df_data['evt']
+data_hdr_df_ = df_data['hdr']
 
-intime_evt_df[('mu', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(intime_evt_df['mu', 'pfp', 'trk', 'dir', 'x', '', ''], intime_evt_df['mu', 'pfp', 'trk', 'dir', 'y', '', '']))
-intime_evt_df[('p', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(intime_evt_df['p', 'pfp', 'trk', 'dir', 'x', '', ''], intime_evt_df['p', 'pfp', 'trk', 'dir', 'y', '', '']))
 
-# dirt_evt_df[('mu', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(dirt_evt_df['mu', 'pfp', 'trk', 'dir', 'x', '', ''], dirt_evt_df['mu', 'pfp', 'trk', 'dir', 'y', '', '']))
+mc_evt_df[('trk1', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_evt_df['trk1', 'pfp', 'trk', 'dir', 'x', '', ''], mc_evt_df['trk1', 'pfp', 'trk', 'dir', 'y', '', '']))
+mc_evt_df[('trk2', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_evt_df['trk2', 'pfp', 'trk', 'dir', 'x', '', ''], mc_evt_df['trk2', 'pfp', 'trk', 'dir', 'y', '', '']))
+
+data_evt_df_['trk1', 'pfp', 'trk', 'phi', '', '', ''] = np.degrees(np.arctan2(data_evt_df_['trk1', 'pfp', 'trk', 'dir', 'x', '', ''], data_evt_df_['trk1', 'pfp', 'trk', 'dir', 'y', '', '']))
+data_evt_df_['trk2', 'pfp', 'trk', 'phi', '', '', ''] = np.degrees(np.arctan2(data_evt_df_['trk2', 'pfp', 'trk', 'dir', 'x', '', ''], data_evt_df_['trk2', 'pfp', 'trk', 'dir', 'y', '', '']))
+
+intime_evt_df[('trk1', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(intime_evt_df['trk1', 'pfp', 'trk', 'dir', 'x', '', ''], intime_evt_df['trk1', 'pfp', 'trk', 'dir', 'y', '', '']))
+intime_evt_df[('trk2', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(intime_evt_df['trk2', 'pfp', 'trk', 'dir', 'x', '', ''], intime_evt_df['trk2', 'pfp', 'trk', 'dir', 'y', '', '']))
+
+# dirt_evt_df[('trk1', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(dirt_evt_df['trk1', 'pfp', 'trk', 'dir', 'x', '', ''], dirt_evt_df['trk1', 'pfp', 'trk', 'dir', 'y', '', '']))
 # dirt_evt_df[('p', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(dirt_evt_df['p', 'pfp', 'trk', 'dir', 'x', '', ''], dirt_evt_df['p', 'pfp', 'trk', 'dir', 'y', '', '']))
 
 # TODO: for the integrated plot to work
@@ -389,7 +398,7 @@ var_configs = [
     # VariableConfig.muon_direction(),
     # VariableConfig.proton_momentum(),
     # VariableConfig.proton_direction(),
-    VariableConfig.tki_del_Tp(),
+    #VariableConfig.tki_del_Tp(),
     # VariableConfig.tki_del_Tp_x(),
     # VariableConfig.tki_del_Tp_y(),
     # VariableConfig.tki_del_p(),

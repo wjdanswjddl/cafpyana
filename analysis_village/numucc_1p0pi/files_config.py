@@ -128,7 +128,8 @@ def get_ana_dfs(option="", syst_tag=""):
 
         ## -- Data
         # data_file = path.join(file_dir, "data", "BNB", "_Fixed_mup.df")
-        data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/Gen1_mup.df"
+        # data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/Gen1_mup.df"
+        data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/Gen1_2prong_wcandidates.df"
         data_dfs = load_dfs(data_file, 
                             ['evt', 'hdr'], #, 'bnbpot'], 
                             n_max_concat=n_max_concat)
