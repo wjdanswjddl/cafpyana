@@ -71,7 +71,11 @@ def dfs_from_dir(
         # print_keys(mc_file)
         mc_n_split = get_n_split(mc_file)
         # print(f"Reading file {mc_file}, mc_n_split: {mc_n_split}")
-        mc_dfs = load_dfs(mc_file, keys2load, n_max_concat=n_max_concat)
+        try:
+            mc_dfs = load_dfs(mc_file, keys2load, n_max_concat=n_max_concat)
+        except Exception as e:
+            print(f"Error loading file {mc_file}: {e}")
+            continue
 
         # Build a dense remapping of this file's ntuple values to avoid overflow.
         # Using max()+1 as the bump causes the offset to grow with the magnitude of
