@@ -1,5 +1,5 @@
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_all-mc-BNB_cosmics -ngrid 5000
-python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 2000
+python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/Ar23+/ar23p_respin-xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 1000
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/nrowe/cafpyana/new_joseph.list -o sel_all-mc-BNB_cosmics-josephsim -ngrid 1000
 
 

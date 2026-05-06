@@ -92,7 +92,7 @@ def make_pandora_evtdf_wgts(f, include_weights=True, multisim_nuniv=1000, wgt_ty
 
 def make_pandora_evtdf_2prong_wgts(f, sel_level="2prong", include_weights=True, multisim_nuniv=100, wgt_types=["bnb","genie","g4"], slim=True, 
                        trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=None,
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 

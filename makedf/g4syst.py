@@ -16,6 +16,5 @@ def g4syst(f, nuind, multisim_nuniv=100, slim=False):
     if slim:  # keep only the multiplied "g4.univ_" columns
         g4_cols = [c for c in g4wgtdf.columns if c[0] == "G4"]
         g4wgtdf = g4wgtdf[g4_cols]
-        
     return g4wgtdf
 
