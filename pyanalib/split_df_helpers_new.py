@@ -73,7 +73,20 @@ def dfs_from_dir(
         # print(f"Reading file {mc_file}, mc_n_split: {mc_n_split}")
         mc_dfs = load_dfs(mc_file, keys2load, n_max_concat=n_max_concat)
 
-        # Make __ntuple unique by offsetting first level index (if exists)
+        # Build a dense remapping of this file's ntuple values to avoid overflow.
+        # Using max()+1 as the bump causes the offset to grow with the magnitude of
+        # the raw indices; remapping to a contiguous range keeps growth proportional
+        # to the actual number of unique ntuples instead.
+        ref_df = mc_dfs[keys2load[0]]
+        if isinstance(ref_df.index, pd.MultiIndex):
+            raw_ntuple_vals = ref_df.index.get_level_values(0)
+        else:
+            raw_ntuple_vals = ref_df.index
+        unique_ntuples = np.array(sorted(raw_ntuple_vals.unique()))
+        ntuple_remap = {old: np.int64(ntuple_offset + i) for i, old in enumerate(unique_ntuples)}
+        n_unique = np.int64(len(unique_ntuples))
+
+        # Make __ntuple unique by remapping first level index (if exists)
         for df_key in keys2load:
             df = mc_dfs[df_key]
             if isinstance(df.index, pd.MultiIndex):
@@ -83,26 +96,20 @@ def dfs_from_dir(
                     idx_loc = names.index("__ntuple")
                 else:
                     idx_loc = 0
-                # Add offset
                 new_tuples = []
                 for tup in df.index:
                     tup = list(tup)
-                    tup[idx_loc] = tup[idx_loc] + ntuple_offset
+                    tup[idx_loc] = ntuple_remap[tup[idx_loc]]
                     new_tuples.append(tuple(tup))
                 df.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
             else:
-                # If single index, and it's __ntuple
                 if df.index.name == "__ntuple":
-                    df.index = df.index + ntuple_offset
+                    df.index = df.index.map(ntuple_remap)
 
             df_lists[df_key].append(df)
 
-        # bump index for next file
-        if isinstance(df.index, pd.MultiIndex):
-            ntuple_vals = df.index.get_level_values(0)
-        else:
-            ntuple_vals = df.index
-        ntuple_offset += ntuple_vals.max() + 1
+        # advance offset by the number of unique ntuples in this file
+        ntuple_offset += n_unique
 
     concat_dfs = {k: pd.concat(df_lists[k], axis=0, sort=False) for k in df_lists.keys()}
     return concat_dfs

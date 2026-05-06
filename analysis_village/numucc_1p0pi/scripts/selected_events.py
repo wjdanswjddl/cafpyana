@@ -90,14 +90,14 @@ def get_syst_unc(var_config):
 save_fig = True
 
 today_str = datetime.now().strftime("%Y%m%d")
-save_fig_dir = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20/chunk{args.chunk_idx}")
-save_fig_dir_perTPC = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-perTPC/chunk{args.chunk_idx}")
-save_fig_dir_TPC1 = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-TPC1/chunk{args.chunk_idx}")
-save_fig_dir_TPC2 = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-TPC2/chunk{args.chunk_idx}")
-save_fig_dir_fwd = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-fwd_muons/chunk{args.chunk_idx}")
-save_fig_dir_bwd = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-bwd_muons/chunk{args.chunk_idx}")
-save_fig_dir_crosser_fwd = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-crosser_muons_fwd/chunk{args.chunk_idx}")
-save_fig_dir_crosser_bwd = path.join(save_fig_base_dir, f"selected_events-data-2prong_wcandidates-1e20-crosser_muons_bwd/chunk{args.chunk_idx}")
+save_fig_dir = path.join(save_fig_base_dir, f"selected_events-data-2prong-1e20/chunk{args.chunk_idx}")
+save_fig_dir_perTPC = path.join(save_fig_base_dir, f"selected_events-data-2prong-1e20-perTPC/chunk{args.chunk_idx}")
+save_fig_dir_TPC1 = path.join(save_fig_base_dir, f"selected_events-data-2prong-1e20-TPC1/chunk{args.chunk_idx}")
+save_fig_dir_TPC2 = path.join(save_fig_base_dir, f"selected_events-data-2prong-1e20-TPC2/chunk{args.chunk_idx}")
+save_fig_dir_fwd = path.join(save_fig_base_dir, f"selected_events-data-2prong-1e20-fwd_muons/chunk{args.chunk_idx}")
+save_fig_dir_bwd = path.join(save_fig_base_dir, f"selected_events-data-2prong-1e20-bwd_muons/chunk{args.chunk_idx}")
+save_fig_dir_crosser_fwd = path.join(save_fig_base_dir, f"selected_events-data-2prong-1e20-crosser_muons_fwd/chunk{args.chunk_idx}")
+save_fig_dir_crosser_bwd = path.join(save_fig_base_dir, f"selected_events-data-2prong-1e20-crosser_muons_bwd/chunk{args.chunk_idx}")
 
 if save_fig:
     if not path.exists(save_fig_dir):
@@ -132,25 +132,37 @@ if save_fig:
         makedirs(save_fig_dir_TPC2)
     print("saving plots in ", save_fig_dir_TPC2)
 
-dfs = get_ana_dfs(option="selected_events")
-
-mc_evt_df     = dfs["mc"]
-mc_hdr_df     = dfs["mc_hdr"]
-data_evt_df_   = dfs["data"]
-data_hdr_df_   = dfs["data_hdr"]
-intime_evt_df = dfs["intime"]
-intime_hdr_df = dfs["intime_hdr"]
-dirt_evt_df   = dfs["dirt"]
-dirt_hdr_df   = dfs["dirt_hdr"]
+# dfs = get_ana_dfs(option="selected_events")
+# mc_evt_df     = dfs["mc"]
+# mc_hdr_df     = dfs["mc_hdr"]
+# data_evt_df_   = dfs["data"]
+# data_hdr_df_   = dfs["data_hdr"]
+# intime_evt_df = dfs["intime"]
+# intime_hdr_df = dfs["intime_hdr"]
+# dirt_evt_df   = dfs["dirt"]
+# dirt_hdr_df   = dfs["dirt_hdr"]
 # pot_label     = dfs["pot_label"]
 
 
 from pyanalib.split_df_helpers_new import *
+
 df_dir = "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_05_164044__sel_2prong-data-BNB_cosmics"
 keys2load_data = ['hdr', 'evt']
 df_data = dfs_from_dir(search_dir=df_dir, filename_str="sel_2prong-data-BNB_cosmics", keys2load=keys2load_data, n_max_concat=999)
 data_evt_df_ = df_data['evt']
 data_hdr_df_ = df_data['hdr']
+
+df_dir = "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_05_193232__sel_2prong-mc-Intime"
+keys2load_data = ['hdr', 'evt']
+df_data = dfs_from_dir(search_dir=df_dir, filename_str="sel_2prong-mc-Intime", keys2load=keys2load_data, n_max_concat=999)
+intime_evt_df = df_data['evt']
+intime_hdr_df = df_data['hdr']
+
+df_dir = "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_05_192956__sel_2prong-mc-BNB_cosmics"
+keys2load_data = ['hdr', 'evt']
+df_data = dfs_from_dir(search_dir=df_dir, filename_str="sel_2prong-mc-BNB_cosmics", keys2load=keys2load_data, n_max_concat=999)
+mc_evt_df = df_data['evt']
+mc_hdr_df = df_data['hdr']
 
 
 mc_evt_df[('trk1', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_evt_df['trk1', 'pfp', 'trk', 'dir', 'x', '', ''], mc_evt_df['trk1', 'pfp', 'trk', 'dir', 'y', '', '']))
@@ -203,6 +215,8 @@ mc_evt_df["pot_weight"] = mc_pot_scale * np.ones(len(mc_evt_df))
 
 intime_gates = intime_hdr_df[intime_hdr_df['first_in_subrun'] == 1]['noffbeambnb'].sum()
 f = 0.0753
+print("DATA GATES: ", data_gates)
+print("INTIME GATES: ", intime_gates)
 scale_intime_to_lightdata = (1-f)*data_gates/intime_gates
 print("intime data scale: {:.2f}".format(scale_intime_to_lightdata))
 intime_evt_df["gates_weight"] = scale_intime_to_lightdata * np.ones(len(intime_evt_df))
@@ -211,8 +225,8 @@ intime_evt_df["pot_weight"] = scale_intime_to_lightdata * np.ones(len(intime_evt
 
 # ==== cuts ====
 def perTPC_cut(df):
-    in_TPC1_cut = InFV(df.slc.vertex, det="SBND_TPC1", incathode=0) & InFV(df.mu.pfp.trk.end, det="SBND_TPC1", incathode=0) & InFV(df.p.pfp.trk.end, det="SBND_TPC1", incathode=0)
-    in_TPC2_cut = InFV(df.slc.vertex, det="SBND_TPC2", incathode=0) & InFV(df.mu.pfp.trk.end, det="SBND_TPC2", incathode=0) & InFV(df.p.pfp.trk.end, det="SBND_TPC2", incathode=0)
+    in_TPC1_cut = InFV(df.slc.vertex, det="SBND_TPC1", incathode=0) & InFV(df["trk1"].pfp.trk.end, det="SBND_TPC1", incathode=0) & InFV(df["trk2"].pfp.trk.end, det="SBND_TPC1", incathode=0)
+    in_TPC2_cut = InFV(df.slc.vertex, det="SBND_TPC2", incathode=0) & InFV(df["trk1"].pfp.trk.end, det="SBND_TPC2", incathode=0) & InFV(df["trk2"].pfp.trk.end, det="SBND_TPC2", incathode=0)
     perTPC_cut = in_TPC1_cut | in_TPC2_cut
     return perTPC_cut
 
@@ -239,7 +253,7 @@ intime_evt_df_TPC2 = intime_evt_df[inTPC2_cut(intime_evt_df)]
 
 
 def fwd_muons_cut(df):
-    cut = df.mu.pfp.trk.dir.z > 0
+    cut = df["trk1"].pfp.trk.dir.z > 0
     return cut
 
 mc_evt_df_fwd_muons = mc_evt_df[fwd_muons_cut(mc_evt_df)]
@@ -247,7 +261,7 @@ data_evt_df_fwd_muons = data_evt_df[fwd_muons_cut(data_evt_df)]
 intime_evt_df_fwd_muons = intime_evt_df[fwd_muons_cut(intime_evt_df)]
 
 def bwd_muons_cut(df):
-    cut = df.mu.pfp.trk.dir.z < 0
+    cut = df["trk1"].pfp.trk.dir.z < 0
     return cut
 
 mc_evt_df_bwd_muons = mc_evt_df[bwd_muons_cut(mc_evt_df)]
@@ -255,7 +269,7 @@ data_evt_df_bwd_muons = data_evt_df[bwd_muons_cut(data_evt_df)]
 intime_evt_df_bwd_muons = intime_evt_df[bwd_muons_cut(intime_evt_df)]
 
 def crosser_muons_cut(df):
-    cut = df.mu.pfp.trk.end.x * df.p.pfp.trk.start.x < 0
+    cut = df["trk1"].pfp.trk.end.x * df["trk1"].pfp.trk.start.x < 0
     return cut
 
 mc_evt_df_crosser_muons_fwd = mc_evt_df[crosser_muons_cut(mc_evt_df) & fwd_muons_cut(mc_evt_df)]
@@ -485,10 +499,12 @@ for var_config in var_configs:
 # more vars
 
 var_configs = [
-    VariableConfig.muon_direction_phi(),
-    VariableConfig.proton_direction_phi(),
+    # VariableConfig.muon_direction_phi(),
+    # VariableConfig.proton_direction_phi(),
+    VariableConfig.trk1_direction_phi(),
+    VariableConfig.trk2_direction_phi(),
     # VariableConfig.vertex_x(),
-    VariableConfig.muon_end_x(),
+    # VariableConfig.muon_end_x(),
     # VariableConfig.muon_direction_x(),
     # VariableConfig.muon_direction_y(),
     # VariableConfig.proton_direction_x(),

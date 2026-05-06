@@ -457,6 +457,36 @@ class VariableConfig:
             xsec_label=r"$\frac{d\sigma}{d\phi_{\\p}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
         )
 
+    @classmethod
+    def trk1_direction_phi(cls):
+        return cls(
+            var_save_name="trk1-dir_phi",
+            var_plot_name="$\\phi$",
+            var_labels=[r"$\mathrm{\phi}$ (deg)", 
+            r"$\mathrm{\phi^{reco.}}$ (deg)", 
+            r"$\mathrm{\phi^{true}}$ (deg)"],
+            bins=np.linspace(-180, 180, 21),
+            var_evt_reco_col=('trk1', 'pfp', 'trk', 'phi', '', '', ''),
+            var_evt_truth_col=('trk1', 'pfp', 'trk', 'truth', 'p', 'phi', ''),
+            var_nu_col=('mc', 'trk1', 'phi', '', '', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\phi_{\\mu}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
+        )
+
+    @classmethod
+    def trk2_direction_phi(cls):
+        return cls(
+            var_save_name="trk2-dir_phi",
+            var_plot_name="$\\phi$",
+            var_labels=[r"$\mathrm{\phi}$ (deg)", 
+            r"$\mathrm{\phi^{reco.}}$ (deg)", 
+            r"$\mathrm{\phi^{true}}$ (deg)"],
+            bins=np.linspace(-180, 180, 21),
+            var_evt_reco_col=('trk2', 'pfp', 'trk', 'phi', '', '', ''),
+            var_evt_truth_col=('trk2', 'pfp', 'trk', 'truth', 'p', 'phi', ''),
+            var_nu_col=('mc', 'trk2', 'phi', '', '', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\phi_{\\mu}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
+        )
+
     # ==== additional variables for event selection ====
     @classmethod
     def nu_score(cls):
