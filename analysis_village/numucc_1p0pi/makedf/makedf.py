@@ -146,89 +146,192 @@ def make_mcnudf_wgts_genie(f, include_weights=True, multisim_nuniv=1000, wgt_typ
     df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim)
     return df
 
-# dfs that save all univs for selected knobs
-def make_pandora_evtdf_mup_wgts_CCQE(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=qe_genie_systematics, **trkArgs)
-    return df
+# --- GENIE knob groups: generic makers + registry-driven configs (see build_genie_knobgroup_config) ---
 
-def make_mcnudf_CCQE(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
-    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=qe_genie_systematics)
-    return df
-
-
-def make_pandora_evtdf_mup_wgts_ar23p(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=ar23p_genie_systematics, **trkArgs)
-    return df
-
-def make_mcnudf_ar23p(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
-    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=ar23p_genie_systematics)
-    return df
-
-
-def make_pandora_evtdf_mup_wgts_zexp(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=zexp_genie_systematics, **trkArgs)
-    return df
-
-def make_mcnudf_zexp(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
-    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=zexp_genie_systematics)
-    return df
+def make_pandora_evtdf_mup_wgts_genie_group(
+    f,
+    sel_level="mup",
+    include_weights=True,
+    multisim_nuniv=200,
+    wgt_types=None,
+    slim=False,
+    trkScoreCut=False,
+    trkDistCut=100.0,
+    cutClearCosmic=True,
+    genie_systematics=None,
+    **trkArgs,
+):
+    if wgt_types is None:
+        wgt_types = ["genie"]
+    return make_pandora_evtdf(
+        f,
+        sel_level=sel_level,
+        include_weights=include_weights,
+        multisim_nuniv=multisim_nuniv,
+        wgt_types=wgt_types,
+        slim=slim,
+        trkScoreCut=trkScoreCut,
+        trkDistCut=trkDistCut,
+        cutClearCosmic=cutClearCosmic,
+        genie_systematics=genie_systematics,
+        **trkArgs,
+    )
 
 
-def make_pandora_evtdf_mup_wgts_MEC(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=mec_genie_systematics, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=genie_systematics, **trkArgs)
-    return df
+def make_mcnudf_genie_group(
+    f,
+    include_weights=True,
+    multisim_nuniv=100,
+    genie_multisim_nuniv=100,
+    wgt_types=None,
+    slim=False,
+    genie_systematics=None,
+):
+    if wgt_types is None:
+        wgt_types = ["genie"]
+    return make_mcnudf(
+        f,
+        include_weights=include_weights,
+        multisim_nuniv=multisim_nuniv,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        wgt_types=wgt_types,
+        slim=slim,
+        genie_systematics=genie_systematics,
+    )
 
-def make_mcnudf_MEC(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=mec_genie_systematics):
-    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=genie_systematics)
-    return df
 
-def make_pandora_evtdf_mup_wgts_RES(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=res_genie_systematics, **trkArgs)
-    return df
+def build_genie_knobgroup_config(group_filter=None):
+    """
+    Build DFS / ARGS / NAMES for GENIE multisim grouped by physics knob set.
 
-def make_mcnudf_RES(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
-    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=res_genie_systematics)
-    return df
+    group_filter: None  -> all groups in GENIE_KNOB_GROUPS (HDF keys evt_<Name>, mcnu_<Name>, ...)
+                  str   -> single group (HDF keys evt, mcnu, hdr for backward compatibility)
 
-def make_pandora_evtdf_mup_wgts_nonRES(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=nonres_genie_systematics, **trkArgs)
-    return df
+    Knob lists live in makedf.geniesyst (GENIE_KNOB_GROUPS).
+    """
+    from makedf.geniesyst import GENIE_KNOB_GROUPS
 
-def make_mcnudf_nonRES(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
-    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=nonres_genie_systematics)
-    return df
+    if group_filter is not None:
+        if group_filter not in GENIE_KNOB_GROUPS:
+            raise ValueError(
+                "Unknown GENIE knob group %r; valid keys: %s"
+                % (group_filter, tuple(GENIE_KNOB_GROUPS))
+            )
+        groups = {group_filter: GENIE_KNOB_GROUPS[group_filter]}
+    else:
+        groups = GENIE_KNOB_GROUPS
 
-def make_pandora_evtdf_mup_wgts_DIS(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=dis_genie_systematics, **trkArgs)
-    return df
+    single = len(groups) == 1
+    evt_kw = dict(
+        include_weights=True,
+        multisim_nuniv=200,
+        wgt_types=["genie"],
+        slim=False,
+    )
+    mcn_kw = dict(
+        include_weights=True,
+        multisim_nuniv=100,
+        genie_multisim_nuniv=100,
+        wgt_types=["genie"],
+        slim=False,
+    )
 
-def make_mcnudf_DIS(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
-    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=dis_genie_systematics)
-    return df
+    DFS, ARGS, NAMES = [], [], []
+    for name, syst in groups.items():
+        DFS.append(make_pandora_evtdf_mup_wgts_genie_group)
+        ARGS.append({**evt_kw, "genie_systematics": syst})
+        NAMES.append("evt" if single else "evt_%s" % name)
 
-def make_pandora_evtdf_mup_wgts_Other(f, sel_level="mup", include_weights=True, multisim_nuniv=200, wgt_types=["genie"], slim=False, 
-                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, genie_systematics=None, **trkArgs):
-    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, 
-                            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, genie_systematics=other_genie_systematics, **trkArgs)
-    return df
+        DFS.append(make_mcnudf_genie_group)
+        ARGS.append({**mcn_kw, "genie_systematics": syst})
+        NAMES.append("mcnu" if single else "mcnu_%s" % name)
 
-def make_mcnudf_Other(f, include_weights=True, multisim_nuniv=100, wgt_types=["genie"], slim=False, genie_systematics=None):
-    df = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=other_genie_systematics)
-    return df
+    DFS.append(make_hdrdf)
+    ARGS.append({})
+    NAMES.append("hdr")
+
+    assert len(DFS) == len(ARGS) == len(NAMES)
+    return DFS, ARGS, NAMES
+
+
+def make_pandora_evtdf_mup_wgts_CCQE(f, genie_systematics=None, **kwargs):
+    gs = qe_genie_systematics if genie_systematics is None else genie_systematics
+    return make_pandora_evtdf_mup_wgts_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_mcnudf_CCQE(f, genie_systematics=None, **kwargs):
+    gs = qe_genie_systematics if genie_systematics is None else genie_systematics
+    return make_mcnudf_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_pandora_evtdf_mup_wgts_ar23p(f, genie_systematics=None, **kwargs):
+    gs = ar23p_genie_systematics if genie_systematics is None else genie_systematics
+    return make_pandora_evtdf_mup_wgts_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_mcnudf_ar23p(f, genie_systematics=None, **kwargs):
+    gs = ar23p_genie_systematics if genie_systematics is None else genie_systematics
+    return make_mcnudf_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_pandora_evtdf_mup_wgts_zexp(f, genie_systematics=None, **kwargs):
+    gs = zexp_genie_systematics if genie_systematics is None else genie_systematics
+    return make_pandora_evtdf_mup_wgts_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_mcnudf_zexp(f, genie_systematics=None, **kwargs):
+    gs = zexp_genie_systematics if genie_systematics is None else genie_systematics
+    return make_mcnudf_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_pandora_evtdf_mup_wgts_MEC(f, genie_systematics=None, **kwargs):
+    gs = mec_genie_systematics if genie_systematics is None else genie_systematics
+    return make_pandora_evtdf_mup_wgts_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_mcnudf_MEC(f, genie_systematics=None, **kwargs):
+    gs = mec_genie_systematics if genie_systematics is None else genie_systematics
+    return make_mcnudf_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_pandora_evtdf_mup_wgts_RES(f, genie_systematics=None, **kwargs):
+    gs = res_genie_systematics if genie_systematics is None else genie_systematics
+    return make_pandora_evtdf_mup_wgts_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_mcnudf_RES(f, genie_systematics=None, **kwargs):
+    gs = res_genie_systematics if genie_systematics is None else genie_systematics
+    return make_mcnudf_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_pandora_evtdf_mup_wgts_nonRES(f, genie_systematics=None, **kwargs):
+    gs = nonres_genie_systematics if genie_systematics is None else genie_systematics
+    return make_pandora_evtdf_mup_wgts_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_mcnudf_nonRES(f, genie_systematics=None, **kwargs):
+    gs = nonres_genie_systematics if genie_systematics is None else genie_systematics
+    return make_mcnudf_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_pandora_evtdf_mup_wgts_DIS(f, genie_systematics=None, **kwargs):
+    gs = dis_genie_systematics if genie_systematics is None else genie_systematics
+    return make_pandora_evtdf_mup_wgts_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_mcnudf_DIS(f, genie_systematics=None, **kwargs):
+    gs = dis_genie_systematics if genie_systematics is None else genie_systematics
+    return make_mcnudf_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_pandora_evtdf_mup_wgts_Other(f, genie_systematics=None, **kwargs):
+    gs = other_genie_systematics if genie_systematics is None else genie_systematics
+    return make_pandora_evtdf_mup_wgts_genie_group(f, genie_systematics=gs, **kwargs)
+
+
+def make_mcnudf_Other(f, genie_systematics=None, **kwargs):
+    gs = other_genie_systematics if genie_systematics is None else genie_systematics
+    return make_mcnudf_genie_group(f, genie_systematics=gs, **kwargs)
 
 # ================================================
 

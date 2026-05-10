@@ -128,8 +128,8 @@ def get_ana_dfs(option="", syst_tag=""):
 
         ## -- Data
         # data_file = path.join(file_dir, "data", "BNB", "_Fixed_mup.df")
-        # data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/Gen1_mup.df"
-        data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/Gen1_2prong_wcandidates.df"
+        data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/Gen1_mup.df"
+        # data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/Gen1_2prong_wcandidates.df"
         data_dfs = load_dfs(data_file, 
                             ['evt', 'hdr'], #, 'bnbpot'], 
                             n_max_concat=n_max_concat)
@@ -290,7 +290,7 @@ def get_ana_dfs(option="", syst_tag=""):
             mc_dfs = load_and_concat_mc_dfs(
                 file_dir=file_dir,
                 # file_dir="/pnfs/sbnd/scratch/users/munjung/xsec/2025Spring_v10_06_00_10/MC/BNB_cosmics/all-wgts",
-                chunk_tags=generate_tags("ae")[1:],
+                chunk_tags=generate_tags("ah")[1:],
                 df_tag="-sel_all-wgts",
                 # df_tag="",
                 # chunk_tags=[""],
@@ -333,7 +333,7 @@ def get_ana_dfs(option="", syst_tag=""):
         ## -- low E MC
         dirt_dfs = load_and_concat_mc_dfs(
             file_dir=file_dir,
-            chunk_tags=[t for t in generate_tags("ae") if t != "ah"],
+            chunk_tags=[t for t in generate_tags("ad") if t != "ah"],
             df_tag="_all",
             keys2load=mc_keys2load,
             n_max_concat=n_max_concat,
@@ -374,7 +374,7 @@ def get_ana_dfs(option="", syst_tag=""):
         intime_keys2load = ['hdr', 'evt', 'trk']
         intime_dfs = load_and_concat_mc_dfs(
             file_dir=file_dir,
-            chunk_tags=generate_tags("ac"),
+            chunk_tags=generate_tags("ag"),
             df_tag="_all",
             keys2load=intime_keys2load,
             n_max_concat=n_max_concat,

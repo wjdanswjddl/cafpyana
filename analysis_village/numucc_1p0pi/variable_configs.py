@@ -267,7 +267,7 @@ class VariableConfig:
             var_labels=["Neutrino Vertex X (cm)", 
             "Slice Vertex X (cm)", 
             ""],
-            bins=np.linspace(-200, 200, 21),
+            bins=np.linspace(-190, 190, 21),
             # var_evt_reco_col=('slc', 'vertex', 'x', '', '', '', ''),
             # var_evt_truth_col=('mc', 'position', 'x', '', '', '', ''),
             var_evt_reco_col=('slc', 'vertex', 'x', '', ''),
@@ -284,9 +284,9 @@ class VariableConfig:
             var_labels=["Neutrino Vertex Y (cm)", 
             "Slice Vertex Y (cm)", 
             ""],
-            bins=np.linspace(-200, 200, 21),
-            var_evt_reco_col=('slc', 'vertex', 'y', '', '', '', ''),
-            var_evt_truth_col=('mc', 'position', 'y', '', '', '', ''),
+            bins=np.linspace(-190, 190, 21),
+            var_evt_reco_col=('slc', 'vertex', 'y', '', ''),
+            var_evt_truth_col=('mc', 'position', 'y', '', ''),
             var_nu_col=('mc', 'position', 'y'),
             xsec_label=r"$\frac{d\sigma}{d\mathrm{Vertex X}}$ ($\mathrm{cm}^2$ / cm)"
         )
@@ -299,9 +299,9 @@ class VariableConfig:
             var_labels=["Neutrino Vertex Z (cm)", 
             "Slice Vertex Z (cm)", 
             ""],
-            bins=np.linspace(0, 500, 21),
-            var_evt_reco_col=('slc', 'vertex', 'z', '', '', '', ''),
-            var_evt_truth_col=('mc', 'position', 'z', '', '', '', ''),
+            bins=np.linspace(0, 450, 21),
+            var_evt_reco_col=('slc', 'vertex', 'z', '', ''),
+            var_evt_truth_col=('mc', 'position', 'z', '', ''),
             var_nu_col=('mc', 'position', 'z'),
             xsec_label=r"$\frac{d\sigma}{d\mathrm{Vertex X}}$ ($\mathrm{cm}^2$ / cm)"
         )
@@ -487,6 +487,36 @@ class VariableConfig:
             xsec_label=r"$\frac{d\sigma}{d\phi_{\\mu}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
         )
 
+    @classmethod
+    def trk1_end_x(cls):
+        return cls(
+            var_save_name="trk1-end_x",
+            var_plot_name="x_\mu",
+            var_labels=[r"Track 1 End X (cm)", 
+            r"Track 1 End X (cm)", 
+            r"Track 1 End X (cm)"],
+            bins=np.linspace(-200, 200, 21),
+            var_evt_reco_col=('trk1', 'pfp', 'trk', 'end', 'x', '', ''),
+            var_evt_truth_col=('trk1', 'pfp', 'trk', 'truth', 'p', 'end', 'x'),
+            var_nu_col=('mc', 'trk1', 'end', 'x'),
+            xsec_label=r"$\frac{d\sigma}{dx_{\\trk1}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
+        )
+
+    @classmethod
+    def trk2_end_x(cls):
+        return cls(
+            var_save_name="trk2-end_x",
+            var_plot_name="x_\mu",
+            var_labels=[r"Track 2 End X (cm)", 
+            r"Track 2 End X (cm)", 
+            r"Track 2 End X (cm)"],
+            bins=np.linspace(-200, 200, 21),
+            var_evt_reco_col=('trk2', 'pfp', 'trk', 'end', 'x', '', ''),
+            var_evt_truth_col=('trk2', 'pfp', 'trk', 'truth', 'p', 'end', 'x'),
+            var_nu_col=('mc', 'trk2', 'end', 'x'),
+            xsec_label=r"$\frac{d\sigma}{dx_{\\trk2}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
+        )
+
     # ==== additional variables for event selection ====
     @classmethod
     def nu_score(cls):
@@ -637,6 +667,156 @@ class VariableConfig:
             var_evt_truth_col=('prim', 'pfp', 'trk', 'truth', 'phi', ''),
             var_nu_col=('prim', 'trk', 'phi', '', '', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\phi_{\\mathrm{trk}}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
+        )
+
+    @classmethod
+    def prim_direction_y(cls):
+        return cls(
+            var_save_name="trk_dir_y",
+            var_plot_name="costh y",
+            var_labels=[r"costh y", 
+            r"costh y reco.", 
+            r"costh y true"],
+            bins=np.linspace(-1, 1, 21),
+            var_evt_reco_col=('prim_trk_dir_y', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_dir_y', '', '', '', ''),
+            var_nu_col=('prim_trk_dir_y', '', ''),
+            xsec_label=r"$\frac{d\sigma}{dy_{\\mathrm{trk}}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{cm}}\right)$"
+        )
+
+    @classmethod
+    def prim_start_x(cls):
+        return cls(
+            var_save_name="trk_start_x",
+            var_plot_name="Start X (cm)",
+            var_labels=[r"Track Start X (cm)", 
+            "", 
+            ""],
+            bins=np.linspace(-200, 200, 101),
+            var_evt_reco_col=('prim_trk_start_x', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_start_x', '', '', '', ''),
+            var_nu_col=('prim_trk_start_x', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\mathrm{Track Start X}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{cm}}\right)$"
+        )
+
+    @classmethod
+    def prim_end_x(cls):
+        return cls(
+            var_save_name="trk_end_x",
+            var_plot_name="End X (cm)",
+            var_labels=[r"Track End X (cm)", 
+            "", 
+            ""],
+            bins=np.linspace(-50, 50, 101),
+            var_evt_reco_col=('prim_trk_end_x', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_end_x', '', '', '', ''),
+            var_nu_col=('prim_trk_end_x', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\mathrm{Track End X}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{cm}}\right)$"
+        )
+
+    @classmethod
+    def prim_P_frac_diff(cls):
+        return cls(
+            var_save_name="prim_P_frac_diff",
+            var_plot_name="(mcs P - range P) / range P",
+            var_labels=[r"(mcs P - range P) / range P", 
+            "", 
+            ""],
+            bins=np.linspace(-1, 0.5, 31),
+            var_evt_reco_col=('prim_trk_P_frac_diff', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_P_frac_diff', '', '', '', ''),
+            var_nu_col=('prim_trk_P_frac_diff', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\mathrm{Track End X}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{cm}}\right)$"
+        )
+
+    @classmethod
+    def prim_chi2pid_I0_muon(cls):
+        return cls(
+            var_save_name="prim_chi2pid_I0_muon",
+            var_plot_name="$\\chi^2_{\\mu, I0}$",
+            var_labels=[r"$\mathrm{\chi^2_{\mu, I0}}$", 
+            "", 
+            ""],
+            bins=np.linspace(0, 60, 61),
+            var_evt_reco_col=('prim_trk_chi2pid_I0_muon', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_chi2pid_I0_muon', '', '', '', ''),
+            var_nu_col=('prim_trk_chi2pid_I0_muon', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu, I0}}$ ($\mathrm{cm}^2$)"
+        )
+
+    @classmethod
+    def prim_chi2pid_I0_proton(cls):
+        return cls(
+            var_save_name="prim_chi2pid_I0_proton",
+            var_plot_name="$\\chi^2_{\\p, I0}$",
+            var_labels=[r"$\mathrm{\chi^2_{p, I0}}$", 
+            "", 
+            ""],
+            bins=np.linspace(0, 300, 61),
+            var_evt_reco_col=('prim_trk_chi2pid_I0_proton', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_chi2pid_I0_proton', '', '', '', ''),
+            var_nu_col=('prim_trk_chi2pid_I0_proton', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p, I0}}$ ($\mathrm{cm}^2$)"
+        )
+
+    @classmethod
+    def prim_chi2pid_I1_muon(cls):
+        return cls(
+            var_save_name="prim_chi2pid_I1_muon",
+            var_plot_name="$\\chi^2_{\\mu, I1}$",
+            var_labels=[r"$\mathrm{\chi^2_{\mu, I1}}$", 
+            "", 
+            ""],
+            bins=np.linspace(0, 60, 61),
+            var_evt_reco_col=('prim_trk_chi2pid_I1_muon', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_chi2pid_I1_muon', '', '', '', ''),
+            var_nu_col=('prim_trk_chi2pid_I1_muon', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu, I1}}$ ($\mathrm{cm}^2$)"
+        )
+
+    @classmethod
+    def prim_chi2pid_I1_proton(cls):
+        return cls(
+            var_save_name="prim_chi2pid_I1_proton",
+            var_plot_name="$\\chi^2_{\\p, I1}$",
+            var_labels=[r"$\mathrm{\chi^2_{p, I1}}$", 
+            "", 
+            ""],
+            bins=np.linspace(0, 300, 61),
+            var_evt_reco_col=('prim_trk_chi2pid_I1_proton', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_chi2pid_I1_proton', '', '', '', ''),
+            var_nu_col=('prim_trk_chi2pid_I1_proton', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p, I1}}$ ($\mathrm{cm}^2$)" 
+        )
+
+    @classmethod
+    def prim_chi2pid_I2_muon(cls):
+        return cls(
+            var_save_name="prim_chi2pid_I2_muon",
+            var_plot_name="$\\chi^2_{\\mu, I2}$",
+            var_labels=[r"$\mathrm{\chi^2_{\mu, I2}}$", 
+            "", 
+            ""],
+            bins=np.linspace(0, 60, 61),
+            var_evt_reco_col=('prim_trk_chi2pid_I2_muon', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_chi2pid_I2_muon', '', '', '', ''),
+            var_nu_col=('prim_trk_chi2pid_I2_muon', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu, I2}}$ ($\mathrm{cm}^2$)"
+        )
+
+    @classmethod
+    def prim_chi2pid_I2_proton(cls):
+        return cls(
+            var_save_name="prim_chi2pid_I2_proton",
+            var_plot_name="$\\chi^2_{\\p, I2}$",
+            var_labels=[r"$\mathrm{\chi^2_{p, I2}}$", 
+            "", 
+            ""],
+            bins=np.linspace(0, 300, 61),
+            var_evt_reco_col=('prim_trk_chi2pid_I2_proton', '', '', '', ''),
+            var_evt_truth_col=('prim_trk_chi2pid_I2_proton', '', '', '', ''),
+            var_nu_col=('prim_trk_chi2pid_I2_proton', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p, I2}}$ ($\mathrm{cm}^2$)"
         )
 
     @classmethod

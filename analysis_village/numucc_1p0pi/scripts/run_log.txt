@@ -1,0 +1,449 @@
+Sat May  9 06:58:10 PM CDT 2026
+[run] logging chunk failures to /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/failed_df_files.log
+[run] sample=mc  24 files
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/ab-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.9 MB  VmHWM=    87.9  VmPeak=   596.3
+[chunk] HDF5 n_split=6  using 6 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    96.8 MB  VmHWM=    96.8  VmPeak=   617.1
+[chunk] read_hdf split 1/6 …
+[chunk] read_hdf split 1/6 done
+[chunk] split 1/6  evt=292652  trk=1559094  hdr=32824
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1670.0 MB  VmHWM=  3168.2  VmPeak=  3688.8
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1670.0 MB  VmHWM=  3168.2  VmPeak=  3688.8
+[chunk][mem] split 1: after runner.run            |##--------------------------| RSS=  1757.6 MB  VmHWM=  3168.2  VmPeak=  3688.8
+[chunk] read_hdf split 2/6 …
+[chunk] read_hdf split 2/6 done
+[chunk] split 2/6  evt=292657  trk=1556780  hdr=32756
+[chunk][mem] split 2: after read_hdf              |##--------------------------| RSS=  1784.0 MB  VmHWM=  3346.4  VmPeak=  3865.3
+[chunk][mem] split 2: after weights               |##--------------------------| RSS=  1784.0 MB  VmHWM=  3346.4  VmPeak=  3865.3
+[chunk][mem] split 2: after runner.run            |##--------------------------| RSS=  1813.3 MB  VmHWM=  3346.4  VmPeak=  3865.3
+[chunk] read_hdf split 3/6 …
+[chunk] read_hdf split 3/6 done
+[chunk] split 3/6  evt=292676  trk=1556140  hdr=32838
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1775.5 MB  VmHWM=  3365.9  VmPeak=  3884.8
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1775.5 MB  VmHWM=  3365.9  VmPeak=  3884.8
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1785.8 MB  VmHWM=  3365.9  VmPeak=  3884.8
+[chunk] read_hdf split 4/6 …
+[chunk] read_hdf split 4/6 done
+[chunk] split 4/6  evt=292730  trk=1551230  hdr=32773
+[chunk][mem] split 4: after read_hdf              |##--------------------------| RSS=  1785.3 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk][mem] split 4: after weights               |##--------------------------| RSS=  1785.3 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk][mem] split 4: after runner.run            |##--------------------------| RSS=  1812.2 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk] read_hdf split 5/6 …
+[chunk] read_hdf split 5/6 done
+[chunk] split 5/6  evt=292671  trk=1554312  hdr=32860
+[chunk][mem] split 5: after read_hdf              |##--------------------------| RSS=  1782.4 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk][mem] split 5: after weights               |##--------------------------| RSS=  1782.4 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk][mem] split 5: after runner.run            |##--------------------------| RSS=  1783.6 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk] read_hdf split 6/6 …
+[chunk] read_hdf split 6/6 done
+[chunk] split 6/6  evt=71386  trk=380444  hdr=7962
+[chunk][mem] split 6: after read_hdf              |#---------------------------| RSS=   672.1 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk][mem] split 6: after weights               |#---------------------------| RSS=   672.1 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk][mem] split 6: after runner.run            |#---------------------------| RSS=   672.5 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ab-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   288.0 MB  VmHWM=  3387.9  VmPeak=  3907.7
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ab-sel_all-wgts.pkl  total_evt=1534772  meta POT/gates: pot=1.523e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/ac-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.8 MB  VmHWM=    87.8  VmPeak=   596.7
+[chunk] HDF5 n_split=6  using 6 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    96.7 MB  VmHWM=    96.7  VmPeak=   617.1
+[chunk] read_hdf split 1/6 …
+[chunk] read_hdf split 1/6 done
+[chunk] split 1/6  evt=292708  trk=1558477  hdr=32670
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1669.5 MB  VmHWM=  3168.7  VmPeak=  3689.3
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1669.6 MB  VmHWM=  3168.7  VmPeak=  3689.3
+[chunk][mem] split 1: after runner.run            |##--------------------------| RSS=  1784.5 MB  VmHWM=  3168.7  VmPeak=  3689.3
+[chunk] read_hdf split 2/6 …
+[chunk] read_hdf split 2/6 done
+[chunk] split 2/6  evt=292674  trk=1555610  hdr=32671
+[chunk][mem] split 2: after read_hdf              |##--------------------------| RSS=  1803.2 MB  VmHWM=  3373.1  VmPeak=  3892.4
+[chunk][mem] split 2: after weights               |##--------------------------| RSS=  1803.2 MB  VmHWM=  3373.1  VmPeak=  3892.4
+[chunk][mem] split 2: after runner.run            |##--------------------------| RSS=  1815.4 MB  VmHWM=  3373.1  VmPeak=  3892.4
+[chunk] read_hdf split 3/6 …
+[chunk] read_hdf split 3/6 done
+[chunk] split 3/6  evt=292637  trk=1556304  hdr=32734
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1859.6 MB  VmHWM=  3416.4  VmPeak=  3935.8
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1859.6 MB  VmHWM=  3416.4  VmPeak=  3935.8
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1859.9 MB  VmHWM=  3416.4  VmPeak=  3935.8
+[chunk] read_hdf split 4/6 …
+[chunk] read_hdf split 4/6 done
+[chunk] split 4/6  evt=292738  trk=1556508  hdr=32939
+[chunk][mem] split 4: after read_hdf              |##--------------------------| RSS=  1826.4 MB  VmHWM=  3416.4  VmPeak=  3935.8
+[chunk][mem] split 4: after weights               |##--------------------------| RSS=  1826.4 MB  VmHWM=  3416.4  VmPeak=  3935.8
+[chunk][mem] split 4: after runner.run            |##--------------------------| RSS=  1826.5 MB  VmHWM=  3416.4  VmPeak=  3935.8
+[chunk] read_hdf split 5/6 …
+[chunk] read_hdf split 5/6 done
+[chunk] split 5/6  evt=292658  trk=1553169  hdr=32826
+[chunk][mem] split 5: after read_hdf              |##--------------------------| RSS=  1825.3 MB  VmHWM=  3427.9  VmPeak=  3947.4
+[chunk][mem] split 5: after weights               |##--------------------------| RSS=  1825.3 MB  VmHWM=  3427.9  VmPeak=  3947.4
+[chunk][mem] split 5: after runner.run            |##--------------------------| RSS=  1808.5 MB  VmHWM=  3427.9  VmPeak=  3947.4
+[chunk] read_hdf split 6/6 …
+[chunk] read_hdf split 6/6 done
+[chunk] split 6/6  evt=76509  trk=407370  hdr=8560
+[chunk][mem] split 6: after read_hdf              |#---------------------------| RSS=   721.0 MB  VmHWM=  3427.9  VmPeak=  3947.4
+[chunk][mem] split 6: after weights               |#---------------------------| RSS=   721.0 MB  VmHWM=  3427.9  VmPeak=  3947.4
+[chunk][mem] split 6: after runner.run            |#---------------------------| RSS=   721.0 MB  VmHWM=  3427.9  VmPeak=  3947.4
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ac-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   367.1 MB  VmHWM=  3427.9  VmPeak=  3947.4
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ac-sel_all-wgts.pkl  total_evt=1539924  meta POT/gates: pot=1.520e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/ad-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.9 MB  VmHWM=    87.9  VmPeak=   596.3
+[chunk] HDF5 n_split=6  using 6 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    96.8 MB  VmHWM=    96.8  VmPeak=   617.1
+[chunk] read_hdf split 1/6 …
+[chunk] read_hdf split 1/6 done
+[chunk] split 1/6  evt=292614  trk=1555186  hdr=32826
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1669.0 MB  VmHWM=  3167.5  VmPeak=  3688.4
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1669.0 MB  VmHWM=  3167.5  VmPeak=  3688.4
+[chunk][mem] split 1: after runner.run            |##--------------------------| RSS=  1775.1 MB  VmHWM=  3167.5  VmPeak=  3688.4
+[chunk] read_hdf split 2/6 …
+[chunk] read_hdf split 2/6 done
+[chunk] split 2/6  evt=292610  trk=1550092  hdr=32861
+[chunk][mem] split 2: after read_hdf              |##--------------------------| RSS=  1801.6 MB  VmHWM=  3364.3  VmPeak=  3883.7
+[chunk][mem] split 2: after weights               |##--------------------------| RSS=  1801.6 MB  VmHWM=  3364.3  VmPeak=  3883.7
+[chunk][mem] split 2: after runner.run            |##--------------------------| RSS=  1836.9 MB  VmHWM=  3364.3  VmPeak=  3883.7
+[chunk] read_hdf split 3/6 …
+[chunk] read_hdf split 3/6 done
+[chunk] split 3/6  evt=292679  trk=1556791  hdr=32880
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1820.5 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1820.5 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1819.9 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk] read_hdf split 4/6 …
+[chunk] read_hdf split 4/6 done
+[chunk] split 4/6  evt=292645  trk=1553412  hdr=32774
+[chunk][mem] split 4: after read_hdf              |##--------------------------| RSS=  1770.3 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk][mem] split 4: after weights               |##--------------------------| RSS=  1770.3 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk][mem] split 4: after runner.run            |##--------------------------| RSS=  1796.7 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk] read_hdf split 5/6 …
+[chunk] read_hdf split 5/6 done
+[chunk] split 5/6  evt=292601  trk=1554548  hdr=32892
+[chunk][mem] split 5: after read_hdf              |##--------------------------| RSS=  1767.2 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk][mem] split 5: after weights               |##--------------------------| RSS=  1767.2 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk][mem] split 5: after runner.run            |##--------------------------| RSS=  1812.4 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk] read_hdf split 6/6 …
+[chunk] read_hdf split 6/6 done
+[chunk] split 6/6  evt=75706  trk=403785  hdr=8501
+[chunk][mem] split 6: after read_hdf              |#---------------------------| RSS=   665.1 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk][mem] split 6: after weights               |#---------------------------| RSS=   665.1 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk][mem] split 6: after runner.run            |#---------------------------| RSS=   637.6 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ad-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   287.3 MB  VmHWM=  3384.8  VmPeak=  3904.4
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ad-sel_all-wgts.pkl  total_evt=1538855  meta POT/gates: pot=1.521e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/ae-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.9 MB  VmHWM=    87.9  VmPeak=   596.7
+[chunk] HDF5 n_split=5  using 5 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    95.9 MB  VmHWM=    95.9  VmPeak=   616.3
+[chunk] read_hdf split 1/5 …
+[chunk] read_hdf split 1/5 done
+[chunk] split 1/5  evt=292730  trk=1555854  hdr=32812
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1668.4 MB  VmHWM=  3166.9  VmPeak=  3688.7
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1668.4 MB  VmHWM=  3166.9  VmPeak=  3688.7
+[chunk][mem] split 1: after runner.run            |#---------------------------| RSS=  1710.4 MB  VmHWM=  3166.9  VmPeak=  3688.7
+[chunk] read_hdf split 2/5 …
+[chunk] read_hdf split 2/5 done
+[chunk] split 2/5  evt=292581  trk=1555569  hdr=32834
+[chunk][mem] split 2: after read_hdf              |#---------------------------| RSS=  1742.9 MB  VmHWM=  3297.1  VmPeak=  3818.0
+[chunk][mem] split 2: after weights               |#---------------------------| RSS=  1742.9 MB  VmHWM=  3297.1  VmPeak=  3818.0
+[chunk][mem] split 2: after runner.run            |##--------------------------| RSS=  1792.8 MB  VmHWM=  3297.1  VmPeak=  3818.0
+[chunk] read_hdf split 3/5 …
+[chunk] read_hdf split 3/5 done
+[chunk] split 3/5  evt=292593  trk=1557196  hdr=32865
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1818.3 MB  VmHWM=  3391.8  VmPeak=  3912.9
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1818.3 MB  VmHWM=  3391.8  VmPeak=  3912.9
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1817.7 MB  VmHWM=  3391.8  VmPeak=  3912.9
+[chunk] read_hdf split 4/5 …
+[chunk] read_hdf split 4/5 done
+[chunk] split 4/5  evt=292616  trk=1556059  hdr=32860
+[chunk][mem] split 4: after read_hdf              |##--------------------------| RSS=  1817.4 MB  VmHWM=  3416.5  VmPeak=  3938.2
+[chunk][mem] split 4: after weights               |##--------------------------| RSS=  1817.4 MB  VmHWM=  3416.5  VmPeak=  3938.2
+[chunk][mem] split 4: after runner.run            |##--------------------------| RSS=  1804.1 MB  VmHWM=  3416.5  VmPeak=  3938.2
+[chunk] read_hdf split 5/5 …
+[chunk] read_hdf split 5/5 done
+[chunk] split 5/5  evt=217586  trk=1158755  hdr=24422
+[chunk][mem] split 5: after read_hdf              |#---------------------------| RSS=  1434.8 MB  VmHWM=  3416.5  VmPeak=  3938.2
+[chunk][mem] split 5: after weights               |#---------------------------| RSS=  1434.8 MB  VmHWM=  3416.5  VmPeak=  3938.2
+[chunk][mem] split 5: after runner.run            |#---------------------------| RSS=  1462.3 MB  VmHWM=  3416.5  VmPeak=  3938.2
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ae-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   281.7 MB  VmHWM=  3416.5  VmPeak=  3938.2
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ae-sel_all-wgts.pkl  total_evt=1388106  meta POT/gates: pot=1.382e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/af-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.9 MB  VmHWM=    87.9  VmPeak=   596.7
+[chunk] HDF5 n_split=6  using 6 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    96.8 MB  VmHWM=    96.8  VmPeak=   617.1
+[chunk] read_hdf split 1/6 …
+[chunk] read_hdf split 1/6 done
+[chunk] split 1/6  evt=292675  trk=1555350  hdr=32827
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1669.1 MB  VmHWM=  3167.6  VmPeak=  3689.0
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1669.2 MB  VmHWM=  3167.6  VmPeak=  3689.0
+[chunk][mem] split 1: after runner.run            |##--------------------------| RSS=  1781.6 MB  VmHWM=  3167.6  VmPeak=  3689.0
+[chunk] read_hdf split 2/6 …
+[chunk] read_hdf split 2/6 done
+[chunk] split 2/6  evt=292633  trk=1556666  hdr=32930
+[chunk][mem] split 2: after read_hdf              |##--------------------------| RSS=  1783.3 MB  VmHWM=  3370.2  VmPeak=  3890.0
+[chunk][mem] split 2: after weights               |##--------------------------| RSS=  1783.3 MB  VmHWM=  3370.2  VmPeak=  3890.0
+[chunk][mem] split 2: after runner.run            |##--------------------------| RSS=  1810.7 MB  VmHWM=  3370.2  VmPeak=  3890.0
+[chunk] read_hdf split 3/6 …
+[chunk] read_hdf split 3/6 done
+[chunk] split 3/6  evt=292637  trk=1556620  hdr=32685
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1807.8 MB  VmHWM=  3370.2  VmPeak=  3890.0
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1807.8 MB  VmHWM=  3370.2  VmPeak=  3890.0
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1807.2 MB  VmHWM=  3370.2  VmPeak=  3890.0
+[chunk] read_hdf split 4/6 …
+[chunk] read_hdf split 4/6 done
+[chunk] split 4/6  evt=292679  trk=1554129  hdr=32762
+[chunk][mem] split 4: after read_hdf              |##--------------------------| RSS=  1806.7 MB  VmHWM=  3408.0  VmPeak=  3928.5
+[chunk][mem] split 4: after weights               |##--------------------------| RSS=  1806.7 MB  VmHWM=  3408.0  VmPeak=  3928.5
+[chunk][mem] split 4: after runner.run            |##--------------------------| RSS=  1809.7 MB  VmHWM=  3408.0  VmPeak=  3928.5
+[chunk] read_hdf split 5/6 …
+[chunk] read_hdf split 5/6 done
+[chunk] split 5/6  evt=292633  trk=1556193  hdr=32764
+[chunk][mem] split 5: after read_hdf              |##--------------------------| RSS=  1810.1 MB  VmHWM=  3410.6  VmPeak=  3931.1
+[chunk][mem] split 5: after weights               |##--------------------------| RSS=  1810.1 MB  VmHWM=  3410.6  VmPeak=  3931.1
+[chunk][mem] split 5: after runner.run            |##--------------------------| RSS=  1820.3 MB  VmHWM=  3410.6  VmPeak=  3931.1
+[chunk] read_hdf split 6/6 …
+[chunk] read_hdf split 6/6 done
+[chunk] split 6/6  evt=69531  trk=369979  hdr=7787
+[chunk][mem] split 6: after read_hdf              |#---------------------------| RSS=   659.1 MB  VmHWM=  3410.6  VmPeak=  3931.1
+[chunk][mem] split 6: after weights               |#---------------------------| RSS=   659.1 MB  VmHWM=  3410.6  VmPeak=  3931.1
+[chunk][mem] split 6: after runner.run            |#---------------------------| RSS=   659.5 MB  VmHWM=  3410.6  VmPeak=  3931.1
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__af-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   378.5 MB  VmHWM=  3410.6  VmPeak=  3931.1
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__af-sel_all-wgts.pkl  total_evt=1532788  meta POT/gates: pot=1.521e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/ag-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.8 MB  VmHWM=    87.8  VmPeak=   596.6
+[chunk] HDF5 n_split=6  using 6 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    96.8 MB  VmHWM=    96.8  VmPeak=   617.1
+[chunk] read_hdf split 1/6 …
+[chunk] read_hdf split 1/6 done
+[chunk] split 1/6  evt=292740  trk=1554766  hdr=32884
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1666.8 MB  VmHWM=  3169.1  VmPeak=  3689.7
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1666.8 MB  VmHWM=  3169.1  VmPeak=  3689.7
+[chunk][mem] split 1: after runner.run            |#---------------------------| RSS=  1671.0 MB  VmHWM=  3169.1  VmPeak=  3689.7
+[chunk] read_hdf split 2/6 …
+[chunk] read_hdf split 2/6 done
+[chunk] split 2/6  evt=292654  trk=1557424  hdr=32784
+[chunk][mem] split 2: after read_hdf              |#---------------------------| RSS=  1733.5 MB  VmHWM=  3259.8  VmPeak=  3779.7
+[chunk][mem] split 2: after weights               |#---------------------------| RSS=  1733.5 MB  VmHWM=  3259.8  VmPeak=  3779.7
+[chunk][mem] split 2: after runner.run            |#---------------------------| RSS=  1742.4 MB  VmHWM=  3259.8  VmPeak=  3779.7
+[chunk] read_hdf split 3/6 …
+[chunk] read_hdf split 3/6 done
+[chunk] split 3/6  evt=292697  trk=1553706  hdr=32855
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1794.4 MB  VmHWM=  3343.1  VmPeak=  3862.9
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1794.4 MB  VmHWM=  3343.1  VmPeak=  3862.9
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1809.8 MB  VmHWM=  3343.1  VmPeak=  3862.9
+[chunk] read_hdf split 4/6 …
+[chunk] read_hdf split 4/6 done
+[chunk] split 4/6  evt=292686  trk=1557523  hdr=32722
+[chunk][mem] split 4: after read_hdf              |#---------------------------| RSS=  1749.9 MB  VmHWM=  3343.1  VmPeak=  3862.9
+[chunk][mem] split 4: after weights               |#---------------------------| RSS=  1749.9 MB  VmHWM=  3343.1  VmPeak=  3862.9
+[chunk][mem] split 4: after runner.run            |#---------------------------| RSS=  1752.8 MB  VmHWM=  3343.1  VmPeak=  3862.9
+[chunk] read_hdf split 5/6 …
+[chunk] read_hdf split 5/6 done
+[chunk] split 5/6  evt=292696  trk=1558573  hdr=32777
+[chunk][mem] split 5: after read_hdf              |##--------------------------| RSS=  1818.4 MB  VmHWM=  3353.3  VmPeak=  3873.9
+[chunk][mem] split 5: after weights               |##--------------------------| RSS=  1818.4 MB  VmHWM=  3353.3  VmPeak=  3873.9
+[chunk][mem] split 5: after runner.run            |##--------------------------| RSS=  1845.9 MB  VmHWM=  3353.3  VmPeak=  3873.9
+[chunk] read_hdf split 6/6 …
+[chunk] read_hdf split 6/6 done
+[chunk] split 6/6  evt=74344  trk=395402  hdr=8325
+[chunk][mem] split 6: after read_hdf              |#---------------------------| RSS=   687.6 MB  VmHWM=  3353.3  VmPeak=  3873.9
+[chunk][mem] split 6: after weights               |#---------------------------| RSS=   687.6 MB  VmHWM=  3353.3  VmPeak=  3873.9
+[chunk][mem] split 6: after runner.run            |#---------------------------| RSS=   710.4 MB  VmHWM=  3353.3  VmPeak=  3873.9
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ag-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   366.7 MB  VmHWM=  3353.3  VmPeak=  3873.9
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ag-sel_all-wgts.pkl  total_evt=1537817  meta POT/gates: pot=1.521e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/ah-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.9 MB  VmHWM=    87.9  VmPeak=   596.6
+[chunk] HDF5 n_split=6  using 6 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    96.8 MB  VmHWM=    96.8  VmPeak=   617.1
+[chunk] read_hdf split 1/6 …
+[chunk] read_hdf split 1/6 done
+[chunk] split 1/6  evt=292613  trk=1554501  hdr=32874
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1668.7 MB  VmHWM=  3168.0  VmPeak=  3688.4
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1668.7 MB  VmHWM=  3168.0  VmPeak=  3688.4
+[chunk][mem] split 1: after runner.run            |#---------------------------| RSS=  1725.1 MB  VmHWM=  3168.0  VmPeak=  3688.4
+[chunk] read_hdf split 2/6 …
+[chunk] read_hdf split 2/6 done
+[chunk] split 2/6  evt=292737  trk=1555373  hdr=32786
+[chunk][mem] split 2: after read_hdf              |#---------------------------| RSS=  1747.4 MB  VmHWM=  3316.1  VmPeak=  3835.3
+[chunk][mem] split 2: after weights               |#---------------------------| RSS=  1747.4 MB  VmHWM=  3316.1  VmPeak=  3835.3
+[chunk][mem] split 2: after runner.run            |##--------------------------| RSS=  1779.3 MB  VmHWM=  3316.1  VmPeak=  3835.3
+[chunk] read_hdf split 3/6 …
+[chunk] read_hdf split 3/6 done
+[chunk] split 3/6  evt=292614  trk=1552289  hdr=32741
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1771.1 MB  VmHWM=  3323.2  VmPeak=  3843.2
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1771.1 MB  VmHWM=  3323.2  VmPeak=  3843.2
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1814.2 MB  VmHWM=  3323.2  VmPeak=  3843.2
+[chunk] read_hdf split 4/6 …
+[chunk] read_hdf split 4/6 done
+[chunk] split 4/6  evt=292684  trk=1556523  hdr=32716
+[chunk][mem] split 4: after read_hdf              |#---------------------------| RSS=  1752.3 MB  VmHWM=  3323.2  VmPeak=  3843.2
+[chunk][mem] split 4: after weights               |#---------------------------| RSS=  1752.3 MB  VmHWM=  3323.2  VmPeak=  3843.2
+[chunk][mem] split 4: after runner.run            |##--------------------------| RSS=  1784.3 MB  VmHWM=  3323.2  VmPeak=  3843.2
+[chunk] read_hdf split 5/6 …
+[chunk] read_hdf split 5/6 done
+[chunk] split 5/6  evt=292632  trk=1556189  hdr=32708
+[chunk][mem] split 5: after read_hdf              |##--------------------------| RSS=  1813.9 MB  VmHWM=  3385.0  VmPeak=  3904.1
+[chunk][mem] split 5: after weights               |##--------------------------| RSS=  1813.9 MB  VmHWM=  3385.0  VmPeak=  3904.1
+[chunk][mem] split 5: after runner.run            |##--------------------------| RSS=  1826.0 MB  VmHWM=  3385.0  VmPeak=  3904.1
+[chunk] read_hdf split 6/6 …
+[chunk] read_hdf split 6/6 done
+[chunk] split 6/6  evt=79651  trk=424411  hdr=8937
+[chunk][mem] split 6: after read_hdf              |#---------------------------| RSS=   643.0 MB  VmHWM=  3385.0  VmPeak=  3904.1
+[chunk][mem] split 6: after weights               |#---------------------------| RSS=   643.0 MB  VmHWM=  3385.0  VmPeak=  3904.1
+[chunk][mem] split 6: after runner.run            |#---------------------------| RSS=   615.5 MB  VmHWM=  3385.0  VmPeak=  3904.1
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ah-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   247.0 MB  VmHWM=  3385.0  VmPeak=  3904.1
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ah-sel_all-wgts.pkl  total_evt=1542931  meta POT/gates: pot=1.522e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/ai-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.8 MB  VmHWM=    87.8  VmPeak=   596.6
+[chunk] HDF5 n_split=6  using 6 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    96.7 MB  VmHWM=    96.7  VmPeak=   617.2
+[chunk] read_hdf split 1/6 …
+[chunk] read_hdf split 1/6 done
+[chunk] split 1/6  evt=292608  trk=1555320  hdr=32786
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1668.8 MB  VmHWM=  3167.2  VmPeak=  3688.3
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1668.8 MB  VmHWM=  3167.2  VmPeak=  3688.3
+[chunk][mem] split 1: after runner.run            |#---------------------------| RSS=  1673.0 MB  VmHWM=  3167.2  VmPeak=  3688.3
+[chunk] read_hdf split 2/6 …
+[chunk] read_hdf split 2/6 done
+[chunk] split 2/6  evt=292643  trk=1558213  hdr=32771
+[chunk][mem] split 2: after read_hdf              |#---------------------------| RSS=  1731.7 MB  VmHWM=  3261.1  VmPeak=  3781.9
+[chunk][mem] split 2: after weights               |#---------------------------| RSS=  1731.7 MB  VmHWM=  3261.1  VmPeak=  3781.9
+[chunk][mem] split 2: after runner.run            |##--------------------------| RSS=  1762.6 MB  VmHWM=  3261.1  VmPeak=  3781.9
+[chunk] read_hdf split 3/6 …
+[chunk] read_hdf split 3/6 done
+[chunk] split 3/6  evt=292586  trk=1557035  hdr=32839
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1797.6 MB  VmHWM=  3360.9  VmPeak=  3881.8
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1797.6 MB  VmHWM=  3360.9  VmPeak=  3881.8
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1797.8 MB  VmHWM=  3360.9  VmPeak=  3881.8
+[chunk] read_hdf split 4/6 …
+[chunk] read_hdf split 4/6 done
+[chunk] split 4/6  evt=292670  trk=1553711  hdr=32798
+[chunk][mem] split 4: after read_hdf              |##--------------------------| RSS=  1817.7 MB  VmHWM=  3397.6  VmPeak=  3918.3
+[chunk][mem] split 4: after weights               |##--------------------------| RSS=  1817.7 MB  VmHWM=  3397.6  VmPeak=  3918.3
+[chunk][mem] split 4: after runner.run            |##--------------------------| RSS=  1859.5 MB  VmHWM=  3397.6  VmPeak=  3918.3
+[chunk] read_hdf split 5/6 …
+[chunk] read_hdf split 5/6 done
+[chunk] split 5/6  evt=292768  trk=1553074  hdr=32852
+[chunk][mem] split 5: after read_hdf              |##--------------------------| RSS=  1807.2 MB  VmHWM=  3408.7  VmPeak=  3929.1
+[chunk][mem] split 5: after weights               |##--------------------------| RSS=  1807.2 MB  VmHWM=  3408.7  VmPeak=  3929.1
+[chunk][mem] split 5: after runner.run            |##--------------------------| RSS=  1826.8 MB  VmHWM=  3408.7  VmPeak=  3929.1
+[chunk] read_hdf split 6/6 …
+[chunk] read_hdf split 6/6 done
+[chunk] split 6/6  evt=74153  trk=394038  hdr=8324
+[chunk][mem] split 6: after read_hdf              |#---------------------------| RSS=   666.8 MB  VmHWM=  3408.7  VmPeak=  3929.1
+[chunk][mem] split 6: after weights               |#---------------------------| RSS=   666.8 MB  VmHWM=  3408.7  VmPeak=  3929.1
+[chunk][mem] split 6: after runner.run            |#---------------------------| RSS=   692.0 MB  VmHWM=  3408.7  VmPeak=  3929.1
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ai-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   349.1 MB  VmHWM=  3408.7  VmPeak=  3929.1
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ai-sel_all-wgts.pkl  total_evt=1537428  meta POT/gates: pot=1.522e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/aj-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.9 MB  VmHWM=    87.9  VmPeak=   596.6
+[chunk] HDF5 n_split=6  using 6 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    96.8 MB  VmHWM=    96.8  VmPeak=   617.1
+[chunk] read_hdf split 1/6 …
+[chunk] read_hdf split 1/6 done
+[chunk] split 1/6  evt=292623  trk=1556345  hdr=32781
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1669.1 MB  VmHWM=  3167.3  VmPeak=  3688.4
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1669.1 MB  VmHWM=  3167.3  VmPeak=  3688.4
+[chunk][mem] split 1: after runner.run            |#---------------------------| RSS=  1719.4 MB  VmHWM=  3167.3  VmPeak=  3688.4
+[chunk] read_hdf split 2/6 …
+[chunk] read_hdf split 2/6 done
+[chunk] split 2/6  evt=292640  trk=1560926  hdr=32750
+[chunk][mem] split 2: after read_hdf              |#---------------------------| RSS=  1743.2 MB  VmHWM=  3307.1  VmPeak=  3828.1
+[chunk][mem] split 2: after weights               |#---------------------------| RSS=  1743.2 MB  VmHWM=  3307.1  VmPeak=  3828.1
+[chunk][mem] split 2: after runner.run            |##--------------------------| RSS=  1781.0 MB  VmHWM=  3307.1  VmPeak=  3828.1
+[chunk] read_hdf split 3/6 …
+[chunk] read_hdf split 3/6 done
+[chunk] split 3/6  evt=292673  trk=1556829  hdr=32814
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1802.8 MB  VmHWM=  3379.3  VmPeak=  3900.4
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1802.8 MB  VmHWM=  3379.3  VmPeak=  3900.4
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1850.4 MB  VmHWM=  3379.3  VmPeak=  3900.4
+[chunk] read_hdf split 4/6 …
+[chunk] read_hdf split 4/6 done
+[chunk] split 4/6  evt=292759  trk=1556150  hdr=32756
+[chunk][mem] split 4: after read_hdf              |##--------------------------| RSS=  1809.6 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk][mem] split 4: after weights               |##--------------------------| RSS=  1809.6 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk][mem] split 4: after runner.run            |##--------------------------| RSS=  1820.4 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk] read_hdf split 5/6 …
+[chunk] read_hdf split 5/6 done
+[chunk] split 5/6  evt=292683  trk=1553405  hdr=32851
+[chunk][mem] split 5: after read_hdf              |##--------------------------| RSS=  1767.7 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk][mem] split 5: after weights               |##--------------------------| RSS=  1767.7 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk][mem] split 5: after runner.run            |##--------------------------| RSS=  1795.1 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk] read_hdf split 6/6 …
+[chunk] read_hdf split 6/6 done
+[chunk] split 6/6  evt=76865  trk=406474  hdr=8635
+[chunk][mem] split 6: after read_hdf              |#---------------------------| RSS=   600.6 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk][mem] split 6: after weights               |#---------------------------| RSS=   600.6 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk][mem] split 6: after runner.run            |#---------------------------| RSS=   606.8 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__aj-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   251.9 MB  VmHWM=  3391.4  VmPeak=  3913.2
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__aj-sel_all-wgts.pkl  total_evt=1540243  meta POT/gates: pot=1.523e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/ak-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.9 MB  VmHWM=    87.9  VmPeak=   596.6
+[chunk] HDF5 n_split=6  using 6 split(s) (splits)
+[chunk] mcnu present → MC efficiency accumulators enabled
+[chunk][mem] after build_runner                   |----------------------------| RSS=    96.9 MB  VmHWM=    96.9  VmPeak=   617.1
+[chunk] read_hdf split 1/6 …
+[chunk] read_hdf split 1/6 done
+[chunk] split 1/6  evt=292600  trk=1551694  hdr=32807
+[chunk][mem] split 1: after read_hdf              |#---------------------------| RSS=  1667.6 MB  VmHWM=  3166.0  VmPeak=  3689.2
+[chunk][mem] split 1: after weights               |#---------------------------| RSS=  1667.7 MB  VmHWM=  3166.0  VmPeak=  3689.2
+[chunk][mem] split 1: after runner.run            |##--------------------------| RSS=  1779.5 MB  VmHWM=  3166.0  VmPeak=  3689.2
+[chunk] read_hdf split 2/6 …
+[chunk] read_hdf split 2/6 done
+[chunk] split 2/6  evt=292723  trk=1559816  hdr=32669
+[chunk][mem] split 2: after read_hdf              |##--------------------------| RSS=  1804.6 MB  VmHWM=  3368.5  VmPeak=  3890.1
+[chunk][mem] split 2: after weights               |##--------------------------| RSS=  1804.6 MB  VmHWM=  3368.5  VmPeak=  3890.1
+[chunk][mem] split 2: after runner.run            |##--------------------------| RSS=  1816.9 MB  VmHWM=  3368.5  VmPeak=  3890.1
+[chunk] read_hdf split 3/6 …
+[chunk] read_hdf split 3/6 done
+[chunk] split 3/6  evt=292675  trk=1556029  hdr=32702
+[chunk][mem] split 3: after read_hdf              |##--------------------------| RSS=  1815.7 MB  VmHWM=  3415.0  VmPeak=  3936.2
+[chunk][mem] split 3: after weights               |##--------------------------| RSS=  1815.7 MB  VmHWM=  3415.0  VmPeak=  3936.2
+[chunk][mem] split 3: after runner.run            |##--------------------------| RSS=  1796.1 MB  VmHWM=  3415.0  VmPeak=  3936.2
+[chunk] read_hdf split 4/6 …
+[chunk] read_hdf split 4/6 done
+[chunk] split 4/6  evt=292740  trk=1558846  hdr=32859
+[chunk][mem] split 4: after read_hdf              |##--------------------------| RSS=  1816.5 MB  VmHWM=  3415.0  VmPeak=  3936.2
+[chunk][mem] split 4: after weights               |##--------------------------| RSS=  1816.5 MB  VmHWM=  3415.0  VmPeak=  3936.2
+[chunk][mem] split 4: after runner.run            |##--------------------------| RSS=  1817.7 MB  VmHWM=  3415.0  VmPeak=  3936.2
+[chunk] read_hdf split 5/6 …
+[chunk] read_hdf split 5/6 done
+[chunk] split 5/6  evt=292611  trk=1555547  hdr=32707
+[chunk][mem] split 5: after read_hdf              |##--------------------------| RSS=  1816.3 MB  VmHWM=  3415.1  VmPeak=  3937.2
+[chunk][mem] split 5: after weights               |##--------------------------| RSS=  1816.3 MB  VmHWM=  3415.1  VmPeak=  3937.2
+[chunk][mem] split 5: after runner.run            |##--------------------------| RSS=  1826.9 MB  VmHWM=  3415.1  VmPeak=  3937.2
+[chunk] read_hdf split 6/6 …
+[chunk] read_hdf split 6/6 done
+[chunk] split 6/6  evt=76291  trk=406705  hdr=8548
+[chunk][mem] split 6: after read_hdf              |#---------------------------| RSS=   682.8 MB  VmHWM=  3415.1  VmPeak=  3937.2
+[chunk][mem] split 6: after weights               |#---------------------------| RSS=   682.8 MB  VmHWM=  3415.1  VmPeak=  3937.2
+[chunk][mem] split 6: after runner.run            |#---------------------------| RSS=   682.8 MB  VmHWM=  3415.1  VmPeak=  3937.2
+[chunk] pickle.dump → /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ak-sel_all-wgts.pkl …
+[chunk] pickle.dump finished
+[chunk][mem] after pickle save                    |----------------------------| RSS=   329.8 MB  VmHWM=  3415.1  VmPeak=  3937.2
+[chunk] wrote /exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/event_selection-chunked-20260509/chunks/mc__ak-sel_all-wgts.pkl  total_evt=1539640  meta POT/gates: pot=1.521e+19 bnb_gates=0.000e+00 cosmic_i=0.000e+00 cosmic_ob=0.000e+00
+[chunk] sample=mc  file=/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/al-sel_all-wgts.df  load_mode=splits
+[chunk][mem] after interpreter + imports          |----------------------------| RSS=    87.8 MB  VmHWM=    87.8  VmPeak=   596.7

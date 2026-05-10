@@ -137,7 +137,7 @@ def get_frac_unc(mc_evt_df=None, intime_evt_df=None, offbeam_evt_df=None, var_co
     for syst in ["G4", "GENIE", "Flux"]:
     # for syst in ["GENIE", "Flux"]:
         for i in range(100):
-            weights = mc_evt_df.mc[syst]["univ_{}".format(i)] * 2
+            weights = mc_evt_df.mc[syst]["univ_{}".format(i)]* 3
             # set nan to 1
             weights = weights.fillna(1)
             # clip at 5
@@ -200,6 +200,7 @@ def generate_tags(end_tag=""):
 
 def get_clipped_evts(df, var_col, bins, verbose=False):
     var = df[var_col]
+    var = np.asarray(var, dtype=float)
     var = np.clip(var, bins[0], bins[-1] - EPSILON)
 
     if 'pot_weight' in df.columns:
@@ -208,6 +209,9 @@ def get_clipped_evts(df, var_col, bins, verbose=False):
         if verbose:
             print("No pot_weight column found, return 1 as pot scale (expected for data)")
         weights = np.ones_like(var)
+    weights = np.asarray(weights, dtype=float)
+    # One NaN weight makes numpy.histogram return NaN in all bins.
+    weights = np.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0)
     return var, weights
 
 def get_eff_err(success,total):  # success/total
@@ -363,7 +367,7 @@ def get_textloc_x(values, bins, textloc=[0.05, 0.55]):
     return textloc_x, textloc_ha
 
 
-def add_approval_text(approval, textloc_x, textloc_y, textloc_ha):
+def add_approval_text(approval, textloc_x, textloc_y, textloc_ha, fontsize=20):
     if approval == "internal":
         approval_text = r"$\mathbf{SBND}$ Internal"
         textcolor = 'rosybrown'
@@ -377,11 +381,11 @@ def add_approval_text(approval, textloc_x, textloc_y, textloc_ha):
 
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
     ax.text(
-        textloc_x, textloc_y, 
-        approval_text, 
-        transform=ax.transAxes, 
+        textloc_x, textloc_y,
+        approval_text,
+        transform=ax.transAxes,
         ha=textloc_ha, va='top',
-        fontsize=20, color=textcolor
+        fontsize=fontsize, color=textcolor
     )
 
 def add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y, textloc_ha, label=""):
@@ -956,6 +960,563 @@ def bar_plot(breakdown_type="topology",
 #             "total_data": total_data}
 
 
+# ==== histograms (precomputed-histograms path) ====
+# This renders the same plot as overlay_hists() but starts from a precomputed
+# OverlayHistData container (per-category MC histograms + intime/dirt/data
+# histograms, with sum-of-weights^2 for stat errors). It is the entry point
+# used by the chunked event-selection framework after aggregating histograms
+# across input files.
+
+
+def _overlay_histdata_legend_mc_index_order(n_layers, has_dirt):
+    """Indices into mpl stacked layers for legend: physics high→…→low, Dirt, Cosmic.
+
+    Stacked ``hist`` uses dataset order bottom→top: with dirt,
+    layer 0 = Dirt, 1 = Cosmic, layers 2… = GENIE/topology blocks with signal
+    at ``n_layers - 1``. Desired legend after Data:
+    signal (top) … physics … Dirt … Cosmic.
+    """
+    if n_layers <= 0:
+        return []
+    if not has_dirt:
+        return list(range(n_layers - 1, -1, -1))
+    return list(range(n_layers - 1, 1, -1)) + [0, 1]
+
+
+def overlay_hists_from_histdata(histdata,
+                                var_config=None,
+                                plot_labels=["", "", ""],
+                                ax_ylim_ratio=1.5,
+                                ratio=False,
+                                density=False,
+                                syst=None,
+                                syst_decomp=False,  # False -> hatched band (``selected_events.ipynb`` style)
+                                textchi2=False,
+                                vline=None,
+                                textloc=[0.05, 0.55],
+                                approval="internal",
+                                plot=True,
+                                save_fig=False,
+                                save_name=None,
+                                cosmic_estimate="intime",
+                                show_cosmic_model_unc=True,
+                                verbose_hist=False):
+    """Render an overlay histogram plot from precomputed histograms.
+
+    The plot output is bit-for-bit identical to overlay_hists(...) with raw
+    dataframes when given equivalent inputs.
+
+    Parameters
+    ----------
+    histdata : OverlayHistData
+        Container with breakdown_type, bins, per-category MC histograms,
+        intime/dirt/data histograms, and corresponding sum-of-weights^2
+        arrays (for stat errors).
+    var_config : VariableConfig
+        Carries bins, labels, var_save_name (for "integrated" formatting).
+    cosmic_estimate : {'intime', 'offbeam'}
+        Which fully-scaled cosmic histogram is merged into the MC cosmic slice.
+        Requires the corresponding ``histdata.has_*`` flag.
+    show_cosmic_model_unc : bool
+        Accepted for API compatibility with ``overlay_hists``; the intime/offbeam
+        uncertainty band is **not** drawn (only the merged cosmic estimate is used).
+    Other arguments behave identically to overlay_hists().
+    """
+
+    breakdown_type = histdata.breakdown_type
+    bins = np.asarray(histdata.bins)
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    n_bins = len(bins) - 1
+
+    # ---- choose breakdown labels & colors (cosmic-first order to match cuts)
+    if breakdown_type == "pdg":
+        labels = list(pdg_labels)
+        colors = list(pdg_colors)
+        hatches = None
+    elif breakdown_type == "topology":
+        labels = list(topology_labels)
+        colors = list(topology_colors)
+        hatches = None
+    elif breakdown_type == "genie":
+        labels = list(genie_mode_labels)
+        colors = list(genie_mode_colors)
+        hatches = None
+    elif breakdown_type == "genie_sb":
+        labels = list(genie_sb_mode_labels)
+        colors = list(genie_sb_mode_colors)
+        hatches = [None] * len(labels)
+        for i in range(5, len(labels), 2):
+            hatches[i] = '////'
+    else:
+        raise ValueError("Invalid breakdown_type: %s" % breakdown_type)
+
+    # Draw MC/cosmic/dirt stack whenever there is anything to show — do **not** rely on
+    # ``has_mc`` alone (merged pickles / older chunks can have nonzero ``mc_hist`` with a
+    # stale ``has_mc`` flag, or the inverse).
+    mc_hist_sum = float(np.sum(histdata.mc_hist)) if histdata.mc_hist is not None else 0.0
+    plot_mc_stack = histdata.mc_hist is not None and (
+        histdata.has_mc
+        or mc_hist_sum != 0.0
+        or histdata.has_intime
+        or getattr(histdata, "has_offbeam", False)
+        or histdata.has_dirt
+    )
+
+    # ---- MC: per-category histograms (already in cuts/cosmic-first order)
+    if plot_mc_stack:
+        each_mc_hist_data = [histdata.mc_hist[i] for i in range(histdata.mc_hist.shape[0])]
+        each_mc_hist_err2 = [histdata.mc_err2[i] for i in range(histdata.mc_err2.shape[0])]
+        total_mc = np.sum(histdata.mc_hist, axis=0).astype(float)
+        total_mc_err2 = np.sum(histdata.mc_err2, axis=0).astype(float)
+        mc_stat_err = np.sqrt(total_mc_err2)
+
+        # For stacked plotting we fake events at bin_centers with weights = histogram values
+        var_categ = [bin_centers] * len(each_mc_hist_data)
+        weights_categ = [h.copy() for h in each_mc_hist_data]
+
+        if breakdown_type == "topology":
+            # signal is the LAST element in cuts ordering
+            total_mc_bkgd = total_mc - each_mc_hist_data[-1]
+        else:
+            total_mc_bkgd = None
+    else:
+        each_mc_hist_data = None
+        each_mc_hist_err2 = None
+        total_mc = None
+        mc_stat_err = None
+        var_categ = None
+        weights_categ = None
+        total_mc_bkgd = None
+
+    if cosmic_estimate not in ("intime", "offbeam"):
+        raise ValueError("cosmic_estimate must be 'intime' or 'offbeam'")
+
+    cosmic_hist_bins = None
+    if cosmic_estimate == "intime" and histdata.has_intime:
+        cosmic_hist_bins = histdata.intime_hist.astype(float)
+    elif cosmic_estimate == "offbeam" and getattr(histdata, "has_offbeam", False):
+        cosmic_hist_bins = histdata.offbeam_hist.astype(float)
+
+    if cosmic_hist_bins is None:
+        if histdata.has_intime:
+            cosmic_hist_bins = histdata.intime_hist.astype(float)
+        elif getattr(histdata, "has_offbeam", False):
+            cosmic_hist_bins = histdata.offbeam_hist.astype(float)
+
+    # Merge scaled intime/offbeam cosmic estimate into MC category 0 (same as
+    # ``overlay_hists``: concat events). For pre-binned histograms, **add** bin
+    # contents — do not duplicate ``bin_centers`` (that doubles fake samples per
+    # bin and breaks stacking / legend fraction accounting).
+    if cosmic_hist_bins is not None and var_categ is not None:
+        weights_categ[0] = np.asarray(weights_categ[0], dtype=float) + np.asarray(
+            cosmic_hist_bins, dtype=float
+        )
+        total_mc = np.asarray(total_mc, dtype=float) + np.asarray(cosmic_hist_bins, dtype=float)
+
+    # ---- Dirt: prepend a new category at front (cuts order: dirt-first)
+    if histdata.has_dirt:
+        total_dirt = histdata.dirt_hist.astype(float)
+        if var_categ is not None:
+            var_categ = [bin_centers] + var_categ
+            weights_categ = [total_dirt.copy()] + weights_categ
+            colors = colors + ["black"]
+            labels = labels + ["Low E\nDirt"]
+            total_mc = total_mc + total_dirt
+    else:
+        total_dirt = None
+
+    # ---- Data
+    if histdata.has_data:
+        total_data = histdata.data_hist.astype(float)
+        sum_data = np.sum(total_data)
+        # compute asymmetric stat errors from data counts
+        # (note: when bin contents come from POT-weighted off-beam they aren't
+        # raw counts -- callers should use raw-count data for proper stat errs)
+        data_eylow, data_eyhigh = return_data_stat_err(total_data)
+
+        if total_mc is not None:
+            with np.errstate(divide='ignore', invalid='ignore'):
+                data_ratio = np.where(total_mc != 0, total_data / total_mc, 0.0)
+                data_ratio_eylow = np.where(total_mc != 0, data_eylow / total_mc, 0.0)
+                data_ratio_eyhigh = np.where(total_mc != 0, data_eyhigh / total_mc, 0.0)
+            data_ratio = np.nan_to_num(data_ratio, nan=-999.)
+            data_ratio_eylow = np.nan_to_num(data_ratio_eylow, nan=0.)
+            data_ratio_eyhigh = np.nan_to_num(data_ratio_eyhigh, nan=0.)
+        else:
+            data_ratio = data_ratio_eylow = data_ratio_eyhigh = None
+    else:
+        total_data = None
+        sum_data = None
+        data_eylow = data_eyhigh = None
+        data_ratio = data_ratio_eylow = data_ratio_eyhigh = None
+
+    # ---- Density: area-normalize MC to data
+    density_factor = 1.0
+    if plot_mc_stack and histdata.has_data and density:
+        mc_area = np.sum(total_mc)
+        data_area = np.sum(total_data)
+        density_factor = (data_area / mc_area) if mc_area > 0 else 1.0
+        weights_categ = [np.asarray(w) * density_factor for w in weights_categ]
+        total_mc = total_mc * density_factor
+        if total_mc_bkgd is not None:
+            total_mc_bkgd = total_mc_bkgd * density_factor
+
+    # the order from get_*_category is reversed from labels/colors (which are signal-first)
+    colors, labels = colors[::-1], labels[::-1]
+
+    if verbose_hist and var_categ is not None:
+        layer_totals = [float(np.sum(np.asarray(w, dtype=float))) for w in weights_categ]
+        dtot = float(np.sum(histdata.data_hist)) if histdata.has_data else 0.0
+        print(
+            f"[overlay_histdata] var={histdata.var_save_name!r} breakdown={breakdown_type!r} "
+            f"plot_mc_stack={plot_mc_stack} has_mc={histdata.has_mc} "
+            f"sum(mc_hist)={mc_hist_sum:.6g} n_layers={len(weights_categ)} "
+            f"layer_totals={layer_totals} sum_layers={sum(layer_totals):.6g} "
+            f"has_data={histdata.has_data} sum(data_hist)={dtot:.6g}",
+            flush=True,
+        )
+
+    # ============ plot template ============
+    if ratio:
+        fig, axs = plt.subplots(2, 1, figsize=(8.5, 8.5),
+                               sharex=True, gridspec_kw={'height_ratios': [4, 1]})
+        ax, ax_r = axs[0], axs[1]
+        fig.subplots_adjust(hspace=0.1)
+        ax_r.axhline(1.0, color='red', linestyle='--', linewidth=1)
+        ax_r.set_ylim(0., 2.)
+        ax_r.set_xlabel(plot_labels[0])
+        ax_r.set_ylabel("Data/MC")
+        ax_r.grid(True)
+        ax_r.grid(which='minor', linestyle=':', linewidth=0.5, color='gray', alpha=0.5)
+        ax_r.minorticks_on()
+    else:
+        fig, ax = plt.subplots(figsize=(8.5, 7))
+        ax.set_xlabel(plot_labels[0])
+
+    ax.set_xlim(bins[0], bins[-1])
+    ax.set_ylabel(plot_labels[1])
+    ax.set_title(plot_labels[2])
+
+    # ============ plot histograms ============
+    mc_stack = None
+    breakdown_fractions = None
+    if var_categ is not None:
+        if breakdown_type == "genie_sb":
+            # GENIE S/B uses mpl stacked hist + hatch overlay (unchanged).
+            mc_stack, _, _ = ax.hist(var_categ,
+                                     weights=weights_categ,
+                                     bins=bins,
+                                     stacked=True,
+                                     color=colors,
+                                     linewidth=0,
+                                     edgecolor='none',
+                                     histtype='stepfilled')
+
+            breakdown_accum = [np.sum(this_mode) for this_mode in mc_stack]
+            breakdown_fractions = [breakdown_accum[0]] + \
+                [(breakdown_accum[i+1] - breakdown_accum[i]) for i in range(len(breakdown_accum) - 1)]
+            if breakdown_accum[-1] > 0:
+                breakdown_fractions = [frac / breakdown_accum[-1] for frac in breakdown_fractions]
+            else:
+                breakdown_fractions = [0.0 for _ in breakdown_fractions]
+
+            bottom = np.zeros(n_bins)
+            cuts_order_hatches = (hatches[::-1] if hatches is not None else [None] * len(var_categ))
+            for i, (v, w, h) in enumerate(zip(var_categ, weights_categ, cuts_order_hatches)):
+                hist_vals, _ = np.histogram(v, weights=w, bins=bins)
+                ax.bar(bin_centers, hist_vals, width=np.diff(bins),
+                       bottom=bottom, color='none', hatch=h,
+                       edgecolor='white', linewidth=0.0, align='center')
+                bottom += hist_vals
+        else:
+            # Explicit stacked bars — ``ax.hist(..., stacked=True)`` with synthetic bin-centre
+            # samples is fragile across mpl versions; bars match the notebook intent.
+            bottom = np.zeros(n_bins, dtype=float)
+            for w, col in zip(weights_categ, colors):
+                vals = np.asarray(w, dtype=float)
+                ax.bar(
+                    bin_centers,
+                    vals,
+                    width=np.diff(bins),
+                    bottom=bottom,
+                    align="center",
+                    color=col,
+                    edgecolor="none",
+                    linewidth=0,
+                    zorder=2,
+                )
+                bottom = bottom + vals
+            layer_integrals = [float(np.sum(np.asarray(w, dtype=float))) for w in weights_categ]
+            tot_int = float(sum(layer_integrals))
+            if tot_int > 0:
+                breakdown_fractions = [li / tot_int for li in layer_integrals]
+            else:
+                breakdown_fractions = [0.0] * len(layer_integrals)
+
+    chi2_val = None
+    p_val = None
+    ndof = None
+    chi2_pull = None
+    syst_err = syst_err_norm = syst_err_mixed = syst_err_shape = None
+
+    if syst is not None and total_mc is not None:
+        cov_norm, cov_mixed, cov_shape = Matrix_Decomp(total_mc, syst * (total_mc**2))
+        syst_err_norm = np.sqrt(np.abs(np.diag(cov_norm)))
+        syst_err_mixed = np.sqrt(np.abs(np.diag(cov_mixed)))
+        syst_err_shape = np.sqrt(np.abs(np.diag(cov_shape)))
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            mc_stat_err_frac = np.where(total_mc != 0, mc_stat_err / total_mc, 0.0)
+        syst_err_frac = np.sqrt(np.diag(syst))
+        syst_err_combined_frac = np.sqrt(mc_stat_err_frac**2 + syst_err_frac**2)
+        syst_err = syst_err_combined_frac * total_mc
+
+        if syst_decomp == False:
+            ax.bar(bin_centers, 2 * syst_err, width=np.diff(bins),
+                   bottom=total_mc - syst_err,
+                   facecolor='none', hatch='xxx', linewidth=0.0,
+                   edgecolor='dimgray', label='Syst. Unc.', zorder=8)
+        else:
+            ax.bar(bin_centers, 2*syst_err_shape, width=np.diff(bins),
+                   bottom=total_mc - syst_err_shape,
+                   facecolor='red', edgecolor='red', alpha=0.3,
+                   linewidth=0.0, label='Syst. Unc. (Shape)')
+            ax.bar(bin_centers, 2*syst_err_mixed, width=np.diff(bins),
+                   bottom=total_mc - syst_err_mixed,
+                   facecolor='none', edgecolor='green', hatch='////',
+                   linewidth=0.0, label='Syst. Unc. (Mixed)')
+            ax.bar(bin_centers, 2*syst_err_norm, width=np.diff(bins),
+                   bottom=total_mc - syst_err_norm,
+                   facecolor='dimgray', edgecolor='dimgray', alpha=0.3,
+                   linewidth=0.0, label='Syst. Unc. (Norm)')
+
+        if histdata.has_data:
+            data_stat_cov = np.diag((0.5*(data_eyhigh + data_eylow))**2)
+            syst_cov = cov_from_fraccov(syst, total_mc)
+            combined_cov = syst_cov + data_stat_cov
+            chi2_val, p_val = get_chi2(total_data, total_mc, combined_cov)
+            ndof = n_bins
+            chi2_pull = (total_data - total_mc) / np.sqrt(np.maximum(np.diag(combined_cov), 1e-10))
+
+    # Data points (draw on top of MC stack)
+    if histdata.has_data:
+        ax.errorbar(bin_centers, total_data,
+                    yerr=np.vstack((data_eylow, data_eyhigh)),
+                    color='black', fmt='o', markersize=5, capsize=3, linewidth=1.5,
+                    label='Data', zorder=10)
+
+    # Ratio panel
+    if ratio:
+        if syst is not None and total_mc is not None:
+            if syst_decomp == False:
+                mc_content_ratio = np.ones_like(total_mc)
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    mc_stat_err_ratio = np.where(total_mc != 0, syst_err / total_mc, 0.0)
+                mc_stat_err_ratio = np.nan_to_num(mc_stat_err_ratio, nan=0.)
+                ax_r.bar(bin_centers, 2*mc_stat_err_ratio, width=np.diff(bins),
+                         bottom=mc_content_ratio - mc_stat_err_ratio,
+                         facecolor='none', edgecolor='dimgray', hatch='xxx',
+                         linewidth=0.0, label='Syst. Unc.', zorder=8)
+            else:
+                mc_content_ratio = np.ones_like(total_mc)
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    r_norm = np.where(total_mc != 0, syst_err_norm / total_mc, 0.0)
+                    r_mixed = np.where(total_mc != 0, syst_err_mixed / total_mc, 0.0)
+                    r_shape = np.where(total_mc != 0, syst_err_shape / total_mc, 0.0)
+                r_norm = np.nan_to_num(r_norm, nan=0.)
+                r_mixed = np.nan_to_num(r_mixed, nan=0.)
+                r_shape = np.nan_to_num(r_shape, nan=0.)
+
+                ax_r.bar(bin_centers, 2*r_shape, width=np.diff(bins),
+                         bottom=mc_content_ratio - r_shape,
+                         facecolor='red', edgecolor='red', alpha=0.3,
+                         linewidth=0.0, label='Syst. Unc. (Shape)')
+                ax_r.bar(bin_centers, 2*r_mixed, width=np.diff(bins),
+                         bottom=mc_content_ratio - r_mixed,
+                         facecolor='none', edgecolor='green', hatch='////',
+                         linewidth=0.0, label='Syst. Unc. (Mixed)')
+                ax_r.bar(bin_centers, 2*r_norm, width=np.diff(bins),
+                         bottom=mc_content_ratio - r_norm, alpha=0.3,
+                         facecolor='dimgray', edgecolor='dimgray',
+                         linewidth=0.0, label='Syst. Unc. (Norm)')
+
+        if histdata.has_data and total_mc is not None:
+            ax_r.errorbar(bin_centers, data_ratio,
+                          yerr=np.vstack((data_ratio_eylow, data_ratio_eyhigh)),
+                          fmt='o', color='black',
+                          markersize=5, capsize=3, linewidth=1.5, zorder=10)
+        ax_r.set_xlim(bins[0], bins[-1])
+
+    # Legend: Data first; MC rows = νμ CC 1p0π → … → Low-E Dirt → Cosmic (topology /
+    # pdg / genie). MC patches match stacked-layer colors (no cosmic-uncertainty band).
+    handles, labels_orig = ax.get_legend_handles_labels()
+    ordered_handles = []
+    ordered_labels = []
+
+    if histdata.has_data:
+        try:
+            data_handle_index = labels_orig.index('Data')
+            ordered_handles.append(handles[data_handle_index])
+            ordered_labels.append('Observed ({:.0f})'.format(sum_data))
+        except ValueError:
+            pass
+
+    if breakdown_fractions is not None:
+        if breakdown_type == "genie_sb":
+            for i in range(len(genie_mode_colors)):
+                ordered_handles.append(Patch(facecolor=genie_mode_colors[i], edgecolor='none'))
+
+            legend_labels = []
+            i, n = 0, len(labels)
+            while i < n:
+                label_base = labels[i]
+                if (i + 1 < n) and (labels[i + 1] == label_base):
+                    frac1 = breakdown_fractions[i]
+                    frac2 = breakdown_fractions[i+1]
+                    legend_labels.append(f"{label_base} ({frac2*100:.1f}%/{frac1*100:.1f}%)")
+                    i += 2
+                else:
+                    frac1 = breakdown_fractions[i]
+                    legend_labels.append(f"{label_base} ({frac1*100:.1f}%)")
+                    i += 1
+            ordered_labels.extend(legend_labels[::-1])
+        else:
+            idx_order = _overlay_histdata_legend_mc_index_order(
+                len(labels), histdata.has_dirt
+            )
+            for i in idx_order:
+                ordered_handles.append(Patch(facecolor=colors[i], edgecolor='none'))
+                ordered_labels.append(f"{labels[i]} ({breakdown_fractions[i]*100:.1f}%)")
+
+    # Synthetic patches last so "Syst. Unc." never precedes Data / MC stack rows.
+    if syst is not None and total_mc is not None:
+        if syst_decomp == False:
+            ordered_handles.append(
+                Patch(
+                    facecolor='none', edgecolor='dimgray', hatch='xxx',
+                    linewidth=0.5, label='Syst. Unc.',
+                )
+            )
+            ordered_labels.append('Syst. Unc.')
+        else:
+            ordered_handles.extend([
+                Patch(facecolor='red', edgecolor='red', alpha=0.3,
+                      linewidth=0.0, label='Syst. Unc. (Shape)'),
+                Patch(facecolor='none', edgecolor='green', hatch='////',
+                      linewidth=0.0, label='Syst. Unc. (Mixed)'),
+                Patch(facecolor='dimgray', edgecolor='dimgray', alpha=0.3,
+                      linewidth=0.0, label='Syst. Unc. (Norm)'),
+            ])
+            ordered_labels.extend([
+                'Syst. Unc. (Shape)',
+                'Syst. Unc. (Mixed)',
+                'Syst. Unc. (Norm)',
+            ])
+
+    fontsize = 11.3
+    ncol = 3
+    if breakdown_type == "genie_sb":
+        textloc_x_tmp, textloc_ha_tmp = get_textloc_x(total_mc, bins, textloc)
+        ncol = 2
+        example_signal = Patch(facecolor="black", edgecolor='white', label='Signal')
+        example_background = Patch(facecolor="black", edgecolor='white', hatch='////', linewidth=0, label='Background')
+        box_ax = ax.inset_axes([0.625, 0.66, 0.13, 0.13], transform=ax.transAxes)
+        box_ax.axis('off')
+        mini_legend = Legend(
+            box_ax, handles=[example_signal, example_background],
+            labels=['Signal', 'Background'], loc='center', fontsize=fontsize,
+            frameon=False, borderpad=0.7, handlelength=2.1, handleheight=0.9,
+            ncol=1, fancybox=True, framealpha=1.0)
+        box_ax.add_artist(mini_legend)
+
+        ax.legend(ordered_handles, ordered_labels, loc='upper left',
+                  fontsize=fontsize, frameon=False, ncol=ncol,
+                  bbox_to_anchor=(0.05, 0.9, 0.8, 0.1), mode='expand')
+    else:
+        ax.legend(ordered_handles, ordered_labels, loc='upper left',
+                  fontsize=fontsize, frameon=False, ncol=ncol)
+
+    # y-axis limit
+    if total_mc is not None and np.max(total_mc) > 0:
+        ax.set_ylim(0., ax_ylim_ratio * np.max(total_mc))
+    elif total_data is not None and np.max(total_data) > 0:
+        ax.set_ylim(0., ax_ylim_ratio * np.max(total_data))
+
+    # vertical lines
+    if vline is not None:
+        for v in vline:
+            ymax = ax.get_ylim()[1]
+            ax.vlines(x=v[0], ymin=0, ymax=ymax*0.75, color='red', linestyle='--', zorder=50)
+            if len(v) > 1:
+                direction = v[1]
+                arrow_params = {
+                    'y': ymax * 0.4,
+                    'dx': 0.18 * (ax.get_xlim()[1] - ax.get_xlim()[0]),
+                    'width': 0.01 * (ax.get_ylim()[1] - ax.get_ylim()[0]),
+                    'color': 'red',
+                    'head_width': 0.04 * (ax.get_ylim()[1] - ax.get_ylim()[0]),
+                    'head_length': 0.03 * (ax.get_xlim()[1] - ax.get_xlim()[0]),
+                    'length_includes_head': True
+                }
+                if direction == 0:
+                    ax.arrow(v[0], arrow_params['y'], -arrow_params['dx'], 0,
+                             width=arrow_params['width'],
+                             color=arrow_params['color'],
+                             head_width=arrow_params['head_width'],
+                             head_length=arrow_params['head_length'],
+                             length_includes_head=arrow_params['length_includes_head'],
+                             clip_on=True,
+                             zorder=60)
+                elif direction == 1:
+                    ax.arrow(v[0], arrow_params['y'], arrow_params['dx'], 0,
+                             width=arrow_params['width'],
+                             color=arrow_params['color'],
+                             head_width=arrow_params['head_width'],
+                             head_length=arrow_params['head_length'],
+                             length_includes_head=arrow_params['length_includes_head'],
+                             clip_on=True,
+                             zorder=60)
+
+    # textboxes
+    if total_mc is not None:
+        textloc_x, textloc_ha = get_textloc_x(total_mc, bins, textloc)
+    elif total_data is not None:
+        textloc_x, textloc_ha = get_textloc_x(total_data, bins, textloc)
+    else:
+        textloc_x, textloc_ha = textloc[0], 'left'
+    textloc_y = textloc[1]
+
+    if textchi2 and chi2_val is not None:
+        add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y+0.08, textloc_ha)
+
+    add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
+    if breakdown_type != "pdg":
+        add_genie_version_text(textloc_x, textloc_y-0.06, textloc_ha)
+
+    if var_config is not None and getattr(var_config, "var_save_name", None) == "integrated":
+        format_singlebin_plot()
+
+    if save_fig:
+        plt.savefig(save_name+fig_ext, bbox_inches="tight", dpi=dpi)
+
+    if plot:
+        plt.show()
+    else:
+        plt.close()
+
+    return {"breakdown_type": breakdown_type,
+            "var_name": var_config.var_save_name if var_config is not None else None,
+            "bins": bins,
+            "mc_stack": mc_stack,
+            "total_mc": total_mc,
+            "total_mc_bkgd": total_mc_bkgd,
+            "total_data": total_data,
+            "chi2_val": chi2_val,
+            "p_val": p_val,
+            "ndof": ndof,
+            "chi2_pull": chi2_pull}
+
+
 # ==== histograms ====
 def overlay_hists(breakdown_type="topology",
                   mc_df=None,
@@ -975,7 +1536,36 @@ def overlay_hists(breakdown_type="topology",
                   approval="internal",
                   plot=True,
                   save_fig=False, 
-                  save_name=None): 
+                  save_name=None,
+                  histdata=None,
+                  cosmic_estimate="intime",
+                  show_cosmic_model_unc=True,
+                  verbose_hist=False):
+
+    # If precomputed histogram contents are provided, dispatch to the
+    # histdata-based renderer so that the chunked / aggregated framework
+    # produces the SAME plot as calling overlay_hists with raw dataframes.
+    if histdata is not None:
+        return overlay_hists_from_histdata(
+            histdata,
+            var_config=var_config,
+            plot_labels=plot_labels,
+            ax_ylim_ratio=ax_ylim_ratio,
+            ratio=ratio,
+            density=density,
+            syst=syst,
+            syst_decomp=syst_decomp,
+            textchi2=textchi2,
+            vline=vline,
+            textloc=textloc,
+            approval=approval,
+            plot=plot,
+            save_fig=save_fig,
+            save_name=save_name,
+            cosmic_estimate=cosmic_estimate,
+            show_cosmic_model_unc=show_cosmic_model_unc,
+            verbose_hist=verbose_hist,
+        )
 
     # ==== prepare dfs for plotting ====
 
@@ -1092,7 +1682,7 @@ def overlay_hists(breakdown_type="topology",
 
     else:
         vardf_dirt = None
-        print("No dirt cosmics provided")
+        # print("No dirt cosmics provided")
 
 
    # Data
@@ -1202,6 +1792,11 @@ def overlay_hists(breakdown_type="topology",
                 )
                 bottom += hist_vals
 
+    chi2_val = None
+    p_val = None
+    ndof = None
+    chi2_pull = None
+
     if syst is not None: # list of syst uncertainties 
 
         # TODO: diff between data and mc as additional systematic
@@ -1279,6 +1874,8 @@ def overlay_hists(breakdown_type="topology",
             syst_cov = cov_from_fraccov(syst, total_mc)                        # frac syst -> absolute
             combined_cov = syst_cov + data_stat_cov
             chi2_val, p_val = get_chi2(total_data, total_mc, combined_cov)
+            ndof = len(var_config.bins) - 1
+            chi2_pull = (total_data - total_mc) / np.sqrt(np.maximum(np.diag(combined_cov), 1e-10))
  
     else:
         print("no syst provided")
@@ -1566,8 +2163,76 @@ def overlay_hists(breakdown_type="topology",
             "mc_stack": mc_stack,
             "total_mc": total_mc, 
             "total_mc_bkgd": total_mc_bkgd,
-            "total_data": total_data}
+            "total_data": total_data,
+            "chi2_val": chi2_val,
+            "p_val": p_val,
+            "ndof": ndof,
+            "chi2_pull": chi2_pull}
 
+
+
+def plot_chi2_pull(chi2_pull,
+                   var_config,
+                   chi2_val=None,
+                   p_val=None,
+                   ndof=None,
+                   approval="internal",
+                   textloc=[0.03, 0.92],
+                   plot=True,
+                   save_fig=False,
+                   save_name=None):
+    """
+    Bar chart of per-bin chi2 pull: (Data - MC) / sqrt(diag(combined_cov)).
+    Positive pulls are blue, negative pulls are red.
+    Dashed lines mark ±1σ and ±2σ for visual reference.
+    """
+    bin_centers = var_config.bin_centers
+    bins = var_config.bins
+
+    colors = np.where(chi2_pull >= 0, "steelblue", "tomato")
+
+    fig, ax = plt.subplots(figsize=(8.5, 4))
+    ax.bar(bin_centers, chi2_pull,
+           width=np.diff(bins),
+           color=colors,
+           edgecolor="none",
+           linewidth=0)
+    ax.axhline(0,  color="black", linewidth=1.2)
+    ax.axhline( 1, color="gray",  linewidth=0.9, linestyle="--", alpha=0.8, label=r"$\pm 1\sigma$")
+    ax.axhline(-1, color="gray",  linewidth=0.9, linestyle="--", alpha=0.8)
+    ax.axhline( 2, color="gray",  linewidth=0.6, linestyle=":",  alpha=0.6, label=r"$\pm 2\sigma$")
+    ax.axhline(-2, color="gray",  linewidth=0.6, linestyle=":",  alpha=0.6)
+
+    ax.set_xlim(bins[0], bins[-1])
+    ax.set_xlabel(var_config.var_labels[1])
+    ax.set_ylabel(r"Pull = (Data $-$ MC) / $\sigma$")
+    ax.legend(fontsize=10, frameon=False, loc="lower right")
+    ax.grid(which="major", linestyle="-", linewidth=0.5, alpha=0.5)
+    ax.grid(which="minor", linestyle=":", linewidth=0.4, alpha=0.4)
+    ax.minorticks_on()
+
+    if chi2_val is not None:
+        textloc_x = textloc[0]
+        textloc_y = textloc[1]
+        textloc_ha = "left"
+        ax.text(textloc_x, textloc_y,
+                f"$\\chi^2$/ndof = {chi2_val:.2f}/{ndof} (p-value = {p_val:.2f})",
+                transform=ax.transAxes,
+                ha=textloc_ha, va="top",
+                fontsize=12, color="black")
+
+    add_approval_text(approval, 0.97, 0.97, "right")
+
+    if var_config.var_save_name == "integrated":
+        ax.set_xticks([])
+
+    if save_fig:
+        plt.savefig(save_name + fig_ext, bbox_inches="tight", dpi=dpi)
+
+    if plot:
+        plt.show()
+    else:
+        plt.close()
 
 
 def plot_efficiency(df_dict={}, 
@@ -2359,6 +3024,42 @@ def get_active_volume(detector="SBND"):
         V_SBND = 380 * 380 * 50
 
     return V_SBND
+
+
+def print_sbnd_octant_vertex_ranges(x0, y0, z0):
+    """Print octant labels vs reco vertex (x, y, z) in cm.
+
+    Matches the convention in ``selected_events`` octant labeling: split planes at
+    ``x0``, ``y0``, ``z0``; E/W from ``x``, N/S from ``z``, Top/Bottom from ``y``.
+    SBND: **East** is ``x < x0``; **West** is ``x >= x0``.
+    **North** is ``z < z0``; **South** is ``z >= z0``.
+    **Top** is ``y >= y0``; **Bottom** is ``y < y0``.
+    """
+    xf, yf, zf = float(x0), float(y0), float(z0)
+    xs, ys, zs = "{:.6g}".format(xf), "{:.6g}".format(yf), "{:.6g}".format(zf)
+    print("\n=== SBND octants vs reco vertex [cm]; planes x={}, y={}, z={} ===".format(xs, ys, zs))
+    print("  E/W (TPC sides):  E if x < {} (negative x),    W if x >= {}".format(xs, xs))
+    print("  N/S:              N if z < {} (lower z),    S if z >= {}".format(zs, zs))
+    print("  Top / Bottom:     Bottom if y < {},    Top if y >= {}".format(ys, ys))
+    # x: E → x < x0 ; W → x >= x0.  z: N → z < z0 ; S → z >= z0.
+    rows = [
+        ("W-S-Bottom", "[{}, +inf)".format(xs), "[{}, +inf)".format(zs), "(-inf, {})".format(ys)),
+        ("W-S-Top", "[{}, +inf)".format(xs), "[{}, +inf)".format(zs), "[{}, +inf)".format(ys)),
+        ("W-N-Bottom", "[{}, +inf)".format(xs), "(-inf, {})".format(zs), "(-inf, {})".format(ys)),
+        ("W-N-Top", "[{}, +inf)".format(xs), "(-inf, {})".format(zs), "[{}, +inf)".format(ys)),
+        ("E-S-Bottom", "(-inf, {})".format(xs), "[{}, +inf)".format(zs), "(-inf, {})".format(ys)),
+        ("E-S-Top", "(-inf, {})".format(xs), "[{}, +inf)".format(zs), "[{}, +inf)".format(ys)),
+        ("E-N-Bottom", "(-inf, {})".format(xs), "(-inf, {})".format(zs), "(-inf, {})".format(ys)),
+        ("E-N-Top", "(-inf, {})".format(xs), "(-inf, {})".format(zs), "[{}, +inf)".format(ys)),
+    ]
+    hdr = "{:14}  {:^26}  {:^26}  {:^26}".format("octant", "x range", "z range", "y range")
+    print("\n" + hdr)
+    print(" " + "-" * (len(hdr) + 2))
+    for name, xr, zr, yr in rows:
+        print("{:14}  {:^26}  {:^26}  {:^26}".format(name, xr, zr, yr))
+    print(
+        "\nBoundary vertices: x=x0 uses >= toward West; z=z0 uses >= toward South; y=y0 uses >= toward Top.\n"
+    )
 
 
 def get_xsec_unit(tot_pot, 

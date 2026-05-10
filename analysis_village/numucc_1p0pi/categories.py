@@ -141,7 +141,7 @@ def get_pdg_category(df, ret_cuts=False, print_summary=False):
     cuts = [cut_muon, cut_proton, cut_pion, cut_other]
     return cuts[::-1]
 
-pdg_labels = [r"$\mu${\pm}$",  r"$p$", r"$\pi$", r"Other"]
+pdg_labels = [r"$\mu^{\pm}$", r"$p$", r"$\pi^{\pm}$", r"Other"]
 pdg_colors = ["C0", "C1", "C2", "C3"]
 
 

@@ -17,7 +17,7 @@ def get_n_split(file):
 def print_keys(file):
     with pd.HDFStore(file, mode='r') as store:
         keys = store.keys()       # list of all keys in the file
-        print("Keys:", keys)
+        # print("Keys:", keys)
 
 def load_dfs(file, keys2load, n_max_concat=100):
     out_df_dict = {}

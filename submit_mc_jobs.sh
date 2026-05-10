@@ -1,5 +1,6 @@
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_all-mc-BNB_cosmics -ngrid 5000
-python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/Ar23+/ar23p_respin-xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 1000
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/Ar23+/ar23p_respin-xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 1000
+python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 2000
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/nrowe/cafpyana/new_joseph.list -o sel_all-mc-BNB_cosmics-josephsim -ngrid 1000
 
 
@@ -15,48 +16,51 @@ python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbn
 #       -o sel_2prong_wiremod_bnb_20260211_xtxw_updatecalo -ngrid 1000
 
 
-## GENIE vars
+## GENIE vars (knob lists: makedf/geniesyst.GENIE_KNOB_GROUPS; unified config: sel_mup-geniewgts-knobgroups.py)
+## Single group: prefix with GENIE_KNOB_GROUP=CCQE (valid keys: Ar23p CCQE ZExp MEC RES nonRES DIS Other)
 #inputdir=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics
 #
-## CCQE
-#python run_df_maker.py -c configs/numucc_1p0pi/numucc1p0pi-sel_mup-geniewgts_CCQE.py \
+## CCQE (same physics via unified config + env)
+#GENIE_KNOB_GROUP=CCQE python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-geniewgts-knobgroups.py \
+## or the thin alias config:
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-geniewgts_CCQE.py \
 #    -l "${inputdir}/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list" \
 #    -o sel_mup-wgts_genie_CCQE -ngrid 200
 #
 #
 ## MEC
-#python run_df_maker.py -c configs/numucc_1p0pi/numucc1p0pi-sel_mup-geniewgts_MEC.py \
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-geniewgts_MEC.py \
 #    -l "${inputdir}/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list" \
 #    -o sel_mup-wgts_genie_MEC -ngrid 200
 #
 #
 ## RES
-#python run_df_maker.py -c configs/numucc_1p0pi/numucc1p0pi-sel_mup-geniewgts_RES.py \
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-geniewgts_RES.py \
 #    -l "${inputdir}/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list" \
 #    -o sel_mup-wgts_genie_RES -ngrid 200
 #
 #
 ## nonRES
-#python run_df_maker.py -c configs/numucc_1p0pi/numucc1p0pi-sel_mup-geniewgts_nonRES.py \
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-geniewgts_nonRES.py \
 #    -l "${inputdir}/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list" \
 #    -o sel_mup-wgts_genie_nonRES -ngrid 200
 #
 #
 ## DIS
-#python run_df_maker.py -c configs/numucc_1p0pi/numucc1p0pi-sel_mup-geniewgts_DIS.py \
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-geniewgts_DIS.py \
 #    -l "${inputdir}/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list" \
 #    -o sel_mup-wgts_genie_DIS -ngrid 200
 #
 #
 ## Other
-#python run_df_maker.py -c configs/numucc_1p0pi/numucc1p0pi-sel_mup-geniewgts_Other.py \
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-geniewgts_Other.py \
 #    -l "${inputdir}/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list" \
 #    -o sel_mup-wgts_genie_Other -ngrid 200
 #
 #
 ## AR23
 #inputdir=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/Ar23+
-#python run_df_maker.py -c configs/numucc_1p0pi/numucc1p0pi-sel_mup-geniewgts_Ar23p.py \
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-geniewgts_Ar23p.py \
 #    -l "${inputdir}/ar23p_respin-xrootd.list" \
 #    -o sel_mup-wgts_genie_AR23p -ngrid 200
 

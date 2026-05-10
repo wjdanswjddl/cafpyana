@@ -256,6 +256,18 @@ other_genie_systematics = [
 'GENIEReWeight_SBN_v1_multisigma_EtaNCEL',
 ]
 
+# Registry for grouped GENIE knob lists (used by numucc configs / build_genie_knobgroup_config).
+GENIE_KNOB_GROUPS = {
+    "Ar23p": ar23p_genie_systematics,
+    "CCQE": qe_genie_systematics,
+    "ZExp": zexp_genie_systematics,
+    "MEC": mec_genie_systematics,
+    "RES": res_genie_systematics,
+    "nonRES": nonres_genie_systematics,
+    "DIS": dis_genie_systematics,
+    "Other": other_genie_systematics,
+}
+
 
 def geniesyst(f, nuind, multisim_nuniv=100, slim=False, systematics=None):
     if systematics is None:

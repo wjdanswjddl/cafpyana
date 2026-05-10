@@ -8,7 +8,7 @@ for tag in "${chunktags[@]}"; do
 
     echo "Processing chunk: ${tag}"
 
-    python run_df_maker.py -c configs/numucc_1p0pi/sel_all.py \
+    python run_df_maker.py -c configs/numucc_1p0pi/sel_all_comparison.py \
         -l "${chunkinput}" \
         -o "${outputdir}/all${tag}"
 done
