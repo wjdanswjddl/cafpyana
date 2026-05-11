@@ -1,31 +1,34 @@
 #!/usr/bin/env python
 """Cosmic background systematic from offbeam data vs intime MC (unisim by default).
 
-Loads **only** offbeam and intime samples — no neutrino MC multisim weights.
+**Chunked workflow** (preferred; matches ``syst_multisim_chunk`` / ``syst_detvar_chunk``):
+
+1. Map: ``syst_cosmics_chunk.py`` per ``.df`` from ``dataset_locations.iter_cosmics_chunk_df_paths``
+   (offbeam and intime separately) → ``cosmics__<sample>__<stem>.pkl``.
+2. Reduce: ``syst_cosmics_aggregate.py --chunks_dir …`` merges pickles, applies global gate
+   scaling ``sum(offbeam gates)/sum(intime gates)``, builds covariances, writes
+   ``<syst-disk>/Cosmics/cosmics_syst_dict.npz``.
+
+**In-memory run** (``run-ana``): single ``get_ana_dfs(option='cosmics_systs')`` load for
+notebooks — not for large-scale production I/O.
 
 For each kinematic variable (default ``--cv-mode offbeam``):
 
   * **CV**: histogram of **offbeam data** (counts per bin).
-  * **Single unisim variation**: histogram of **intime MC** with ``pot_scale`` applied (same
-    gates scaling as ``files_config.get_ana_dfs(option=\"cosmics_systs\")``).
+  * **Single unisim variation**: histogram of **intime MC** with gate scaling applied.
 
-Covariance uses ``pyanalib.covariance.get_covariance_matrix`` with one alternate universe
-row (intime) relative to the CV (offbeam). Optional modes:
+Covariance uses ``pyanalib.covariance.get_covariance_matrix``. Optional ``--cv-mode``:
+``mean`` | ``intime`` | ``offbeam``.
 
-  * ``mean``: two universe rows (offbeam, intime) with CV = bin-wise average (legacy bracket).
-  * ``intime``: CV = intime, single variation = offbeam.
+Examples::
 
-Outputs ``cosmics_syst_dict.npz`` keyed by ``var_save_name``, inner key ``Cosmics`` (compatible
-with ``utils.get_syst_unc``): top-level ``cov`` / ``cov_frac`` / ``corr`` plus ``univ_offbeam``
-and ``univ_intime`` histograms for bookkeeping.
-
-Example::
-
+    python syst_cosmics_chunk.py --sample offbeam --df_file PATH.df --out_dir CHUNKS
+    python syst_cosmics_chunk.py --sample intime --df_file PATH.df --out_dir CHUNKS
     export NUMUCC_SYST_DISK_ROOT=/path/to/syst_disk
-    python get_systematics_cosmics.py
+    python syst_cosmics_aggregate.py --chunks_dir CHUNKS --syst-disk-root $NUMUCC_SYST_DISK_ROOT
 
-Or pass ``--syst-disk-root`` explicitly; plots and ``Cosmics/cosmics_syst_dict.npz`` always go under
-``<root>/Cosmics/`` (see ``syst_disk_layout``).
+    # one-shot in-memory (same scaling as files_config cosmics_systs)
+    python get_systematics_cosmics.py run-ana --syst-disk-root $NUMUCC_SYST_DISK_ROOT
 
 """
 from __future__ import annotations
@@ -37,7 +40,7 @@ import sys
 import traceback
 from datetime import datetime
 from os import makedirs, path
-from typing import Any, Dict, List, Mapping, MutableMapping, Sequence, Tuple
+from typing import Any, Dict, Mapping, MutableMapping, Tuple
 
 import matplotlib
 
@@ -57,21 +60,11 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from pyanalib.covariance import get_covariance_matrix  # noqa: E402
-from pyanalib.split_df_helpers import generate_tags, load_and_concat_mc_dfs  # noqa: E402
 
-from analysis_village.numucc_1p0pi.files_config import (  # noqa: E402
-    file_dir as FILES_DEFAULT_FILE_DIR,
-    get_ana_dfs,
-    n_max_concat as FILES_DEFAULT_N_MAX_CONCAT,
-)
+from analysis_village.numucc_1p0pi.files_config import get_ana_dfs  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_disk_layout import SUB_COSMICS, SYST_DISK_ENV  # noqa: E402
+from analysis_village.numucc_1p0pi.syst_cosmics_common import build_variable_configs  # noqa: E402
 from analysis_village.numucc_1p0pi.utils import dpi, fig_ext, plot_heatmap, plot_univ_hists  # noqa: E402
-from analysis_village.numucc_1p0pi.variable_configs import VariableConfig  # noqa: E402
-from analysis_village.numucc_1p0pi.final_selected_evt_vars import (  # noqa: E402
-    CORE_SELECTED_EVT_VARIABLE_CONFIGS,
-    with_final_selected_evt_variables,
-)
-
 try:
     plt.style.use(path.join(path.dirname(__file__), "presentation.mplstyle"))
 except Exception:
@@ -89,56 +82,6 @@ def _sanitize_matrix_pack(pack: Mapping[str, np.ndarray]) -> Dict[str, np.ndarra
     corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
     np.fill_diagonal(corr, 1.0)
     return {"cov": cov, "cov_frac": cov_frac, "corr": corr}
-
-
-def build_variable_configs(arg_vars: Sequence[str] | None) -> List[Any]:
-    registry = {
-        "integrated": VariableConfig.all_events,
-        "vertex_x": VariableConfig.vertex_x,
-        "vertex_y": VariableConfig.vertex_y,
-        "vertex_z": VariableConfig.vertex_z,
-        "muon-p": VariableConfig.muon_momentum,
-        "muon-dir_z": VariableConfig.muon_direction,
-        "muon-dir_x": VariableConfig.muon_direction_x,
-        "muon-dir_y": VariableConfig.muon_direction_y,
-        "muon-dir_phi": VariableConfig.muon_direction_phi,
-        "proton-p": VariableConfig.proton_momentum,
-        "proton-dir_z": VariableConfig.proton_direction,
-        "proton-dir_x": VariableConfig.proton_direction_x,
-        "proton-dir_y": VariableConfig.proton_direction_y,
-        "proton-dir_phi": VariableConfig.proton_direction_phi,
-        "muon-end_x": VariableConfig.muon_end_x,
-        "muon-end_y": VariableConfig.muon_end_y,
-        "muon-end_z": VariableConfig.muon_end_z,
-        "opening_angle": VariableConfig.opening_angle,
-        "tki-del_alpha": VariableConfig.tki_del_alpha,
-        "tki-del_phi": VariableConfig.tki_del_phi,
-        "tki-del_Tp": VariableConfig.tki_del_Tp,
-        "tki-del_p": VariableConfig.tki_del_p,
-        "tki-del_Tp_x": VariableConfig.tki_del_Tp_x,
-        "tki-del_Tp_y": VariableConfig.tki_del_Tp_y,
-    }
-    if arg_vars:
-        out = []
-        for name in arg_vars:
-            key = name.strip()
-            if key not in registry:
-                raise ValueError(f"Unknown variable key '{key}'. Choices: {sorted(registry)}")
-            out.append(registry[key]())
-        return out
-    return with_final_selected_evt_variables(
-        list(CORE_SELECTED_EVT_VARIABLE_CONFIGS)
-        + [
-            VariableConfig.vertex_x(),
-            VariableConfig.vertex_y(),
-            VariableConfig.vertex_z(),
-            VariableConfig.muon_direction_x(),
-            VariableConfig.muon_direction_y(),
-            VariableConfig.proton_direction_x(),
-            VariableConfig.proton_direction_y(),
-            VariableConfig.opening_angle(),
-        ]
-    )
 
 
 def cosmic_histograms(
@@ -199,15 +142,17 @@ def _plot_matrices(
         )
 
 
-def process_variable_cosmics(
-    offbeam_df: pd.DataFrame,
-    intime_df: pd.DataFrame,
+def process_variable_cosmics_from_histograms(
+    h_off: np.ndarray,
+    h_in: np.ndarray,
     var_config: Any,
     cv_mode: str,
     save_fig_dir: str,
     save_plots: bool,
 ) -> Dict[str, Any]:
-    h_off, h_in = cosmic_histograms(offbeam_df, intime_df, var_config)
+    """Covariance + optional plots from precomputed offbeam / intime histograms."""
+    h_off = np.asarray(h_off, dtype=float)
+    h_in = np.asarray(h_in, dtype=float)
     univ_events, cv_events = univ_stack_and_cv(h_off, h_in, cv_mode)
 
     if save_plots:
@@ -324,6 +269,20 @@ def process_variable_cosmics(
     }
 
 
+def process_variable_cosmics(
+    offbeam_df: pd.DataFrame,
+    intime_df: pd.DataFrame,
+    var_config: Any,
+    cv_mode: str,
+    save_fig_dir: str,
+    save_plots: bool,
+) -> Dict[str, Any]:
+    h_off, h_in = cosmic_histograms(offbeam_df, intime_df, var_config)
+    return process_variable_cosmics_from_histograms(
+        h_off, h_in, var_config, cv_mode, save_fig_dir, save_plots
+    )
+
+
 def save_cosmics_npz(syst_dict_by_var: Mapping[str, Any], out_path: str) -> None:
     np.savez_compressed(out_path, **syst_dict_by_var)
     logging.info("Wrote %s", out_path)
@@ -334,86 +293,7 @@ def load_cosmic_samples_ana() -> Tuple[pd.DataFrame, pd.DataFrame]:
     return dfs["data"], dfs["mc"]
 
 
-def load_cosmic_samples_concat(
-    file_dir: str,
-    offbeam_chunk_tags: List[str],
-    intime_chunk_tags: List[str],
-    n_max_concat: int,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    data_dfs = load_and_concat_mc_dfs(
-        file_dir=file_dir,
-        chunk_tags=offbeam_chunk_tags,
-        df_tag="",
-        keys2load=["evt", "hdr"],
-        n_max_concat=n_max_concat,
-        sub_dir="data",
-        sample_dir="OffBeam",
-    )
-    data_hdr = data_dfs["hdr"]
-    data_evt = data_dfs["evt"]
-    data_gates = data_hdr[data_hdr["first_in_subrun"] == 1]["noffbeambnb"].sum()
-
-    mc_dfs = load_and_concat_mc_dfs(
-        file_dir=file_dir,
-        chunk_tags=intime_chunk_tags,
-        df_tag="",
-        keys2load=["evt", "hdr"],
-        n_max_concat=n_max_concat,
-        sub_dir="MC",
-        sample_dir="intime",
-    )
-    mc_hdr = mc_dfs["hdr"]
-    mc_evt = mc_dfs["evt"]
-    mc_gates = mc_hdr[mc_hdr["first_in_subrun"] == 1]["ngenevt"].sum()
-
-    scale = float(data_gates / mc_gates) if mc_gates else 1.0
-    logging.info("Cosmic gates scale data/mc = %.6f (offbeam %.4e / intime %.4e)", scale, data_gates, mc_gates)
-    mc_evt = mc_evt.copy()
-    mc_evt["pot_scale"] = scale
-    data_evt = data_evt.copy()
-    data_evt["pot_scale"] = 1.0
-    return data_evt, mc_evt
-
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument(
-        "--out-tag",
-        default=None,
-        help="Optional label for logs only (default: today); output path is always <syst-disk>/Cosmics/.",
-    )
-    p.add_argument(
-        "--syst-disk-root",
-        default=None,
-        help=(
-            "Syst disk layout root; writes plots + NPZ under <root>/%s/. "
-            "If omitted, uses environment variable %s." % (SUB_COSMICS, SYST_DISK_ENV)
-        ),
-    )
-    p.add_argument("--error-log", default=None, help="Per-variable failure log path")
-    p.add_argument("--no-plots", action="store_true")
-    p.add_argument("--no-save-npz", action="store_true")
-    p.add_argument(
-        "--cv-mode",
-        choices=("mean", "intime", "offbeam"),
-        default="offbeam",
-        help="offbeam: CV=offbeam, one variation=intime (default); intime: swapped; mean: 2 rows + CV=avg",
-    )
-    p.add_argument("--data-source", choices=("ana", "concat"), default="ana")
-    p.add_argument("--file-dir", default=FILES_DEFAULT_FILE_DIR)
-    p.add_argument("--n-max-concat", type=int, default=FILES_DEFAULT_N_MAX_CONCAT)
-    p.add_argument(
-        "--offbeam-chunk-tags",
-        default=None,
-        help="Comma-separated tags for OffBeam concat (default: generate_tags('ad'))",
-    )
-    p.add_argument(
-        "--intime-chunk-tags",
-        default=None,
-        help="Comma-separated tags for intime concat (default: generate_tags('au'))",
-    )
-    p.add_argument("--vars", nargs="*", default=None)
-    args = p.parse_args()
+def _parse_syst_disk_root(p: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     root = args.syst_disk_root or os.environ.get(SYST_DISK_ENV)
     if not root:
         p.error(
@@ -421,11 +301,48 @@ def parse_args() -> argparse.Namespace:
             % (SYST_DISK_ENV, SUB_COSMICS)
         )
     args.syst_disk_root = path.abspath(path.expanduser(root.rstrip("/")))
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pr = sub.add_parser("run-ana", help="Single get_ana_dfs('cosmics_systs') load → Cosmics NPZ")
+    pr.add_argument(
+        "--out-tag",
+        default=None,
+        help="Optional label for logs only (default: today).",
+    )
+    pr.add_argument("--syst-disk-root", default=None)
+    pr.add_argument("--error-log", default=None)
+    pr.add_argument("--no-plots", action="store_true")
+    pr.add_argument("--no-save-npz", action="store_true")
+    pr.add_argument(
+        "--cv-mode",
+        choices=("mean", "intime", "offbeam"),
+        default="offbeam",
+    )
+    pr.add_argument("--vars", nargs="*", default=None)
+
+    pa = sub.add_parser(
+        "aggregate",
+        help="Merge chunk pickles (same as syst_cosmics_aggregate.py).",
+    )
+    pa.add_argument("--chunks-dir", required=True, dest="chunks_dir")
+    pa.add_argument("--syst-disk-root", default=None)
+    pa.add_argument("--out-tag", default=None)
+    pa.add_argument("--error-log", default=None)
+    pa.add_argument("--no-plots", action="store_true")
+    pa.add_argument("--no-save-npz", action="store_true")
+    pa.add_argument("--cv-mode", choices=("mean", "intime", "offbeam"), default="offbeam")
+    pa.add_argument("--vars", nargs="*", default=None)
+
+    args = p.parse_args()
+    _parse_syst_disk_root(p, args)
     return args
 
 
-def main() -> None:
-    args = parse_args()
+def main_run_ana(args: argparse.Namespace) -> None:
     tag = args.out_tag or datetime.now().strftime("%Y%m%d")
     save_fig_dir = path.join(args.syst_disk_root, SUB_COSMICS)
     makedirs(save_fig_dir, exist_ok=True)
@@ -442,23 +359,7 @@ def main() -> None:
     var_configs = build_variable_configs(args.vars)
     save_plots = not args.no_plots
 
-    if args.data_source == "ana":
-        offbeam_df, intime_df = load_cosmic_samples_ana()
-    else:
-        ot = (
-            [t.strip() for t in args.offbeam_chunk_tags.split(",") if t.strip()]
-            if args.offbeam_chunk_tags
-            else generate_tags("ad")
-        )
-        it = (
-            [t.strip() for t in args.intime_chunk_tags.split(",") if t.strip()]
-            if args.intime_chunk_tags
-            else generate_tags("au")
-        )
-        offbeam_df, intime_df = load_cosmic_samples_concat(
-            args.file_dir, ot, it, args.n_max_concat
-        )
-
+    offbeam_df, intime_df = load_cosmic_samples_ana()
     logger.info(
         "Loaded offbeam evt=%d intime evt=%d (cv-mode=%s)",
         len(offbeam_df),
@@ -488,11 +389,27 @@ def main() -> None:
             )
 
     if not args.no_save_npz and syst_dict:
-        # Filename fixed by syst_disk_layout.Cosmics
         save_cosmics_npz(syst_dict, path.join(save_fig_dir, "cosmics_syst_dict.npz"))
 
     logger.info("Done -> %s (log %s)", save_fig_dir, log_path)
 
 
+def main() -> None:
+    args = parse_args()
+    if args.cmd == "run-ana":
+        main_run_ana(args)
+    elif args.cmd == "aggregate":
+        from analysis_village.numucc_1p0pi.scripts.syst_cosmics_aggregate import run_aggregate
+
+        run_aggregate(args)
+    else:
+        raise SystemExit("unknown cmd %r" % (args.cmd,))
+
+
 if __name__ == "__main__":
+    _av = sys.argv[1:]
+    if not _av:
+        sys.argv.append("run-ana")
+    elif _av[0] not in ("run-ana", "aggregate") and _av[0].startswith("-"):
+        sys.argv.insert(1, "run-ana")
     main()

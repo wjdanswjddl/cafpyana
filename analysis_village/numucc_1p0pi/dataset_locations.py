@@ -8,6 +8,10 @@ Edit paths **here only** so drivers stay thin:
 - ``syst_multisim_aggregate.py`` — merge map outputs into a ``syst_disk_layout`` tree.
 - ``syst_detvar_chunk.py`` / ``syst_detvar_aggregate.py`` — WireMod + calo variants;
   input globs are listed in ``DETVAR_WIREMOD_GLOBS`` / :func:`iter_detvar_chunk_jobs`.
+- ``get_systematics_genie.py`` / ``run_syst_genie_chunked.sh`` — GENIE reweights: one glob per
+  knob **group** (``GENIE_GROUP_GLOBS``) / :func:`iter_genie_chunk_map_tasks`.
+- ``run_syst_cosmics_chunked.sh`` — ``syst_cosmics_chunk.py`` / ``syst_cosmics_aggregate.py``;
+  globs reuse ``EVENT_SELECTION_GLOBS`` ``offbeam`` / ``intime``.
 
 **Naming:** *HDF splits*, *map shards* (one ``.df`` file), and *exposure batches* (time-ordered
 data slices for staged access) are different concepts — see ``exposure_access``.
@@ -28,13 +32,17 @@ import os
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+from makedf.geniesyst import *
+
 # -----------------------------------------------------------------------------
 # Base release (Spring Gen 1 — edit for other campaigns)
 # -----------------------------------------------------------------------------
 SPRING_GEN1_ROOT = Path(
     os.environ.get(
         "NUMUCC_SPRING_GEN1_ROOT",
-        "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09",
+        "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs",
     )
 )
 
@@ -55,6 +63,28 @@ EVENT_SELECTION_GLOBS: Dict[str, str] = {
     "intime": str(SPRING_GEN1_ROOT / "MC/intime/*_all.df"),
     "offbeam": str(SPRING_GEN1_ROOT / "data/OffBeam/*_all.df"),
     "dirt": str(SPRING_GEN1_ROOT / "MC/lowE/*_all.df"),
+}
+
+# -----------------------------------------------------------------------------
+# Selected-events (final selection) bundles — used by selected_events*.py
+# Keys: mc, data, intime, dirt
+#
+# These are produced by the "updated workflow" which writes timestamped directories
+# like: 2026_05_01_102310__sel_mup-data-BNB_cosmics/sel_mup-data-BNB_cosmics_*.df
+# -----------------------------------------------------------------------------
+#
+# By default we target the ``sel_mup`` campaign; override via:
+#   export NUMUCC_SELECTED_EVENTS_TAG=sel_2prong
+# (or any other selection tag that matches the directory naming convention).
+SELECTED_EVENTS_TAG = os.environ.get("NUMUCC_SELECTED_EVENTS_TAG", "sel_mup")
+
+SELECTED_EVENTS_GLOBS: Dict[str, str] = {
+    "mc": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-mc-BNB_cosmics/*.df"),
+    "data": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-data-BNB_cosmics/*.df"),
+    # "intime" here means the off-beam light/offbeam sample used as the cosmics estimate
+    "intime": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-data-OffBeamLight/*.df"),
+    # optional (some workflows don't produce it for selected-events plots)
+    "dirt": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-mc-dirt/*.df"),
 }
 
 # -----------------------------------------------------------------------------
@@ -85,10 +115,10 @@ MULTISIM_MC_GLOB_SEL_ALL = MULTISIM_SYST_GLOBS_SEL_ALL["Flux"]
 # Detvar (WireMod + calo unisim) — typical chunk input dirs / globs
 # -----------------------------------------------------------------------------
 DETVAR_DF_GLOB_EXAMPLE_WIREMOD_YZ = str(
-    SPRING_GEN1_ROOT / "MC/BNB_cosmics/wiremod_yz/*.df"
+    SPRING_GEN1_ROOT / "2026_05_09_223419__sel_2prong-mc-BNB_cosmics-WireModYZ/*.df"
 )
 DETVAR_DF_GLOB_EXAMPLE_WIREMOD_XTXW = str(
-    SPRING_GEN1_ROOT / "MC/BNB_cosmics/wiremod_xtxw/*.df"
+    SPRING_GEN1_ROOT / "2026_05_09_223419__sel_2prong-mc-BNB_cosmics-WireModXTXW/*.df"
 )
 
 # -----------------------------------------------------------------------------
@@ -99,6 +129,37 @@ DETVAR_WIREMOD_GLOBS: List[Tuple[str, str]] = [
     ("wiremod_xtxw", DETVAR_DF_GLOB_EXAMPLE_WIREMOD_XTXW),
 ]
 
+# -----------------------------------------------------------------------------
+# GENIE reweight samples — one glob per **group** (same layout as monolithic drivers).
+# CCQE lives under ``genie_wgts-CCQE`` with ``*_geniewgts_CCQE.df`` filenames; other
+# groups use ``genie_wgts-<Tag>/*.df``.
+# -----------------------------------------------------------------------------
+GENIE_GROUP_ORDER: Tuple[str, ...] = ("CCQE", "MEC", "RES", "DIS", "Other")
+
+GENIE_GROUP_GLOBS: Dict[str, str] = {
+    "CCQE": str(SPRING_GEN1_ROOT / "2026_05_10_235559__sel_mup-wgts_genie_CCQE/*.df"),
+    "MEC": str(SPRING_GEN1_ROOT / "2026_05_10_235711__sel_mup-wgts_genie_MEC/*.df"),
+    "RES": str(SPRING_GEN1_ROOT / "2026_05_10_235751__sel_mup-wgts_genie_RES/*.df"),
+    # "nonRES": str(SPRING_GEN1_ROOT / "2026_05_10_235831__sel_mup-wgts_genie_nonRES/*.df"),
+    "DIS": str(SPRING_GEN1_ROOT / "2026_05_10_235943__sel_mup-wgts_genie_DIS/*.df"),
+    "Other": str(SPRING_GEN1_ROOT / "2026_05_11_000024__sel_mup-wgts_genie_Other/*.df"),
+    # "Ar23p": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/genie_wgts-Ar23p/*.df"),
+}
+
+
+GENIE_GROUP_KNOBS: Dict[str, List[str]] = dict(
+    zip(
+        GENIE_GROUP_ORDER,
+        [
+            list(qe_genie_systematics),
+            list(mec_genie_systematics),
+            list(res_genie_systematics),
+            list(dis_genie_systematics),
+            list(other_genie_systematics),
+        ],
+    )
+)
+
 
 def iter_detvar_chunk_jobs(
     wiremod_globs: Optional[Sequence[Tuple[str, str]]] = None,
@@ -108,6 +169,38 @@ def iter_detvar_chunk_jobs(
     for tag, pattern in pairs:
         for p in sorted_glob(pattern):
             yield tag, p
+
+
+def iter_genie_group_df_paths(
+    genie_group: str,
+    group_globs: Optional[Dict[str, str]] = None,
+) -> Iterator[str]:
+    """Yield sorted ``.df`` paths for one GENIE knob group (see ``GENIE_GROUP_GLOBS``)."""
+    gmap = group_globs if group_globs is not None else GENIE_GROUP_GLOBS
+    if genie_group not in gmap:
+        raise KeyError(
+            "unknown genie_group %r; expected one of %s" % (genie_group, tuple(gmap.keys()))
+        )
+    yield from sorted_glob(gmap[genie_group])
+
+
+def iter_genie_chunk_map_tasks(
+    group_globs: Optional[Dict[str, str]] = None,
+) -> Iterator[Tuple[str, str]]:
+    """Yield ``(genie_group_tag, df_path)`` for ``get_systematics_genie.py chunk-map``."""
+    gmap = group_globs if group_globs is not None else GENIE_GROUP_GLOBS
+    for tag in GENIE_GROUP_ORDER:
+        if tag not in gmap:
+            continue
+        for p in sorted_glob(gmap[tag]):
+            yield tag, p
+
+
+def iter_cosmics_chunk_df_paths(sample: str) -> Iterator[str]:
+    """Yield ``.df`` paths for cosmics chunk map (``sample`` is ``offbeam`` or ``intime``)."""
+    if sample not in ("offbeam", "intime"):
+        raise ValueError("sample must be 'offbeam' or 'intime', got %r" % sample)
+    yield from iter_event_selection_df_paths(sample)
 
 
 # -----------------------------------------------------------------------------
@@ -123,6 +216,32 @@ def default_event_selection_work_root(tag: str | None = None) -> Path:
     return Path(
         f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/"
         f"event_selection-chunked-{t}"
+    )
+
+
+def default_genie_syst_work_root(tag: str | None = None) -> Path:
+    from datetime import datetime
+
+    t = tag or datetime.now().strftime("%Y%m%d")
+    base = os.environ.get("NUMUCC_GENIE_SYST_WORK_BASE")
+    if base:
+        return Path(base)
+    return Path(
+        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/"
+        f"genie_syst-chunked-{t}"
+    )
+
+
+def default_cosmics_syst_work_root(tag: str | None = None) -> Path:
+    from datetime import datetime
+
+    t = tag or datetime.now().strftime("%Y%m%d")
+    base = os.environ.get("NUMUCC_COSMICS_SYST_WORK_BASE")
+    if base:
+        return Path(base)
+    return Path(
+        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/"
+        f"cosmics_syst-chunked-{t}"
     )
 
 
@@ -241,6 +360,17 @@ def summary_lines() -> Iterable[str]:
     for tag, pat in DETVAR_WIREMOD_GLOBS:
         n = sum(1 for _ in sorted_glob(pat))
         yield "  %s: %d file(s)  glob=%s" % (tag, n, pat)
+    yield ""
+    yield "## genie (knob groups)"
+    for tag, pat in GENIE_GROUP_GLOBS.items():
+        n = len(list(iter_genie_group_df_paths(tag)))
+        yield "  %s: %d file(s)  glob=%s" % (tag, n, pat)
+    yield ""
+    yield "## cosmics chunk inputs (offbeam / intime)"
+    for sample in ("offbeam", "intime"):
+        pat = EVENT_SELECTION_GLOBS[sample]
+        n = len(sorted_glob(pat))
+        yield "  %s: %d file(s)  glob=%s" % (sample, n, pat)
 
 
 def print_summary() -> None:

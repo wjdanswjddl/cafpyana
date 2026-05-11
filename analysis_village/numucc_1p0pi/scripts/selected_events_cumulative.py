@@ -34,7 +34,7 @@ from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
     with_final_selected_evt_variables,
 )
 from analysis_village.numucc_1p0pi.utils import *
-from analysis_village.numucc_1p0pi.files_config import *
+from analysis_village.numucc_1p0pi.dataset_locations import SELECTED_EVENTS_GLOBS, sorted_glob
 plt.style.use("presentation.mplstyle")
 
 # turn off PerformanceWarning 
@@ -359,16 +359,81 @@ var_configs_phi = with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIA
 # ============================================================
 
 t_load_start = time.time()
-dfs = get_ana_dfs(option="selected_events")
-mc_evt_df     = dfs["mc"]
-mc_hdr_df     = dfs["mc_hdr"]
-data_evt_df_   = dfs["data"]
-data_hdr_df_   = dfs["data_hdr"]
-intime_evt_df = dfs["intime"]
-intime_hdr_df = dfs["intime_hdr"]
-dirt_evt_df   = dfs["dirt"]
-dirt_hdr_df   = dfs["dirt_hdr"]
-print(f"[I/O] get_ana_dfs done in {time.time() - t_load_start:.1f}s")
+
+def _concat_hdf_splits_from_files(files, keys2load, n_max_splits=999):
+    """Load + concat split-key HDF shards while keeping __ntuple globally unique.
+
+    This mirrors the non-legacy directory-based workflow used by notebooks/scripts
+    via pyanalib.split_df_helpers_new.dfs_from_dir, but takes an explicit file list.
+    """
+    if not files:
+        return {k: pd.DataFrame() for k in keys2load}
+
+    df_lists = {k: [] for k in keys2load}
+    ntuple_offset = np.int64(0)
+
+    for f in files:
+        try:
+            this = load_dfs(f, keys2load, n_max_concat=n_max_splits)
+        except Exception as e:
+            print(f"[I/O] WARNING: failed to load {f}: {e}")
+            continue
+
+        # Dense remapping prevents ntuple_offset from exploding with raw index magnitude.
+        ref_df = this[keys2load[0]]
+        if isinstance(ref_df.index, pd.MultiIndex):
+            raw_ntuple_vals = ref_df.index.get_level_values(0)
+        else:
+            raw_ntuple_vals = ref_df.index
+        unique_ntuples = np.array(sorted(raw_ntuple_vals.unique()))
+        ntuple_remap = {old: np.int64(ntuple_offset + i) for i, old in enumerate(unique_ntuples)}
+        n_unique = np.int64(len(unique_ntuples))
+
+        for k in keys2load:
+            df = this[k]
+            if isinstance(df.index, pd.MultiIndex):
+                names = df.index.names
+                idx_loc = names.index("__ntuple") if "__ntuple" in names else 0
+                new_tuples = []
+                for tup in df.index:
+                    tup = list(tup)
+                    tup[idx_loc] = ntuple_remap[tup[idx_loc]]
+                    new_tuples.append(tuple(tup))
+                df.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
+            else:
+                if df.index.name == "__ntuple":
+                    df.index = df.index.map(ntuple_remap)
+            df_lists[k].append(df)
+
+        ntuple_offset += n_unique
+
+    return {k: pd.concat(df_lists[k], axis=0, sort=False) if df_lists[k] else pd.DataFrame()
+            for k in keys2load}
+
+
+def _load_selected_events_sample(sample, keys2load=("hdr", "evt")):
+    if sample not in SELECTED_EVENTS_GLOBS:
+        raise KeyError(f"unknown sample {sample!r}; expected one of {tuple(SELECTED_EVENTS_GLOBS)}")
+    pattern = SELECTED_EVENTS_GLOBS[sample]
+    files = sorted_glob(pattern)
+    if not files:
+        print(f"[I/O] WARNING: sample={sample} matched 0 files for glob: {pattern}")
+    else:
+        print(f"[I/O] sample={sample} matched {len(files)} files")
+    return _concat_hdf_splits_from_files(files, list(keys2load), n_max_splits=999)
+
+
+mc_dfs = _load_selected_events_sample("mc", keys2load=("hdr", "evt"))
+data_dfs = _load_selected_events_sample("data", keys2load=("hdr", "evt"))
+intime_dfs = _load_selected_events_sample("intime", keys2load=("hdr", "evt"))
+dirt_dfs = _load_selected_events_sample("dirt", keys2load=("hdr", "evt"))
+
+mc_hdr_df, mc_evt_df = mc_dfs["hdr"], mc_dfs["evt"]
+data_hdr_df_, data_evt_df_ = data_dfs["hdr"], data_dfs["evt"]
+intime_hdr_df, intime_evt_df = intime_dfs["hdr"], intime_dfs["evt"]
+dirt_hdr_df, dirt_evt_df = dirt_dfs["hdr"], dirt_dfs["evt"]
+
+print(f"[I/O] selected-events dfs loaded in {time.time() - t_load_start:.1f}s")
 
 # Phi columns (added once on full dfs)
 mc_evt_df[('mu', 'pfp', 'trk', 'phi', '', '', '')] = np.degrees(np.arctan2(mc_evt_df['mu', 'pfp', 'trk', 'dir', 'x', '', ''], mc_evt_df['mu', 'pfp', 'trk', 'dir', 'y', '', '']))

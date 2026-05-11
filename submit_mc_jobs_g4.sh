@@ -3,9 +3,9 @@ list="${inputdir}/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox
 
 # All three categories in one .df
 python run_df_maker.py \
-    -c configs/numucc_1p0pi/sel_mup-fluxwgts-knobgroups.py \
+    -c configs/numucc_1p0pi/sel_mup-g4wgts.py \
     -l "$list" \
-    -o sel_mup-wgts_flux \
+    -o sel_mup-wgts_g4 \
     -ngrid 2000
 
 # One category (same as old thin configs)

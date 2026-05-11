@@ -8,4 +8,4 @@ python run_df_maker.py \
   -c configs/numucc_1p0pi/sel_mup-mcstatwgts.py \
   -l "$list" \
   -o sel_mup-wgts_mcstat \
-  -ngrid 1000
+  -ngrid 300
