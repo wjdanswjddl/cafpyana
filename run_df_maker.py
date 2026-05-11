@@ -1,5 +1,8 @@
 #!/usr/bin/env python3 
-import os,sys,time
+import os
+import sys
+import time
+import shlex
 import datetime
 import pathlib
 #from TimeTools import *
@@ -27,6 +30,11 @@ Examples:
 
   -- Note!!
   Output df files are sent to /pnfs/<exp>/scratch/users/<User>/cafpyana_out in Grid mode
+
+  -- Knob-group configs (GENIE / flux)
+  When using configs that read GENIE_KNOB_GROUP or FLUX_GROUP from the environment, set those
+  variables in the shell before invoking run_df_maker; they are forwarded into each grid worker
+  script so single-group jobs (HDF keys evt, mcnu, hdr) work under -ngrid.
 """,
     formatter_class=argparse.RawTextHelpFormatter  # Ensures line breaks are preserved
 )
@@ -151,6 +159,12 @@ def run_grid(inputfiles):
         out = open(MasterJobDir + '/run_%s.sh'%(i_flist),'w')
         out.write('#!/bin/bash\n')
         out.write('rpm -q libuuid-devel\n')
+        # Worker jobs do not inherit the submit-shell environment; configs that branch on e.g.
+        # GENIE_KNOB_GROUP / FLUX_GROUP must see the same values as the submit host.
+        for _env in ("GENIE_KNOB_GROUP", "FLUX_GROUP"):
+            _v = os.environ.get(_env, "").strip()
+            if _v:
+                out.write("export %s=%s\n" % (_env, shlex.quote(_v)))
         cmd = 'python run_df_maker.py -c ' + args.config + ' -o ' + args.output + '_%d'%i_flist + '.df -ncpu 7 -i'
         for i_f in range(0,len(flist)):
             out.write('echo "[run_%s.sh] input %d : %s"\n'%(i_flist, i_f, flist[i_f]))

@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -15,6 +17,7 @@ from makedf.constants import *
 from analysis_village.unfolding.wienersvd import *
 from analysis_village.numucc_1p0pi.categories import *
 from analysis_village.numucc_1p0pi.constants import *
+from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV, syst_disk_paths
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -31,28 +34,72 @@ pdg_colors = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
 dpi = 300
 fig_ext = ".png"
 
+
+def _fail_syst_disk(msg: str) -> None:
+    """Emit a high-visibility error and abort (no silent fallbacks)."""
+    banner = "=" * 72
+    block = "\n%s\nFATAL [systematics disk]: %s\n%s\n" % (banner, msg, banner)
+    print(block, file=sys.stderr)
+    raise FileNotFoundError(msg)
+
+
+def resolve_syst_disk_root(explicit: str | None) -> str:
+    """Return normalized syst disk root from argument or ``NUMUCC_SYST_DISK_ROOT``."""
+    root = explicit or os.environ.get(SYST_DISK_ENV)
+    if not root:
+        _fail_syst_disk(
+            "No syst disk root. Set environment variable %s or pass syst_disk_root= to "
+            "get_syst_unc(). Expected layout: <root>/MCstat/mcstat_syst_dict.npz, "
+            "<root>/Flux/flux_syst_dict.npz, … — see analysis_village.numucc_1p0pi.syst_disk_layout."
+            % SYST_DISK_ENV
+        )
+    return syst_disk_paths(root)["root"]
+
+
 # ======= util to load systematic uncertainties ======
-def get_syst_unc(var_config, plot=False, save_fig=False, save_name=None):
-    date_str = "20260220"
-    mcstat_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/mcstat_syst_dict.npz", allow_pickle=True)
-    mcstat_syst =dict(mcstat_syst)[var_config.var_save_name].item()['MCstat']['cov_frac']
+def get_syst_unc(
+    var_config,
+    plot=False,
+    save_fig=False,
+    save_name=None,
+    syst_disk_root=None,
+):
+    """Load fractional covariance blocks from the syst-disk tree and combine into total covariance.
 
-    g4_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/g4_syst_dict.npz", allow_pickle=True)
-    g4_syst =dict(g4_syst)[var_config.var_save_name].item()['G4']['cov_frac']
+    All inputs live under a single root directory (see ``syst_disk_layout``): ``MCstat/``,
+    ``Flux/``, ``G4/``, ``GENIE/``, ``Cosmics/``, ``Detector/``. If ``syst_disk_root`` is omitted,
+    ``NUMUCC_SYST_DISK_ROOT`` must be set. **Missing files abort with a loud error** — there are
+    no alternate search paths or dated campaign fallbacks.
+    """
+    root = resolve_syst_disk_root(syst_disk_root)
+    paths = syst_disk_paths(root)
 
-    flux_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/flux_syst_dict.npz", allow_pickle=True)
-    flux_syst =dict(flux_syst)[var_config.var_save_name].item()['flux']['cov_frac']
+    missing = [(k, paths[k]) for k in paths if k != "root" and not os.path.isfile(paths[k])]
+    if missing:
+        detail = "\n".join("  [%s] %s" % (role, pth) for role, pth in missing)
+        _fail_syst_disk(
+            "Missing systematic covariance file(s). Run the producer pipelines into the "
+            "expected locations, then retry:\n%s" % detail
+        )
 
-    date_str = "20260222"
-    cosmics_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/cosmics_syst_dict.npz", allow_pickle=True)
-    cosmics_syst =dict(cosmics_syst)[var_config.var_save_name].item()['Cosmics']['cov_frac']
+    mcstat_syst = np.load(paths["mcstat"], allow_pickle=True)
+    mcstat_syst = dict(mcstat_syst)[var_config.var_save_name].item()["MCstat"]["cov_frac"]
 
-    date_str = "20260219"
-    genie_syst = pickle.load(open(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/cov_mat_dict-{date_str}.pkl", "rb"))
-    genie_syst = genie_syst[var_config.var_save_name]['genie'] 
+    flux_syst = np.load(paths["flux"], allow_pickle=True)
+    flux_syst = dict(flux_syst)[var_config.var_save_name].item()["flux"]["cov_frac"]
 
-    detector_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics_studies_detvar-20260309/detector_syst_dict.npz", allow_pickle=True)
-    detector_syst =dict(detector_syst)['detector'].item()[var_config.var_save_name]['cov_frac']
+    g4_syst = np.load(paths["g4"], allow_pickle=True)
+    g4_syst = dict(g4_syst)[var_config.var_save_name].item()["G4"]["cov_frac"]
+
+    with open(paths["genie"], "rb") as gf:
+        genie_blob = pickle.load(gf)
+    genie_syst = genie_blob[var_config.var_save_name]["genie"]
+
+    cosmics_syst = np.load(paths["cosmics"], allow_pickle=True)
+    cosmics_syst = dict(cosmics_syst)[var_config.var_save_name].item()["Cosmics"]["cov_frac"]
+
+    detector_syst = np.load(paths["detector"], allow_pickle=True)
+    detector_syst = dict(detector_syst)["detector"].item()[var_config.var_save_name]["cov_frac"]
 
     # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
     # detvar_syst = detvar_syst[var_config.var_save_name]['detvar']

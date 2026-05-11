@@ -27,7 +27,7 @@ THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TODAY=$(date +%Y%m%d)
 WORK_BASE=${WORK_BASE:-"/exp/sbnd/data/users/$(whoami)/xsec/numucc_1p0pi/event_selection-example-$TODAY"}
 CHUNKS_DIR="$WORK_BASE/chunks"
-PLOTS_DIR="$WORK_BASE/plots"
+PLOTS_DIR="$WORK_BASE/plots_example"
 
 declare -a SAMPLE_DIRS=(
     "mc|/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/*-sel_all-wgts.df"

@@ -2,7 +2,7 @@ from pyanalib.pandas_helpers import *
 from .branches import *
 from .util import *
 from .calo import *
-from . import numisyst, g4syst, geniesyst, bnbsyst, getenv
+from . import numisyst, g4syst, geniesyst, bnbsyst, getenv, mcstat
 # from makedf import chi2pid, chi2pid_cccal_m, chi2pid_cccal_p, chi2pid_alpha_m, chi2pid_alpha_p, chi2pid_beta_m, chi2pid_beta_p, chi2pid_R_m, chi2pid_R_p
 from makedf import chi2pid
 
@@ -104,6 +104,8 @@ def make_mcnudf_wgts_genie(f):
 
 # TODO: zip the nuniv configs
 def make_mcnudf(f, include_weights=False, multisim_nuniv=100, genie_multisim_nuniv=100, wgt_types=["bnb","genie"], slim=False, genie_systematics=None, flux_systematics=None):
+    # wgt_types may include "bnb", "genie", "g4", "mcstat". MC stat weights are
+    # computed in-memory (Poisson); flux/G4/GENIE load from CAF globalTree.
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
@@ -118,6 +120,9 @@ def make_mcnudf(f, include_weights=False, multisim_nuniv=100, genie_multisim_nun
             print("include_weights is set to True, pass at least one type of wgt to save")
         else:
             df_list = []
+            hdr_for_mcstat = None
+            if "mcstat" in wgt_types:
+                hdr_for_mcstat = make_hdrdf(f)
             if "bnb" in wgt_types:
                 bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim, systematics=flux_systematics)
                 df_list.append(bnbwgtdf)
@@ -127,6 +132,14 @@ def make_mcnudf(f, include_weights=False, multisim_nuniv=100, genie_multisim_nun
             if "g4" in wgt_types:
                 g4wgtdf = g4syst.g4syst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
                 df_list.append(g4wgtdf)
+            if "mcstat" in wgt_types:
+                mcstatwgtdf = mcstat.mcstatsyst(
+                    hdr_for_mcstat,
+                    mcdf.ind,
+                    multisim_nuniv=multisim_nuniv,
+                    slim=slim,
+                )
+                df_list.append(mcstatwgtdf)
 
             wgtdf = pd.concat(df_list, axis=1)
             mcdf = multicol_concat(mcdf, wgtdf)

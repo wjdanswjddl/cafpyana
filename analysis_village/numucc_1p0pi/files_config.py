@@ -1,3 +1,8 @@
+"""Monolithic HDF loaders for notebooks and cosmics blocks in multisim aggregate.
+
+Chunked drivers take input paths from :mod:`analysis_village.numucc_1p0pi.dataset_locations`.
+"""
+
 from pyanalib.split_df_helpers import *
 from analysis_village.numucc_1p0pi.utils import *
 
@@ -12,15 +17,29 @@ file_dir = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09"
 n_max_concat = 999
 
 
-def get_ana_dfs(option="", syst_tag=""):
+def get_ana_dfs(option="", syst_tag="", systs_mc_df_tag="", systs_chunk_tags=None):
+    """Load analysis HDF bundles.
 
-    if option == "systs": # flux, g4, mcstat systs: weights on selected events
+    Parameters
+    ----------
+    systs_mc_df_tag : str
+        When ``option == "systs"``: suffix on each chunk file (e.g. ``""`` for
+        nominal mup-weighted dfs, ``"-sel_all-wgts"`` for loose selection + weights).
+    systs_chunk_tags : sequence of str or None
+        When ``option == "systs"`` and not None: chunk tags to concatenate;
+        default ``generate_tags("bl")[-5:]`` (final-selection-style chunks).
+        Use e.g. ``generate_tags("ah")[1:]`` with ``systs_mc_df_tag="-sel_all-wgts"``
+        to match :func:`get_ana_dfs` ``event_selection`` MC paths.
+    """
+
+    if option == "systs": # flux, g4, mcstat systs on evt dfs (mup-final or sel_all, etc.)
+        chunk_tags = systs_chunk_tags if systs_chunk_tags is not None else generate_tags("bl")[-5:]
         ret_dfs = load_and_concat_mc_dfs(
             file_dir=file_dir,
             sub_dir="MC",
             sample_dir="BNB_cosmics",
-            df_tag="",
-            chunk_tags=generate_tags("bl")[-5:],
+            df_tag=systs_mc_df_tag,
+            chunk_tags=chunk_tags,
             keys2load=['hdr', 'evt'],
             n_max_concat=n_max_concat
         )
@@ -433,9 +452,24 @@ def get_ana_dfs(option="", syst_tag=""):
         intime_evt_df["pot_weight"] = scale_intime_to_lightdata * np.ones(len(intime_evt_df))
         intime_trk_df["pot_weight"] = scale_intime_to_lightdata * np.ones(len(intime_trk_df))
 
-        return {"mc": mc_evt_df, "data": data_evt_df, "offbeam": offbeam_evt_df,"intime": intime_evt_df, "dirt": dirt_evt_df, 
-                "mc_trk": mc_trk_df, "data_trk": data_trk_df, "offbeam_trk": offbeam_trk_df, "intime_trk": intime_trk_df, "dirt_trk": dirt_trk_df,
-                "pot_str": pot_str}
+        pot_label = f"Events / Bin (POT={pot_str})"
+        return {
+            "mc": mc_evt_df,
+            "data": data_evt_df,
+            "offbeam": offbeam_evt_df,
+            "intime": intime_evt_df,
+            "dirt": dirt_evt_df,
+            "mc_trk": mc_trk_df,
+            "data_trk": data_trk_df,
+            "offbeam_trk": offbeam_trk_df,
+            "intime_trk": intime_trk_df,
+            "dirt_trk": dirt_trk_df,
+            "mc_hdr": mc_hdr_df,
+            "data_hdr": data_hdr_df,
+            "intime_hdr": intime_hdr_df,
+            "pot_str": pot_str,
+            "pot_label": pot_label,
+        }
 
     else:
         raise ValueError("Invalid option: {}".format(option))

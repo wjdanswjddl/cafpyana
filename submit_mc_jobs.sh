@@ -1,6 +1,7 @@
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_all-mc-BNB_cosmics -ngrid 5000
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/Ar23+/ar23p_respin-xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 1000
-python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 2000
+# python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 2000
+python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-updatecalo.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/WireMod/mc_SBND2026A_prodgenie_corsika_proton_rockbox_sbnd_SV_v10_06_00_10_flatcaf_sbnd_xrootd.list  -o sel_2prong-mc-BNB_cosmics-WireModYZ -ngrid 3000
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/nrowe/cafpyana/new_joseph.list -o sel_all-mc-BNB_cosmics-josephsim -ngrid 1000
 
 
@@ -18,6 +19,7 @@ python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbn
 
 ## GENIE vars (knob lists: makedf/geniesyst.GENIE_KNOB_GROUPS; unified config: sel_mup-geniewgts-knobgroups.py)
 ## Single group: prefix with GENIE_KNOB_GROUP=CCQE (valid keys: Ar23p CCQE ZExp MEC RES nonRES DIS Other)
+## With -ngrid, run_df_maker forwards GENIE_KNOB_GROUP into each worker (else all evt_<Group> keys).
 #inputdir=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics
 #
 ## CCQE (same physics via unified config + env)
@@ -63,6 +65,22 @@ python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbn
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-geniewgts_Ar23p.py \
 #    -l "${inputdir}/ar23p_respin-xrootd.list" \
 #    -o sel_mup-wgts_genie_AR23p -ngrid 200
+
+
+## BNB flux (bundles: makedf/bnbsyst.BNB_FLUX_GROUPS; unified config: sel_mup-fluxwgts-knobgroups.py)
+## Single category: FLUX_GROUP=beam|hadron|xsec (same as thin sel_mup-wgts_flux_<cat>.py configs)
+#inputdir=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics
+#mc="${inputdir}/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list"
+#
+## All categories in one .df (evt_beam, evt_hadron, evt_xsec, hdr)
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-fluxwgts-knobgroups.py \
+#    -l "$mc" -o sel_mup-wgts_flux_all -ngrid 200
+#
+## One category per submission (HDF keys evt, hdr)
+#for g in beam hadron xsec; do
+#  FLUX_GROUP=$g python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-fluxwgts-knobgroups.py \
+#      -l "$mc" -o sel_mup-wgts_flux_${g} -ngrid 200
+#done
 
 
 

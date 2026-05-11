@@ -9,7 +9,9 @@ Adding new things
 -----------------
 * New cut       : add a Stage(...) at the right point in ``build_pipeline``.
 * New plot      : append a PlotSpec(...) to a stage's ``plots`` list.
-* New eff. var  : add a VariableConfig to ``EFFICIENCY_VARS`` below.
+* New eff. var  : extend ``CORE_SELECTED_EVT_VARIABLE_CONFIGS`` or the extras passed
+                  into ``with_final_selected_evt_variables`` for ``EFFICIENCY_VARS`` below,
+                  or add to ``analysis_village/numucc_1p0pi/final_selected_evt_vars.py``.
 """
 from __future__ import annotations
 
@@ -23,6 +25,10 @@ import pandas as pd
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
+from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
+    CORE_SELECTED_EVT_VARIABLE_CONFIGS,
+    with_final_selected_evt_variables,
+)
 from analysis_village.numucc_1p0pi.categories import DETECTOR
 from analysis_village.numucc_1p0pi.makedf.selections import (
     cut_clear_cosmic, cut_vertex_in_fv, cut_nu_score, cut_2prong, cut_2prong_contained,
@@ -222,21 +228,9 @@ def sel_trks_concat_not_mu(state, sample):
 # ===========================================================================
 # Variables for the efficiency curve (cell 82-86 in the notebook)
 # ===========================================================================
-EFFICIENCY_VARS = [
-    VariableConfig.muon_momentum(),
-    VariableConfig.muon_direction(),
-    VariableConfig.proton_momentum(),
-    VariableConfig.proton_direction(),
-    VariableConfig.vertex_x(),
-    VariableConfig.vertex_y(),
-    VariableConfig.vertex_z(),
-    # VariableConfig.opening_angle(),
-    VariableConfig.tki_del_Tp(),
-    VariableConfig.tki_del_p(),
-    VariableConfig.tki_del_alpha(),
-    VariableConfig.tki_del_phi(),
-    VariableConfig.neutrino_energy(),
-]
+EFFICIENCY_VARS = with_final_selected_evt_variables(
+    list(CORE_SELECTED_EVT_VARIABLE_CONFIGS) + [VariableConfig.neutrino_energy()]
+)
 
 
 # ===========================================================================
@@ -489,11 +483,8 @@ def build_pipeline() -> List[Stage]:
 
     # final-stage summary plots (cell 80 in the notebook)
     final_summary_plots: List[PlotSpec] = []
-    for vc in [VariableConfig.muon_momentum(), VariableConfig.muon_direction(),
-               VariableConfig.proton_momentum(), VariableConfig.proton_direction(),
-            #    VariableConfig.opening_angle(),
-               VariableConfig.tki_del_Tp(), VariableConfig.tki_del_p(),
-               VariableConfig.tki_del_alpha(), VariableConfig.tki_del_phi()]:
+    _final_stage_evt_vcs = list(CORE_SELECTED_EVT_VARIABLE_CONFIGS)
+    for vc in with_final_selected_evt_variables(_final_stage_evt_vcs):
         final_summary_plots.append(PlotSpec(
             var_config=vc,
             breakdown_type="topology",

@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 #
-# Driver script for the chunked event-selection framework.
+# Driver script for the map/reduce event-selection framework.
 # -----------------------------------------------------------------------------
-# Phase 1 (map):   processes each .df file with event_selection_chunk.py,
-#                  writing one pickle per (sample, chunk). HDF5 splits inside a
+# Phase 1 (map):   processes each CAF .df shard with event_selection_chunk.py,
+#                  writing one pickle per (sample, file stem). HDF5 splits inside a
 #                  file are read sequentially (not fully concatenated in RAM).
 #                  Each pickle stores intrinsic weights plus POT/gates metadata.
+#                  ("Chunk" here means file shard, not a time-ordered exposure_batch.)
 # Phase 2 (reduce): aggregates pickles and applies exposure normalization from
-#                   summed chunk metadata, then runs event_selection_aggregate.py.
+#                   summed shard metadata, then runs event_selection_aggregate.py.
+# Pre-binned MC universe syst bands come from chunk pickles; optional NPZ fallback
+# uses scripts/get_systematics_multisim.py (MCstat/Flux/G4) and
+# scripts/get_systematics_cosmics.py (offbeam vs intime unisim); see utils.get_syst_unc.
 #
-# Edit SAMPLE_DIRS for your paths. For grid jobs, submit one chunk job per file.
+# Sample globs: ``analysis_village.numucc_1p0pi.dataset_locations.EVENT_SELECTION_GLOBS``.
+# Override ``SPRING_GEN1_ROOT`` / ``NUMUCC_SPRING_GEN1_ROOT`` there or via env before import.
+# For grid jobs, submit one chunk job per file.
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$THIS_DIR/../../.." && pwd)"
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 
 TODAY=$(date +%Y%m%d)
 WORK_BASE=${WORK_BASE:-"/exp/sbnd/data/users/$(whoami)/xsec/numucc_1p0pi/event_selection-chunked-$TODAY"}
@@ -22,13 +30,16 @@ PLOTS_DIR="$WORK_BASE/plots"
 # Failed chunk inputs (unreadable/missing HDF, etc.) are appended here; the driver keeps going.
 FAILED_LOG="$WORK_BASE/failed_df_files.log"
 
-declare -a SAMPLE_DIRS=(
-    "mc|/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/BNB_cosmics/*-sel_all-wgts.df"
-    "data|/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/_Fixed_all.df"
-    "intime|/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/intime/*_all.df"
-    "offbeam|/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/OffBeam/*_all.df"
-    "dirt|/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/MC/lowE/*_all.df"
-)
+declare -a SAMPLE_DIRS=()
+while IFS= read -r line; do
+    SAMPLE_DIRS+=("$line")
+done < <(python3 -c "
+import sys
+sys.path.insert(0, '${REPO_ROOT}')
+from analysis_village.numucc_1p0pi.dataset_locations import EVENT_SELECTION_GLOBS
+for k in ('mc', 'data', 'intime', 'offbeam', 'dirt'):
+    print('%s|%s' % (k, EVENT_SELECTION_GLOBS[k]))
+")
 
 mkdir -p "$CHUNKS_DIR" "$PLOTS_DIR"
 

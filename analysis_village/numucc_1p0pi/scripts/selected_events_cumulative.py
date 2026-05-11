@@ -1,13 +1,12 @@
 
 # selected_events_cumulative.py
 #
-# Cumulative variant of selected_events.py.
-# For each chunk_idx K, this script uses ALL time-ordered data chunks 0..K (inclusive)
-# instead of just the single chunk K. Iterating chunk_idx = 0, 1, ..., n_time_splits-1
-# therefore produces a sequence of plots with monotonically increasing data POT,
-# letting you observe how distributions evolve as data accumulates.
+# Cumulative variant of selected_events.py (Stage 3 data access: Gen 1 cumulative batches).
+# For each exposure-batch index K, this script uses ALL time-ordered batches 0..K (inclusive)
+# instead of only batch K. Iterating K = 0, 1, ..., n_time_splits-1 produces monotonically
+# increasing integrated data POT. Terminology: see analysis_village.numucc_1p0pi.exposure_access.
 #
-# This script processes ALL requested chunks in a single Python invocation:
+# This script processes ALL requested batches in a single Python invocation:
 #   - get_ana_dfs(...) is called ONCE (the dominant I/O cost).
 #   - get_syst_unc(var_config) is memoized per var_config.
 #   - The per-chunk work (cumulative POT, weights, cuts, plots) is the only
@@ -30,6 +29,10 @@ import sys
 sys.path.append('/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana') # absolute path for running on EAF
 from pyanalib.split_df_helpers import *
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
+from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
+    CORE_SELECTED_EVT_VARIABLE_CONFIGS,
+    with_final_selected_evt_variables,
+)
 from analysis_village.numucc_1p0pi.utils import *
 from analysis_village.numucc_1p0pi.files_config import *
 plt.style.use("presentation.mplstyle")
@@ -42,12 +45,27 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 parser = argparse.ArgumentParser(description='Event selection settings (cumulative, single-process loop)')
 parser.add_argument('--n_time_splits', type=int, default=15,
-                    help='Number of time splits for data')
+                    help='Number of time-ordered exposure batches for data')
 parser.add_argument('--chunk_idxs', type=int, nargs='+', default=None,
-                    help='Cumulative chunk indices to process (each K means chunks 0..K). '
-                         'Default: process all 0..n_time_splits-1.')
+                    help='Legacy: cumulative batch indices K (each run uses batches 0..K). '
+                         'Default: all 0..n_time_splits-1.')
+parser.add_argument(
+    '--exposure-batch-indices',
+    type=int,
+    nargs='+',
+    default=None,
+    dest='chunk_idxs',
+    help='Preferred alias for --chunk_idxs.',
+)
 parser.add_argument('--chunk_idx', type=int, default=None,
-                    help='Legacy single-chunk option; equivalent to --chunk_idxs <chunk_idx>.')
+                    help='Legacy single index; equivalent to --chunk_idxs <chunk_idx>.')
+parser.add_argument(
+    '--exposure-batch-index',
+    type=int,
+    default=None,
+    dest='chunk_idx',
+    help='Preferred alias for --chunk_idx.',
+)
 parser.add_argument(
     '--do_octant_plots',
     action='store_true',
@@ -329,35 +347,11 @@ def crosser_muons_cut(df):
 # Variable configurations (built once)
 # ============================================================
 
-# approved vars (kept as commented-out template for parity with selected_events.py)
-var_configs_main = [
-    # VariableConfig.all_events(),
-    # VariableConfig.muon_momentum(),
-    # VariableConfig.muon_direction(),
-    # VariableConfig.proton_momentum(),
-    # VariableConfig.proton_direction(),
-    # VariableConfig.tki_del_Tp(),
-    # VariableConfig.tki_del_Tp_x(),
-    # VariableConfig.tki_del_Tp_y(),
-    # VariableConfig.tki_del_p(),
-    # VariableConfig.tki_del_alpha(),
-    # VariableConfig.tki_del_phi()
-]
+# Primary kinematics (same as ``selected_events.py`` / ``CORE_SELECTED_EVT_VARIABLE_CONFIGS``)
+var_configs_main = list(CORE_SELECTED_EVT_VARIABLE_CONFIGS)
 
-var_configs_phi = [
-    VariableConfig.muon_direction_phi(),
-    VariableConfig.proton_direction_phi(),
-    # VariableConfig.muon_direction_x(),
-    # VariableConfig.muon_direction_y(),
-    # VariableConfig.proton_direction_x(),
-    # VariableConfig.proton_direction_y(),
-    VariableConfig.vertex_x(),
-    VariableConfig.vertex_y(),
-    VariableConfig.vertex_z(),
-    # VariableConfig.muon_end_x(),
-    # VariableConfig.muon_end_y(),
-    # VariableConfig.muon_end_z()
-]
+# Φ / vertex / endpoint extras require derived columns below; includes core + merged finals
+var_configs_phi = with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIABLE_CONFIGS))
 
 
 # ============================================================

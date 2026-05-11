@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-"""Aggregate per-chunk pickles and produce all event-selection plots.
+"""Aggregate per-map-shard pickles and produce all event-selection plots.
 
-This is the "reduce" pass of the framework. It
+This is the **reduce** pass of the chunked histogram workflow (one pickle per
+*(sample, CAF .df file)* — not an exposure batch in time; see ``exposure_access``).
 
-  1. globs the per-(sample, chunk) pickles under ``--in_dir``,
+  1. globs the per-(sample, shard) pickles under ``--in_dir``,
   2. sums histograms across chunks within each sample,
   3. merges sample-level results into one combined histogram dict,
   4. renders each plot through ``overlay_hists_from_histdata`` -- yielding the
@@ -18,7 +19,8 @@ apply the same global POT scaling, then form a fractional covariance from univer
 around CV (see ``selection_framework.frac_cov_from_mc_univ_histdata``). Enable map-phase
 ``event_selection_chunk.py --mc-univ-syst Flux,G4,GENIE``. Aggregation draws syst bands from
 those chunks by default; pass ``--no-overlay-syst-from-universes`` to omit them. This complements the notebook workflow that loads
-precomputed ``cov_frac`` matrices from disk (``selected_events.ipynb`` / ``utils.get_syst_unc``).
+precomputed ``cov_frac`` matrices from disk (``selected_events.ipynb`` / ``utils.get_syst_unc``
+via ``--syst-disk-root`` / ``NUMUCC_SYST_DISK_ROOT``).
 
 The plotting step is a thin layer on top of the existing ``overlay_hists`` and
 ``plot_efficiency`` routines in ``utils.py``; the new precomputed-histogram
@@ -74,8 +76,13 @@ from analysis_village.numucc_1p0pi.selection_framework import (
     frac_cov_from_mc_univ_histdata,
 )
 from analysis_village.numucc_1p0pi.utils import (
-    overlay_hists_from_histdata, get_pot_str, fig_ext, dpi,
-    add_approval_text, format_singlebin_plot,
+    overlay_hists_from_histdata,
+    get_pot_str,
+    fig_ext,
+    dpi,
+    add_approval_text,
+    format_singlebin_plot,
+    get_syst_unc,
 )
 from analysis_village.numucc_1p0pi.categories import (
     topology_labels, topology_colors,
@@ -123,6 +130,12 @@ def parse_args():
         help="Skip fractional covariance / hatched syst bands from chunked MC universe histograms "
              "(default is ON when chunks include mc_univ_hist). Chunks need "
              "event_selection_chunk.py --mc-univ-syst Flux,G4,GENIE matching HDF columns.",
+    )
+    p.add_argument(
+        "--syst-disk-root",
+        default=None,
+        help="Root directory with MCstat/, Flux/, G4/, GENIE/, Cosmics/, Detector/ trees "
+             "(see analysis_village.numucc_1p0pi.syst_disk_layout). Env: NUMUCC_SYST_DISK_ROOT.",
     )
     return p.parse_args()
 
@@ -181,6 +194,7 @@ def render_overlay_plots(
     cosmic_estimate: str,
     show_cosmic_model_unc: bool,
     overlay_syst_from_universes: bool = True,
+    syst_disk_root: str | None = None,
 ):
     """Render every plot stored in ``merged['histdata']``."""
     # We need the pipeline definition to recover the per-plot kwargs and labels.
@@ -191,6 +205,8 @@ def render_overlay_plots(
         for ps in stage.plots:
             key = (stage.key, ChunkRunner.plot_key(stage.key, ps))
             spec_lookup[key] = ps
+
+    vars_missing_syst = []
 
     for key, hd in merged["histdata"].items():
         stage_key, plot_key = key
@@ -229,18 +245,28 @@ def render_overlay_plots(
             )
             if fc is not None:
                 kwargs["syst"] = fc
-            elif kwargs.get("verbose_hist"):
-                print(
-                    f"[aggregate] overlay {key}: no mc_univ fractional covariance "
-                    f"(run chunks with --mc-univ-syst or pass syst in PlotSpec.save_kwargs)",
-                    flush=True,
-                )
+
+        # Notebook parity: precomputed fractional covariances on disk (GENIE / flux / …).
+        if kwargs.get("syst") is None and syst_disk_root is not None:
+            _, cov_disk = get_syst_unc(ps.var_config, syst_disk_root=syst_disk_root)
+            kwargs["syst"] = cov_disk
+
+        if kwargs.get("syst") is None:
+            vars_missing_syst.append(ps.var_config.var_save_name)
 
         try:
             overlay_hists_from_histdata(hd, var_config=ps.var_config, **kwargs)
         except Exception as e:
             print(f"[aggregate] WARN: plot {key} failed: {e}")
             plt.close('all')
+
+    if vars_missing_syst:
+        uniq = sorted(set(vars_missing_syst))
+        print(
+            f"[aggregate] overlay plots without syst covariance ({len(vars_missing_syst)} plots, "
+            f"{len(uniq)} distinct var_save_name): {', '.join(uniq)}",
+            flush=True,
+        )
 
 
 # ===========================================================================
@@ -434,14 +460,6 @@ def render_efficiency_plots(merged: dict, save_fig_dir: str, pot_str: str,
 
         fig.subplots_adjust(top=0.88)
 
-        # purity
-        last_stage = next((s for s in reversed(stage_keys) if s in eff and var_save_name in eff[s]), None)
-        if last_stage is not None:
-            ea_last = eff[last_stage][var_save_name]
-            if ea_last.n_at_stage_int > 0:
-                purity = ea_last.n_total_signal_int / ea_last.n_at_stage_int * 100.0
-                print(f"[aggregate] var={var_save_name} final purity: {purity:.2f}%")
-
         ax_eff.legend(
             loc="lower center",
             bbox_to_anchor=(0.5, 1.02),
@@ -462,6 +480,20 @@ def render_efficiency_plots(merged: dict, save_fig_dir: str, pot_str: str,
             plt.close()
 
         eff_dict[var_save_name] = {"eff_list": eff_list, "eff_err_list": eff_err_list}
+
+    # Integrated purity is identical for every efficiency variable (same event counts).
+    for vs in sorted(vars_seen):
+        if vs not in var_lookup:
+            continue
+        last_stage = next((s for s in reversed(stage_keys) if s in eff and vs in eff[s]), None)
+        if last_stage is None:
+            continue
+        ea_last = eff[last_stage][vs]
+        if ea_last.n_at_stage_int <= 0:
+            continue
+        purity = ea_last.n_total_signal_int / ea_last.n_at_stage_int * 100.0
+        print(f"[aggregate] final selection purity: {purity:.2f}%", flush=True)
+        break
 
     # Save the eff dict for downstream tools
     out_pkl = path.join(save_fig_dir, "eff_dict.pkl")
@@ -539,6 +571,7 @@ def main():
         cosmic_estimate=args.cosmic_estimate,
         show_cosmic_model_unc=show_cosmic_unc,
         overlay_syst_from_universes=overlay_syst,
+        syst_disk_root=args.syst_disk_root or os.environ.get("NUMUCC_SYST_DISK_ROOT"),
     )
     render_summary_breakdown_plot(
         merged, save_fig_dir,

@@ -1,0 +1,803 @@
+#!/usr/bin/env python
+"""GENIE multisim systematics: event-rate and cross-section covariances.
+
+**Monolithic mode** (default ``main`` block): loads concatenated ``evt`` + ``mcnu`` like the
+legacy workflow.
+
+**Chunked mode** (HDF splits inside each ``.df`` file):
+
+* ``--chunk-map`` — sequential reads of ``evt_{i}`` / ``mcnu_{i}``; accumulates *additive*
+  histograms for the **rate** path by summing per-split outputs of
+  :func:`analysis_village.numucc_1p0pi.utils.get_univ_rates` (``cov_type="rate"``).
+
+* ``--chunk-merge`` — sums pickles from ``--chunk-map`` and reconstructs the **xsec** path
+  *exactly* as an unchunked calculation would:
+
+    For universe ``u``, after all chunks are merged,
+
+    * ``reco_vs_true^{(u)} = \\sum_c reco_vs_true_c^{(u)}`` (same 2D binning as
+      ``numpy.histogram2d`` in ``utils.get_univ_rates``).
+
+    * ``N_{\\mathrm{all},i}^{(u)} = \\sum_c N_{\\mathrm{all},c,i}^{(u)}``,
+      ``N_{\\mathrm{sel},i}^{(u)} = \\sum_c N_{\\mathrm{sel},c,i}^{(u)}`` (1D truth-axis
+      histograms on signal MC / selected signal).
+
+    * ``\\varepsilon_i^{(u)} = N_{\\mathrm{sel},i}^{(u)} / N_{\\mathrm{all},i}^{(u)}``
+      (zero where denominator is 0), matching the per-chunk ratio-of-sums rule.
+
+    * ``\\mathrm{nevt}^{\\mathrm{true}} = \\sum_c \\mathrm{nevt}^{\\mathrm{true}}_c`` is the
+      **CV** signal spectrum ``nevts_allmc`` from :func:`utils.signal_hists` (no universe
+      weight on the cross-section yield anchor).
+
+    * ``R^{(u)} = \\texttt{get\\_response\\_matrix}(reco\\_vs\\_true^{(u)}, \\varepsilon^{(u)})``,
+      then ``\\mathrm{reco}^{(u)} = R^{(u)} \\, \\mathrm{nevt}^{\\mathrm{true}}`` plus the
+      usual background ``(\\mathrm{bkg}^{(u)}-\\mathrm{bkg}^{\\mathrm{CV}})`` terms summed
+      over chunks, and finally ``\\times`` ``xsec_unit`` — identical ordering to
+      ``utils.get_univ_rates`` for ``cov_type=="xsec"``.
+
+Memory: only one HDF split of ``evt`` / ``mcnu`` is resident at a time in ``--chunk-map``.
+Per-split tensors are modest (``n_univ \\times n_bins^2`` per variable per knob).
+
+Example::
+
+    python get_systematics_genie.py --chunk-map --df-file in.df --out-dir chunks_genie \\
+        --n-universe 100 --max-splits 0
+
+    python get_systematics_genie.py --chunk-merge --chunks-dir chunks_genie \\
+        --out-dir plots_genie --xsec-unit 1.0
+"""
+from __future__ import annotations
+
+import argparse
+import gc
+import glob
+import logging
+import os
+import pickle
+import sys
+from datetime import datetime
+from os import makedirs, path
+from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+
+import numpy as np
+import pandas as pd
+
+try:
+    from tqdm import tqdm
+except ImportError:  # pragma: no cover
+
+    def tqdm(x, **kwargs):
+        return x
+
+import warnings
+
+warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
+
+sys.path.append(path.join(path.dirname(__file__), "..", "..", ".."))
+
+from pyanalib.covariance import get_covariance_matrix  # noqa: E402
+from pyanalib.split_df_helpers import get_n_split, load_and_concat_mc_dfs  # noqa: E402
+
+from analysis_village.numucc_1p0pi.categories import topology_list  # noqa: E402
+from analysis_village.numucc_1p0pi.final_selected_evt_vars import (  # noqa: E402
+    CORE_SELECTED_EVT_VARIABLE_CONFIGS,
+    with_final_selected_evt_variables,
+)
+from analysis_village.numucc_1p0pi.utils import (  # noqa: E402
+    generate_tags,
+    get_clipped_evts,
+    get_response_matrix,
+    get_univ_rates,
+    plot_heatmap,
+    plot_univ_hists,
+    signal_hists,
+)
+from analysis_village.numucc_1p0pi.variable_configs import VariableConfig  # noqa: E402
+from makedf.geniesyst import (  # noqa: E402
+    ar23p_genie_systematics,
+    dis_genie_systematics,
+    mec_genie_systematics,
+    other_genie_systematics,
+    qe_genie_systematics,
+)
+logger = logging.getLogger(__name__)
+
+SystName = Tuple[str, str]
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+
+def validate_genie_dataframes(
+    dfs: Mapping[str, Any],
+    *,
+    context: str = "",
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Return ``(evt, mcnu)`` after verifying both frames exist."""
+    missing = [k for k in ("evt", "mcnu") if k not in dfs]
+    if missing:
+        raise ValueError(
+            f"{context} GENIE setup requires both 'evt' and 'mcnu' dataframes; "
+            f"missing keys: {missing}. Present: {sorted(dfs.keys())}"
+        )
+    evt = dfs["evt"]
+    mcnu = dfs["mcnu"]
+    if not isinstance(evt, pd.DataFrame) or not isinstance(mcnu, pd.DataFrame):
+        raise TypeError(f"{context} 'evt' and 'mcnu' must be pandas DataFrames.")
+    if len(evt) == 0 and len(mcnu) == 0:
+        logger.warning("%s empty evt and mcnu frames", context)
+    return evt, mcnu
+
+
+def validate_split_pair(evt_df: pd.DataFrame, mcnu_df: pd.DataFrame, split_idx: int) -> None:
+    if len(evt_df) == 0 and len(mcnu_df) == 0:
+        logger.debug("split %d: both evt and mcnu empty", split_idx)
+
+
+# ---------------------------------------------------------------------------
+# Universe helpers
+# ---------------------------------------------------------------------------
+
+
+def infer_n_univ(mc_evt_df: pd.DataFrame, syst_name: SystName) -> int:
+    block = mc_evt_df.loc[:, syst_name]
+    max_i = -1
+    for c in block.columns:
+        leaf = c[-1] if isinstance(c, tuple) else c
+        s = str(leaf)
+        if s.startswith("univ_"):
+            try:
+                max_i = max(max_i, int(s.split("_", 1)[1]))
+            except ValueError:
+                continue
+    if max_i < 0:
+        raise ValueError(f"No univ_* columns under syst_name={syst_name!r}")
+    return max_i + 1
+
+
+def _syst_plot_key(syst_name: SystName) -> SystName:
+    return syst_name
+
+
+# ---------------------------------------------------------------------------
+# XSEC-path accumulation (chunk-additive)
+# ---------------------------------------------------------------------------
+
+
+def _empty_xsec_tensor_acc(n_univ: int, nb: int) -> Dict[str, np.ndarray]:
+    return {
+        "nevts_allmc": np.zeros(nb, dtype=np.float64),
+        "cv_sel_reco": np.zeros(nb, dtype=np.float64),
+        "cv_allsel_reco": np.zeros(nb, dtype=np.float64),
+        "reco_vs_true": np.zeros((n_univ, nb, nb), dtype=np.float64),
+        "signal_allmc": np.zeros((n_univ, nb), dtype=np.float64),
+        "signal_sel_truth": np.zeros((n_univ, nb), dtype=np.float64),
+        "bg_cv": np.zeros(nb, dtype=np.float64),
+        "bg_univ": np.zeros((n_univ, nb), dtype=np.float64),
+    }
+
+
+def accumulate_xsec_path_chunk(
+    mc_evt_df: pd.DataFrame,
+    mc_nu_df: pd.DataFrame,
+    var_config: VariableConfig,
+    syst_name: SystName,
+    n_univ: int,
+    acc: MutableMapping[str, np.ndarray],
+) -> None:
+    """Add contributions from one evt/mcnu chunk into ``acc`` (in-place)."""
+    bins = var_config.bins
+    nb = len(bins) - 1
+
+    evtdf_signal = mc_evt_df[mc_evt_df.topo_categ == 1]
+    nudf_signal = mc_nu_df[mc_nu_df.topo_categ == 1]
+    evtdf_div_topo = [mc_evt_df[mc_evt_df.topo_categ == mode] for mode in topology_list]
+
+    ret = signal_hists(mc_evt_df, mc_nu_df, var_config, return_data=True, plot=False)
+    nevts_allmc = ret["nevts_allmc"]
+    if nevts_allmc is None:
+        raise ValueError(
+            f"xsec path requires mcnu for var={var_config.var_save_name}; nevts_allmc is None"
+        )
+
+    acc["nevts_allmc"] += np.asarray(nevts_allmc, dtype=np.float64)
+    acc["cv_sel_reco"] += np.asarray(ret["nevts_sel_reco"], dtype=np.float64)
+    acc["cv_allsel_reco"] += np.asarray(ret["nevts_allsel_reco"], dtype=np.float64)
+
+    for uidx in range(n_univ):
+        univ_col = f"univ_{uidx}"
+        if nb == 1:
+            reco_vs_true = np.array([[1.0]], dtype=np.float64)
+        else:
+            reco_vs_true, _, _ = np.histogram2d(
+                ret["var_sel_truth"],
+                ret["var_sel_reco"],
+                weights=ret["wgt_sel_truth"] * evtdf_signal[syst_name][univ_col],
+                bins=bins,
+            )
+        acc["reco_vs_true"][uidx] += reco_vs_true
+
+        sam, _ = np.histogram(
+            ret["var_allmc"],
+            weights=ret["wgt_allmc"] * nudf_signal[syst_name][univ_col],
+            bins=bins,
+        )
+        sst, _ = np.histogram(
+            ret["var_sel_truth"],
+            weights=ret["wgt_sel_truth"] * evtdf_signal[syst_name][univ_col],
+            bins=bins,
+        )
+        acc["signal_allmc"][uidx] += sam
+        acc["signal_sel_truth"][uidx] += sst
+
+    for this_evtdf in evtdf_div_topo[1:]:
+        var, wgt = get_clipped_evts(this_evtdf, var_config.var_evt_reco_col, bins)
+        acc["bg_cv"] += np.histogram(var, bins=bins, weights=wgt)[0].astype(np.float64)
+        for uidx in range(n_univ):
+            uw = this_evtdf[syst_name][f"univ_{uidx}"].copy()
+            uw[np.isnan(uw)] = 1.0
+            acc["bg_univ"][uidx] += np.histogram(var, bins=bins, weights=wgt * uw)[0].astype(
+                np.float64
+            )
+
+
+def finalize_xsec_univ_events(
+    acc: Mapping[str, np.ndarray],
+    xsec_unit: float,
+) -> np.ndarray:
+    """Return ``univ_events`` of shape ``(n_univ, nbins)`` for covariance (xsec path)."""
+    nevts_allmc = np.asarray(acc["nevts_allmc"], dtype=np.float64)
+    nb = int(nevts_allmc.shape[0])
+    n_univ = int(acc["reco_vs_true"].shape[0])
+    scale = float(xsec_unit)
+
+    rows: List[np.ndarray] = []
+    for uidx in range(n_univ):
+        if nb == 1:
+            reco_vs_true = np.array([[1.0]], dtype=np.float64)
+        else:
+            reco_vs_true = acc["reco_vs_true"][uidx]
+
+        # Match utils.get_univ_rates xsec branch: ratio of summed weighted histograms.
+        eff = acc["signal_sel_truth"][uidx] / acc["signal_allmc"][uidx]
+        response = get_response_matrix(reco_vs_true, eff)
+        signal_univ = response @ nevts_allmc
+        signal_univ = signal_univ + (acc["bg_univ"][uidx] - acc["bg_cv"])
+        signal_univ *= scale
+        rows.append(signal_univ)
+    return np.asarray(rows, dtype=np.float64)
+
+
+def finalize_cv_sel_reco_xsec(
+    acc: Mapping[str, np.ndarray], xsec_unit: float, *, bkgd_subtract: bool = True
+) -> np.ndarray:
+    scale = float(xsec_unit)
+    base = acc["cv_sel_reco"] if bkgd_subtract else acc["cv_allsel_reco"]
+    return np.asarray(base, dtype=np.float64) * scale
+
+
+# ---------------------------------------------------------------------------
+# Pickle blob layout for chunked GENIE
+# ---------------------------------------------------------------------------
+
+RATE_ACC_KEY = "rate_univ_cv"
+XSEC_ACC_KEY = "xsec_accumulators"
+
+
+def accumulate_chunk_into_blob_root(
+    mc_evt_df: pd.DataFrame,
+    mc_nu_df: pd.DataFrame,
+    blob_root: MutableMapping[str, Any],
+    var_configs: Sequence[VariableConfig],
+    syst_names: Sequence[SystName],
+    *,
+    bkgd_subtract: bool = True,
+) -> None:
+    validate_split_pair(mc_evt_df, mc_nu_df, -1)
+    rate_blk = blob_root.setdefault(RATE_ACC_KEY, {})
+
+    for syst_name in syst_names:
+        knob = syst_name[1]
+        n_univ = infer_n_univ(mc_evt_df, syst_name)
+
+        for var_config in var_configs:
+            slug = var_config.var_save_name
+
+            # ---- rate path (identical to summing get_univ_rates per chunk)
+            univ_r, cv_r = get_univ_rates(
+                cov_type="rate",
+                syst_type="GENIE",
+                evtdf=mc_evt_df,
+                nudf=mc_nu_df,
+                var_config=var_config,
+                syst_name=syst_name,
+                n_univ=n_univ,
+                bkgd_subtract=bkgd_subtract,
+                plot=False,
+            )
+            slot_r = rate_blk.setdefault(knob, {}).setdefault(
+                slug,
+                {"univ": np.zeros_like(univ_r, dtype=np.float64), "cv": np.zeros_like(cv_r, dtype=np.float64)},
+            )
+            slot_r["univ"] += np.asarray(univ_r, dtype=np.float64)
+            slot_r["cv"] += np.asarray(cv_r, dtype=np.float64)
+
+            # ---- xsec tensors
+            xsec_blk = blob_root.setdefault(XSEC_ACC_KEY, {})
+            knob_blk = xsec_blk.setdefault(knob, {})
+            if slug not in knob_blk:
+                nb = len(var_config.bins) - 1
+                knob_blk[slug] = _empty_xsec_tensor_acc(n_univ, nb)
+            accumulate_xsec_path_chunk(mc_evt_df, mc_nu_df, var_config, syst_name, n_univ, knob_blk[slug])
+
+
+def merge_genie_chunk_pickles(paths: List[str]) -> Dict[str, Any]:
+    merged: Optional[Dict[str, Any]] = None
+    for fp in tqdm(paths, desc="merge GENIE chunks"):
+        with open(fp, "rb") as f:
+            d = pickle.load(f)
+        if merged is None:
+            merged = {
+                "kind": "genie_syst_merged",
+                RATE_ACC_KEY: d[RATE_ACC_KEY],
+                XSEC_ACC_KEY: d[XSEC_ACC_KEY],
+                "meta": [d.get("meta", {})],
+            }
+            continue
+        merged["meta"].append(d.get("meta", {}))
+
+        # rate
+        for knob, vars_d in d[RATE_ACC_KEY].items():
+            for slug, pack in vars_d.items():
+                mp = merged[RATE_ACC_KEY].setdefault(knob, {}).setdefault(
+                    slug,
+                    {"univ": pack["univ"].copy(), "cv": pack["cv"].copy()},
+                )
+                if mp["univ"].shape != pack["univ"].shape:
+                    raise ValueError(f"rate shape mismatch {knob} {slug}")
+                mp["univ"] += pack["univ"]
+                mp["cv"] += pack["cv"]
+
+        # xsec tensors
+        for knob, vars_d in d[XSEC_ACC_KEY].items():
+            for slug, acc_new in vars_d.items():
+                mp_acc = merged[XSEC_ACC_KEY].setdefault(knob, {}).setdefault(slug, {})
+                if not mp_acc:
+                    for k, arr in acc_new.items():
+                        mp_acc[k] = np.array(arr, dtype=np.float64, copy=True)
+                    mp_acc.setdefault(
+                        "cv_allsel_reco", np.zeros_like(mp_acc["cv_sel_reco"], dtype=np.float64)
+                    )
+                else:
+                    for k in acc_new:
+                        mp_acc[k] += np.asarray(acc_new[k], dtype=np.float64)
+    if merged is None:
+        raise RuntimeError("no GENIE chunk pickles merged")
+    return merged
+
+
+# ---------------------------------------------------------------------------
+# Plotting / covariance packaging (matches legacy get_systematics)
+# ---------------------------------------------------------------------------
+
+
+def covariance_bundle_univ_events(
+    univ_events: np.ndarray,
+    cv_events: np.ndarray,
+    syst_name: SystName,
+    var_config: VariableConfig,
+    cov_tag: str,
+    *,
+    plot: bool = False,
+    save_fig: bool = False,
+    save_fig_dir: Optional[str] = None,
+) -> Dict[str, np.ndarray]:
+    ret = get_covariance_matrix(univ_events, cv_events)
+    if save_fig and save_fig_dir:
+        os.makedirs(save_fig_dir, exist_ok=True)
+        sk = _syst_plot_key(syst_name)
+        plot_univ_hists(
+            univ_events,
+            cv_events,
+            sk,
+            var_config,
+            plot=plot,
+            save_fig=True,
+            save_name=path.join(save_fig_dir, f"{var_config.var_save_name}-{syst_name[1]}_{cov_tag}-univ_hists"),
+        )
+        for matrix_type in ("cov", "cov_frac", "corr"):
+            lab = matrix_type.replace("_", " ").title()
+            plot_heatmap(
+                ret[matrix_type],
+                var_config.bins,
+                plot_labels=[var_config.var_labels[1], var_config.var_labels[1], lab],
+                plot=plot,
+                save_fig=True,
+                save_name=path.join(save_fig_dir, f"{var_config.var_save_name}-{syst_name[1]}_{cov_tag}-{matrix_type}"),
+            )
+    return ret
+
+
+def get_systematics(
+    mc_evt_df: pd.DataFrame,
+    mc_nu_df: pd.DataFrame,
+    var_config: VariableConfig,
+    syst_name: SystName,
+    syst_type: str = "GENIE",
+    plot: bool = False,
+    save_fig: bool = False,
+    save_fig_dir: Optional[str] = None,
+    *,
+    xsec_unit: float = 0.0,
+):
+    """Legacy helper — delegates to :func:`utils.get_univ_rates` for ``rate`` and ``xsec``."""
+    matrices: Dict[str, Any] = {}
+    validate_genie_dataframes({"evt": mc_evt_df, "mcnu": mc_nu_df}, context="get_systematics: ")
+    n_univ = infer_n_univ(mc_evt_df, syst_name)
+    for cov_type in ["xsec", "rate"]:
+        univ_events, cv_events = get_univ_rates(
+            cov_type=cov_type,
+            syst_type=syst_type,
+            evtdf=mc_evt_df,
+            nudf=mc_nu_df,
+            var_config=var_config,
+            syst_name=syst_name,
+            n_univ=n_univ,
+            xsec_unit=xsec_unit,
+            plot=False,
+        )
+        ret = covariance_bundle_univ_events(
+            univ_events,
+            cv_events,
+            syst_name,
+            var_config,
+            cov_type,
+            plot=plot,
+            save_fig=save_fig,
+            save_fig_dir=save_fig_dir,
+        )
+        matrices[cov_type] = ret
+    return matrices
+
+
+# ---------------------------------------------------------------------------
+# CLI chunk-map / chunk-merge
+# ---------------------------------------------------------------------------
+
+
+def run_chunk_map(
+    df_file: str,
+    out_dir: str,
+    var_configs: List[VariableConfig],
+    syst_names: Sequence[SystName],
+    n_univ_cap: int = 0,
+    max_splits: int = 0,
+    bkgd_subtract: bool = True,
+) -> str:
+    os.makedirs(out_dir, exist_ok=True)
+    n_keys = int(get_n_split(df_file))
+    n_use = n_keys if max_splits <= 0 else min(max_splits, n_keys)
+    if n_use <= 0:
+        raise SystemExit("[genie-chunk-map] no HDF splits")
+
+    blob_root: Dict[str, Any] = {
+        "kind": "genie_syst_chunk",
+        "meta": {"df_file": df_file, "splits_processed": n_use},
+        RATE_ACC_KEY: {},
+        XSEC_ACC_KEY: {},
+    }
+
+    for i in tqdm(range(n_use), desc="HDF splits"):
+        mc_evt_df = pd.read_hdf(df_file, key=f"evt_{i}")
+        mc_nu_df = pd.read_hdf(df_file, key=f"mcnu_{i}")
+        validate_genie_dataframes({"evt": mc_evt_df, "mcnu": mc_nu_df}, context=f"split {i}:")
+        if n_univ_cap > 0:
+            # Optionally truncate universe columns — uncommon; omitted unless weights exist
+            pass
+
+        accumulate_chunk_into_blob_root(
+            mc_evt_df,
+            mc_nu_df,
+            blob_root,
+            var_configs,
+            syst_names,
+            bkgd_subtract=bkgd_subtract,
+        )
+        del mc_evt_df, mc_nu_df
+        gc.collect()
+
+    stem = path.splitext(path.basename(df_file))[0]
+    out_path = path.join(out_dir, f"genie__{stem}.pkl")
+    with open(out_path, "wb") as f:
+        pickle.dump(blob_root, f, protocol=pickle.HIGHEST_PROTOCOL)
+    logger.info("wrote %s", out_path)
+    return out_path
+
+
+def run_chunk_merge(
+    chunks_dir: str,
+    out_dir: str,
+    var_configs: List[VariableConfig],
+    syst_name_strings: Sequence[str],
+    xsec_unit: float,
+    *,
+    bkgd_subtract: bool = True,
+    save_figs: bool = False,
+    npz_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    paths = sorted(glob.glob(path.join(chunks_dir, "genie__*.pkl")))
+    if not paths:
+        raise SystemExit(f"[genie-chunk-merge] no genie__*.pkl under {chunks_dir}")
+    vc_by = {v.var_save_name: v for v in var_configs}
+
+    merged = merge_genie_chunk_pickles(paths)
+    os.makedirs(out_dir, exist_ok=True)
+
+    syst_dict_out: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+    for knob in tqdm(sorted(merged[RATE_ACC_KEY].keys()), desc="GENIE knobs"):
+        syst_dict_out[knob] = {}
+        syst_tuple: SystName = ("mc", knob)
+
+        for slug, rate_pack in merged[RATE_ACC_KEY][knob].items():
+            vc = vc_by.get(slug)
+            if vc is None:
+                continue
+            univ_rate = np.asarray(rate_pack["univ"], dtype=np.float64)
+            cv_rate = np.asarray(rate_pack["cv"], dtype=np.float64)
+            rate_cov = covariance_bundle_univ_events(
+                univ_rate,
+                cv_rate,
+                syst_tuple,
+                vc,
+                "rate",
+                plot=False,
+                save_fig=save_figs,
+                save_fig_dir=out_dir if save_figs else None,
+            )
+
+            acc_x = merged[XSEC_ACC_KEY][knob][slug]
+            univ_xsec = finalize_xsec_univ_events(acc_x, xsec_unit=xsec_unit)
+            cv_xsec = finalize_cv_sel_reco_xsec(acc_x, xsec_unit=xsec_unit, bkgd_subtract=bkgd_subtract)
+            xsec_cov = covariance_bundle_univ_events(
+                univ_xsec,
+                cv_xsec,
+                syst_tuple,
+                vc,
+                "xsec",
+                plot=False,
+                save_fig=save_figs,
+                save_fig_dir=out_dir if save_figs else None,
+            )
+
+            syst_dict_out[knob][slug] = {"rate": rate_cov, "xsec": xsec_cov}
+
+    if npz_path:
+        # Nested dict of covariance arrays: store as a 0-d object array (NumPy pickles contents).
+        np.savez_compressed(npz_path, syst=np.array(syst_dict_out, dtype=object))
+        logger.info("wrote %s (object array key 'syst')", npz_path)
+
+    summ = path.join(out_dir, "genie_chunk_merge_summary.txt")
+    with open(summ, "w") as f:
+        f.write("# merged chunk pickles\n")
+        for p in paths:
+            f.write("%s\n" % p)
+    return syst_dict_out
+
+
+def parse_chunk_cli(argv: Optional[Sequence[str]] = None):
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pm = sub.add_parser("chunk-map", help="One .df file → genie__stem.pkl accumulators")
+    pm.add_argument("--df-file", required=True)
+    pm.add_argument("--out-dir", required=True)
+    pm.add_argument("--max-splits", type=int, default=0, help="0 = all HDF splits")
+    pm.add_argument(
+        "--knobs",
+        default=None,
+        help="Comma-separated GENIE knob names under mc.* (default: all GENIE knobs from makedf.geniesyst)",
+    )
+
+    rg = sub.add_parser("chunk-merge", help="Merge genie__*.pkl → covariance dict / NPZ")
+    rg.add_argument("--chunks-dir", required=True)
+    rg.add_argument("--out-dir", required=True)
+    rg.add_argument("--xsec-unit", type=float, default=1.0)
+    rg.add_argument("--save-figs", action="store_true")
+    rg.add_argument(
+        "--no-bkgd-subtract",
+        action="store_true",
+        help="Match get_univ_rates(..., bkgd_subtract=False) for rate+xsec CV baseline",
+    )
+    rg.add_argument("--npz", default=None)
+    rg.add_argument(
+        "--knobs",
+        default=None,
+        help="Comma-separated knob names present in merged pickles (default: infer from first chunk pickle)",
+    )
+
+    return p.parse_args(argv)
+
+
+def default_genie_knob_names() -> List[str]:
+    """Ordered union of all knob lists used in the monolithic loop."""
+    syst_lists = [
+        qe_genie_systematics,
+        mec_genie_systematics,
+        dis_genie_systematics,
+        other_genie_systematics,
+        ar23p_genie_systematics,
+    ]
+    seen = set()
+    out: List[str] = []
+    for lst in syst_lists:
+        for k in lst:
+            if k not in seen:
+                seen.add(k)
+                out.append(k)
+    return out
+
+
+def main_cli_chunk(argv: Optional[Sequence[str]] = None) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    args = parse_chunk_cli(argv)
+    var_configs = with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIABLE_CONFIGS))
+
+    if args.cmd == "chunk-map":
+        knobs = (
+            [x.strip() for x in args.knobs.split(",") if x.strip()]
+            if args.knobs
+            else default_genie_knob_names()
+        )
+        if not knobs:
+            raise SystemExit("[chunk-map] no knobs (--knobs empty and geniesyst lists empty)")
+        syst_names = [("mc", k) for k in knobs]
+        run_chunk_map(
+            args.df_file,
+            args.out_dir,
+            var_configs,
+            syst_names,
+            max_splits=args.max_splits,
+        )
+
+    elif args.cmd == "chunk-merge":
+        paths = sorted(glob.glob(path.join(args.chunks_dir, "genie__*.pkl")))
+        knobs_infer: Optional[List[str]] = None
+        if args.knobs:
+            knobs_infer = [x.strip() for x in args.knobs.split(",") if x.strip()]
+        elif paths:
+            with open(paths[0], "rb") as f:
+                probe = pickle.load(f)
+            knobs_infer = sorted(probe[RATE_ACC_KEY].keys())
+        if not knobs_infer:
+            raise SystemExit("[chunk-merge] could not infer knobs; pass --knobs")
+        run_chunk_merge(
+            args.chunks_dir,
+            args.out_dir,
+            var_configs,
+            knobs_infer,
+            xsec_unit=args.xsec_unit,
+            bkgd_subtract=not args.no_bkgd_subtract,
+            save_figs=args.save_figs,
+            npz_path=args.npz,
+        )
+
+
+def main_monolithic() -> None:
+    # -----------------------------------------------------------------------
+    # Monolithic driver (legacy): concatenate dfs then validate evt+mcnu.
+    # -----------------------------------------------------------------------
+    today_str = datetime.now().strftime("%Y%m%d")
+    save_result = True
+    save_fig = True
+
+    syst_lists = [
+        qe_genie_systematics,
+        mec_genie_systematics,
+        dis_genie_systematics,
+        other_genie_systematics,
+        ar23p_genie_systematics,
+    ]
+    genie_tags = ["CCQE", "MEC", "DIS", "Other", "Ar23p"]
+
+    save_fig_base_dir = "/exp/sbnd/data/users/munjung/plots/numucc1p0pi"
+
+    for gidx, genie_tag in tqdm(list(enumerate(genie_tags)), desc="genie-tags"):
+        syst_list = syst_lists[gidx]
+        syst_type = f"genie-{genie_tag}"
+        df_tag = ""
+        subdir = f"genie_wgts-{genie_tag}"
+
+        if genie_tag == "CCQE":
+            df_tag = "_geniewgts_CCQE"
+            subdir = "genie_wgts-CCQE"
+
+        save_fig_dir = path.join(save_fig_base_dir, "systematics-{}-{}".format(syst_type, today_str))
+        if save_fig:
+            makedirs(save_fig_dir, exist_ok=True)
+            print("saving plots in ", save_fig_dir)
+
+        file_dir = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09"
+        n_max_concat = 3
+        mc_keys2load = ["hdr", "mcnu", "evt"]
+
+        concat_dfs = load_and_concat_mc_dfs(
+            file_dir=file_dir,
+            chunk_tags=generate_tags("ak"),
+            df_tag=df_tag,
+            keys2load=mc_keys2load,
+            n_max_concat=n_max_concat,
+            sub_dir="MC",
+            sample_dir="BNB_cosmics/" + subdir,
+        )
+
+        missing = [k for k in ("evt", "mcnu") if k not in concat_dfs]
+        if missing:
+            raise RuntimeError(
+                "GENIE monolithic load missing required keys %s (present=%s)"
+                % (missing, sorted(concat_dfs.keys()))
+            )
+
+        mc_hdr_df = concat_dfs["hdr"]
+        mc_evt_df, mc_nu_df = validate_genie_dataframes(concat_dfs, context="monolithic:")
+
+        mc_evt_df = mc_evt_df.copy()
+        mc_nu_df = mc_nu_df.copy()
+        mc_evt_df[("mu", "pfp", "trk", "phi", "", "", "")] = np.degrees(
+            np.arctan2(mc_evt_df["mu", "pfp", "trk", "dir", "x", "", ""],
+                       mc_evt_df["mu", "pfp", "trk", "dir", "y", "", ""]))
+        mc_evt_df[("p", "pfp", "trk", "phi", "", "", "")] = np.degrees(
+            np.arctan2(mc_evt_df["p", "pfp", "trk", "dir", "x", "", ""],
+                       mc_evt_df["p", "pfp", "trk", "dir", "y", "", ""]))
+        mc_nu_df[("mu", "pfp", "trk", "phi", "", "", "")] = np.degrees(
+            np.arctan2(mc_nu_df["mu", "pfp", "trk", "dir", "x", "", ""],
+                       mc_nu_df["mu", "pfp", "trk", "dir", "y", "", ""]))
+        mc_nu_df[("p", "pfp", "trk", "phi", "", "", "")] = np.degrees(
+            np.arctan2(mc_nu_df["p", "pfp", "trk", "dir", "x", "", ""],
+                       mc_nu_df["p", "pfp", "trk", "dir", "y", "", ""]))
+
+        mc_tot_pot = mc_hdr_df["pot"].sum()
+        print("mc_tot_pot: %.3e" % (mc_tot_pot,))
+        mc_pot_scale = 1.0
+        mc_evt_df["pot_weight"] = mc_pot_scale * np.ones(len(mc_evt_df))
+        mc_nu_df["pot_weight"] = mc_pot_scale * np.ones(len(mc_nu_df))
+
+        xsec_unit = 1.0  # match typical unfolded-normalisation plots; override per-analysis if needed
+
+        var_configs = with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIABLE_CONFIGS))
+        syst_names: List[SystName] = [("mc", syst_list[sidx]) for sidx in range(len(syst_list))]
+        syst_dict: Dict[str, Dict[str, Any]] = {}
+
+        for syst_name in syst_names:
+            print(f"Processing {syst_name[1]}...")
+            syst_dict[syst_name[1]] = {}
+            for var_config in var_configs:
+                print(f"  var {var_config.var_save_name}...")
+                matrices = get_systematics(
+                    mc_evt_df,
+                    mc_nu_df,
+                    var_config,
+                    syst_name,
+                    plot=False,
+                    save_fig=save_fig,
+                    save_fig_dir=save_fig_dir,
+                    xsec_unit=xsec_unit,
+                )
+                if save_result:
+                    syst_dict[syst_name[1]][var_config.var_save_name] = matrices
+
+        save_filename = path.join(save_fig_base_dir, f"genie-{genie_tag}_{today_str}_syst_dict.npz")
+        print("saving syst dict -> ", save_filename)
+        if save_result:
+            np.savez_compressed(save_filename, syst=np.array(syst_dict, dtype=object))
+
+    print("Monolithic GENIE processing finished.")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("chunk-map", "chunk-merge"):
+        main_cli_chunk(sys.argv[1:])
+    else:
+        main_monolithic()

@@ -13,6 +13,10 @@ import sys
 sys.path.append('/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana') # absolute path for running on EAF
 from pyanalib.split_df_helpers import *
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
+from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
+    CORE_SELECTED_EVT_VARIABLE_CONFIGS,
+    with_final_selected_evt_variables,
+)
 from analysis_village.numucc_1p0pi.utils import *
 from analysis_village.numucc_1p0pi.files_config import *
 plt.style.use("presentation.mplstyle")
@@ -405,20 +409,8 @@ data_vs_mc_plotter_crosser_muons_bwd = partial(
 
 # ==== plots ====
 
-# approved vars
-var_configs = [
-    VariableConfig.all_events(),
-    # VariableConfig.muon_momentum(),
-    # VariableConfig.muon_direction(),
-    # VariableConfig.proton_momentum(),
-    # VariableConfig.proton_direction(),
-    #VariableConfig.tki_del_Tp(),
-    # VariableConfig.tki_del_Tp_x(),
-    # VariableConfig.tki_del_Tp_y(),
-    # VariableConfig.tki_del_p(),
-    # VariableConfig.tki_del_alpha(),
-    # VariableConfig.tki_del_phi()
-    ]
+# approved vars (full core kinematics for crosser plots)
+var_configs = list(CORE_SELECTED_EVT_VARIABLE_CONFIGS)
 
 for var_config in var_configs:
 #
@@ -498,23 +490,16 @@ for var_config in var_configs:
 
 # more vars
 
-var_configs = [
-    # VariableConfig.muon_direction_phi(),
-    # VariableConfig.proton_direction_phi(),
-    VariableConfig.trk1_direction_phi(),
-    VariableConfig.trk2_direction_phi(),
-    VariableConfig.vertex_x(),
-    VariableConfig.trk1_end_x(),
-    VariableConfig.trk2_end_x(),
-    # VariableConfig.muon_direction_x(),
-    # VariableConfig.muon_direction_y(),
-    # VariableConfig.proton_direction_x(),
-    # VariableConfig.proton_direction_y(),
-    # VariableConfig.vertex_y(),
-    # VariableConfig.vertex_z(),
-    # VariableConfig.muon_end_y(),
-    # VariableConfig.muon_end_z()
+var_configs = with_final_selected_evt_variables(
+    list(CORE_SELECTED_EVT_VARIABLE_CONFIGS)
+    + [
+        VariableConfig.trk1_direction_phi(),
+        VariableConfig.trk2_direction_phi(),
+        VariableConfig.vertex_x(),
+        VariableConfig.trk1_end_x(),
+        VariableConfig.trk2_end_x(),
     ]
+)
 
 for var_config in var_configs:
 
