@@ -164,45 +164,39 @@ def make_mcnudf_mc_multisim(
 
 def build_flux_knobgroup_config(group_filter=None):
     """
-    Build DFS / ARGS / NAMES for BNB flux multisim by category.
+    Build DFS / ARGS / NAMES for BNB flux multisim (all knobs in one pass).
 
-    group_filter: None  -> all groups in BNB_FLUX_GROUPS (HDF keys evt_beam, evt_hadron, evt_xsec, hdr)
-                  str   -> single category (HDF keys evt, hdr)
+    HDF keys evt, hdr — same layout as sel_mup-g4wgts.py.
 
-    Lists and (systematics, multisim_nuniv) defaults live in makedf.bnbsyst (BNB_FLUX_GROUPS).
+    Per-knob category bundles for *other* tooling live in makedf.bnbsyst.BNB_FLUX_GROUPS;
+    dataframe production no longer splits outputs by those groups.
+
+    group_filter: deprecated. If set, raises ValueError (use thin flux configs under
+    configs/ if you need a subset of knobs in isolation).
     """
-    from makedf.bnbsyst import BNB_FLUX_GROUPS
-
     if group_filter is not None:
-        if group_filter not in BNB_FLUX_GROUPS:
-            raise ValueError(
-                "Unknown BNB flux group %r; valid keys: %s"
-                % (group_filter, tuple(BNB_FLUX_GROUPS))
-            )
-        groups = {group_filter: BNB_FLUX_GROUPS[group_filter]}
-    else:
-        groups = BNB_FLUX_GROUPS
+        raise ValueError(
+            "group_filter / FLUX_GROUP is no longer supported for flux df configs: "
+            "all BNB flux multisim knobs are written to a single evt table. "
+            "Unset FLUX_GROUP, or use a dedicated sel_mup-wgts_flux_*.py config."
+        )
 
-    single = len(groups) == 1
+    from makedf.bnbsyst import regen_systematics
+
     evt_kw = dict(
         include_weights=True,
         wgt_types=["bnb"],
         slim=False,
+        multisim_nuniv=1000,
+        flux_systematics=regen_systematics,
         trkScoreCut=False,
         trkDistCut=100.0,
         cutClearCosmic=True,
     )
 
-    DFS, ARGS, NAMES = [], [], []
-    for name, (syst_list, multisim_nuniv) in groups.items():
-        DFS.append(make_pandora_evtdf_mup_mc_multisim)
-        ARGS.append({**evt_kw, "multisim_nuniv": multisim_nuniv, "flux_systematics": syst_list})
-        NAMES.append("evt" if single else "evt_%s" % name)
-
-    DFS.append(make_hdrdf)
-    ARGS.append({})
-    NAMES.append("hdr")
-
+    DFS = [make_pandora_evtdf_mup_mc_multisim, make_hdrdf]
+    ARGS = [evt_kw, {}]
+    NAMES = ["evt", "hdr"]
     assert len(DFS) == len(ARGS) == len(NAMES)
     return DFS, ARGS, NAMES
 

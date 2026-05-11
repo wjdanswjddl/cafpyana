@@ -170,11 +170,6 @@ def parse_args():
         default=None,
         help="If set, skip monolithic MC load and run syst_multisim_aggregate.py on nu__*.pkl chunks only.",
     )
-    p.add_argument(
-        "--skip-cosmics",
-        action="store_true",
-        help="With --chunks-dir: skip cosmics block in aggregate (nu uncertainties only).",
-    )
     return p.parse_args()
 
 
@@ -213,8 +208,6 @@ def main():
             "--var-set",
             args.var_set,
         ]
-        if args.skip_cosmics:
-            cmd.append("--skip-cosmics")
         if args.no_plots:
             cmd.append("--no-plots")
         if args.no_legacy_npz:

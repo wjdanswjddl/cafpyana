@@ -4,14 +4,20 @@ Edit paths **here only** so drivers stay thin:
 
 - ``run_event_selection_chunked.sh`` — map shards: MC/data/intime/offbeam/dirt ``.df`` files for
   ``event_selection_chunk.py`` / ``event_selection_aggregate.py``.
-- ``run_syst_multisim_chunked.sh`` — per systematic + CAF shard (each syst may use its own glob).
-- ``syst_multisim_aggregate.py`` — merge map outputs into a ``syst_disk_layout`` tree.
+- ``run_syst_multisim_chunked.sh`` — per systematic + CAF shard; MCstat+Combined chunks live under
+  ``multisim_syst-chunked-*`` / ``chunks/``, while G4 and Flux map shards use parallel
+  ``g4_syst-chunked-*`` and ``flux_syst-chunked-*`` (see :func:`default_g4_syst_work_root`,
+  :func:`default_flux_syst_work_root`).
+- ``syst_multisim_aggregate.py`` — merge neutrino multisim map outputs into ``MCstat/``, ``Flux/``, ``G4/``.
 - ``syst_detvar_chunk.py`` / ``syst_detvar_aggregate.py`` — WireMod + calo variants;
   input globs are listed in ``DETVAR_WIREMOD_GLOBS`` / :func:`iter_detvar_chunk_jobs`.
 - ``get_systematics_genie.py`` / ``run_syst_genie_chunked.sh`` — GENIE reweights: one glob per
   knob **group** (``GENIE_GROUP_GLOBS``) / :func:`iter_genie_chunk_map_tasks`.
 - ``run_syst_cosmics_chunked.sh`` — ``syst_cosmics_chunk.py`` / ``syst_cosmics_aggregate.py``;
   globs reuse ``EVENT_SELECTION_GLOBS`` ``offbeam`` / ``intime``.
+- ``default_syst_disk_root()`` — unified ``syst_disk_layout`` root (``Cosmics/``, ``MCstat/``,
+  ``Detector/``, …) used by the ``run_syst_*`` drivers unless ``NUMUCC_SYST_DISK_ROOT`` is set
+  or a script passes an explicit override.
 
 **Naming:** *HDF splits*, *map shards* (one ``.df`` file), and *exposure batches* (time-ordered
 data slices for staged access) are different concepts — see ``exposure_access``.
@@ -58,11 +64,11 @@ PLOTS_BASE = Path(
 # Keys: mc, data, intime, offbeam, dirt
 # -----------------------------------------------------------------------------
 EVENT_SELECTION_GLOBS: Dict[str, str] = {
-    "mc": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/*-sel_all-wgts.df"),
-    "data": str(SPRING_GEN1_ROOT / "data/BNB/_Fixed_all.df"),
-    "intime": str(SPRING_GEN1_ROOT / "MC/intime/*_all.df"),
-    "offbeam": str(SPRING_GEN1_ROOT / "data/OffBeam/*_all.df"),
-    "dirt": str(SPRING_GEN1_ROOT / "MC/lowE/*_all.df"),
+    "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*df"),
+    "data": str(SPRING_GEN1_ROOT / "2026_05_11_040429__sel_all-data-Gen1/*df"),
+    "intime": str(SPRING_GEN1_ROOT / "2026_05_11_040132__sel_all-mc-Intime/*df"),
+    "offbeam": str(SPRING_GEN1_ROOT / "2026_05_11_035756__sel_all-data-OffBeamLight/*df"),
+    "dirt": str(SPRING_GEN1_ROOT / "2026_05_11_040638__sel_all-mc-dirt/*df"),
 }
 
 # -----------------------------------------------------------------------------
@@ -80,10 +86,9 @@ SELECTED_EVENTS_TAG = os.environ.get("NUMUCC_SELECTED_EVENTS_TAG", "sel_mup")
 
 SELECTED_EVENTS_GLOBS: Dict[str, str] = {
     "mc": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-mc-BNB_cosmics/*.df"),
-    "data": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-data-BNB_cosmics/*.df"),
-    # "intime" here means the off-beam light/offbeam sample used as the cosmics estimate
-    "intime": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-data-OffBeamLight/*.df"),
-    # optional (some workflows don't produce it for selected-events plots)
+    "data": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-data-Gen1/*.df"),
+    "intime": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-mc-Intime/*.df"),
+    "offbeam": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-data-OffBeamLight/*.df"),
     "dirt": str(SPRING_GEN1_ROOT / f"*__{SELECTED_EVENTS_TAG}-mc-dirt/*.df"),
 }
 
@@ -94,22 +99,19 @@ SELECTED_EVENTS_GLOBS: Dict[str, str] = {
 # ``final``: tight-selection-style bundles; ``sel_all``: loose + wgts.
 # -----------------------------------------------------------------------------
 MULTISIM_SYST_GLOBS_FINAL: Dict[str, str] = {
-    "MCstat": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/*.df"),
-    "Flux": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/*.df"),
-    "G4": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/*.df"),
+    "MCstat": str(SPRING_GEN1_ROOT / "2026_05_11_084007__sel_mup-wgts_mcstat/*.df"),
+    "Flux": str(SPRING_GEN1_ROOT / "2026_05_11_031846__sel_mup-wgts_flux/*.df"),
+    "G4": str(SPRING_GEN1_ROOT / "2026_05_11_031351__sel_mup-wgts_g4/*.df"),
 }
 MULTISIM_SYST_GLOBS_SEL_ALL: Dict[str, str] = {
-    "MCstat": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/*-sel_all-wgts.df"),
-    "Flux": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/*-sel_all-wgts.df"),
-    "G4": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/*-sel_all-wgts.df"),
+    # "MCstat": str(SPRING_GEN1_ROOT / "2026_05_11_084007__sel_mup-wgts_mcstat/*.df"),
+    # "Flux": str(SPRING_GEN1_ROOT / "2026_05_11_031846__sel_mup-wgts_flux/*.df"),
+    # "G4": str(SPRING_GEN1_ROOT / "2026_05_11_031351__sel_mup-wgts_g4/*.df"),
 }
 
-# For ``mc_df_stage == "final"``: drop paths whose basename contains this substring.
-MULTISIM_FINAL_EXCLUDE_SUBSTRING = "-sel_all-wgts"
-
 # Legacy single-glob names (union of per-syst globs); kept for scripts that need one pattern string.
-MULTISIM_MC_GLOB_FINAL = MULTISIM_SYST_GLOBS_FINAL["Flux"]
-MULTISIM_MC_GLOB_SEL_ALL = MULTISIM_SYST_GLOBS_SEL_ALL["Flux"]
+# MULTISIM_MC_GLOB_FINAL = MULTISIM_SYST_GLOBS_FINAL["Flux"]
+# MULTISIM_MC_GLOB_SEL_ALL = MULTISIM_SYST_GLOBS_SEL_ALL["Flux"]
 
 # -----------------------------------------------------------------------------
 # Detvar (WireMod + calo unisim) — typical chunk input dirs / globs
@@ -118,7 +120,7 @@ DETVAR_DF_GLOB_EXAMPLE_WIREMOD_YZ = str(
     SPRING_GEN1_ROOT / "2026_05_09_223419__sel_2prong-mc-BNB_cosmics-WireModYZ/*.df"
 )
 DETVAR_DF_GLOB_EXAMPLE_WIREMOD_XTXW = str(
-    SPRING_GEN1_ROOT / "2026_05_09_223419__sel_2prong-mc-BNB_cosmics-WireModXTXW/*.df"
+    SPRING_GEN1_ROOT / "2026_05_11_103733__sel_2prong-mc-BNB_cosmics-WireModXTXW/*df"
 )
 
 # -----------------------------------------------------------------------------
@@ -134,17 +136,22 @@ DETVAR_WIREMOD_GLOBS: List[Tuple[str, str]] = [
 # CCQE lives under ``genie_wgts-CCQE`` with ``*_geniewgts_CCQE.df`` filenames; other
 # groups use ``genie_wgts-<Tag>/*.df``.
 # -----------------------------------------------------------------------------
-GENIE_GROUP_ORDER: Tuple[str, ...] = ("CCQE", "MEC", "RES", "DIS", "Other")
+GENIE_GROUP_ORDER: Tuple[str, ...] = ("CCQE", "MEC", "RES", "nonRES", "DIS", "Other")
 
+# Final-selection-style GENIE weight bundles (same convention as ``MULTISIM_SYST_GLOBS_FINAL``).
 GENIE_GROUP_GLOBS: Dict[str, str] = {
-    "CCQE": str(SPRING_GEN1_ROOT / "2026_05_10_235559__sel_mup-wgts_genie_CCQE/*.df"),
-    "MEC": str(SPRING_GEN1_ROOT / "2026_05_10_235711__sel_mup-wgts_genie_MEC/*.df"),
-    "RES": str(SPRING_GEN1_ROOT / "2026_05_10_235751__sel_mup-wgts_genie_RES/*.df"),
-    # "nonRES": str(SPRING_GEN1_ROOT / "2026_05_10_235831__sel_mup-wgts_genie_nonRES/*.df"),
-    "DIS": str(SPRING_GEN1_ROOT / "2026_05_10_235943__sel_mup-wgts_genie_DIS/*.df"),
-    "Other": str(SPRING_GEN1_ROOT / "2026_05_11_000024__sel_mup-wgts_genie_Other/*.df"),
+    "CCQE": str(SPRING_GEN1_ROOT / "2026_05_11_024530__sel_mup-wgts_genie_CCQE/*.df"),
+    "MEC": str(SPRING_GEN1_ROOT / "2026_05_11_030314__sel_mup-wgts_genie_MEC/*.df"),
+    "RES": str(SPRING_GEN1_ROOT / "2026_05_11_030547__sel_mup-wgts_genie_RES/*.df"),
+    "nonRES": str(SPRING_GEN1_ROOT / "2026_05_11_030906__sel_mup-wgts_genie_nonRES/*.df"),
+    "DIS": str(SPRING_GEN1_ROOT / "2026_05_11_031206__sel_mup-wgts_genie_DIS/*.df"),
+    "Other": str(SPRING_GEN1_ROOT / "2026_05_11_031520__sel_mup-wgts_genie_Other/*.df"),
     # "Ar23p": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/genie_wgts-Ar23p/*.df"),
 }
+
+# Loose ``sel_all``-style MC + GENIE weights (evt / trk / hdr / mcnu). Fill when running
+# ``get_systematics_genie.py chunk-map --input-stage sel_all``; empty groups are skipped.
+GENIE_GROUP_GLOBS_SEL_ALL: Dict[str, str] = {}
 
 
 GENIE_GROUP_KNOBS: Dict[str, List[str]] = dict(
@@ -154,6 +161,7 @@ GENIE_GROUP_KNOBS: Dict[str, List[str]] = dict(
             list(qe_genie_systematics),
             list(mec_genie_systematics),
             list(res_genie_systematics),
+            list(nonres_genie_systematics),
             list(dis_genie_systematics),
             list(other_genie_systematics),
         ],
@@ -171,12 +179,26 @@ def iter_detvar_chunk_jobs(
             yield tag, p
 
 
+def _genie_glob_map(mc_df_stage: str) -> Dict[str, str]:
+    if mc_df_stage == "final":
+        return GENIE_GROUP_GLOBS
+    if mc_df_stage == "sel_all":
+        return GENIE_GROUP_GLOBS_SEL_ALL
+    raise ValueError("mc_df_stage must be 'final' or 'sel_all', got %r" % mc_df_stage)
+
+
 def iter_genie_group_df_paths(
     genie_group: str,
     group_globs: Optional[Dict[str, str]] = None,
+    *,
+    mc_df_stage: str = "final",
 ) -> Iterator[str]:
-    """Yield sorted ``.df`` paths for one GENIE knob group (see ``GENIE_GROUP_GLOBS``)."""
-    gmap = group_globs if group_globs is not None else GENIE_GROUP_GLOBS
+    """Yield sorted ``.df`` paths for one GENIE knob group.
+
+    ``mc_df_stage`` selects :data:`GENIE_GROUP_GLOBS` vs :data:`GENIE_GROUP_GLOBS_SEL_ALL`
+    when ``group_globs`` is omitted.
+    """
+    gmap = group_globs if group_globs is not None else _genie_glob_map(mc_df_stage)
     if genie_group not in gmap:
         raise KeyError(
             "unknown genie_group %r; expected one of %s" % (genie_group, tuple(gmap.keys()))
@@ -186,9 +208,14 @@ def iter_genie_group_df_paths(
 
 def iter_genie_chunk_map_tasks(
     group_globs: Optional[Dict[str, str]] = None,
+    mc_df_stage: str = "final",
 ) -> Iterator[Tuple[str, str]]:
-    """Yield ``(genie_group_tag, df_path)`` for ``get_systematics_genie.py chunk-map``."""
-    gmap = group_globs if group_globs is not None else GENIE_GROUP_GLOBS
+    """Yield ``(genie_group_tag, df_path)`` for ``get_systematics_genie.py chunk-map``.
+
+    ``mc_df_stage`` (``final`` | ``sel_all``) picks the default glob map; pass
+    ``group_globs`` explicitly to override.
+    """
+    gmap = group_globs if group_globs is not None else _genie_glob_map(mc_df_stage)
     for tag in GENIE_GROUP_ORDER:
         if tag not in gmap:
             continue
@@ -196,11 +223,28 @@ def iter_genie_chunk_map_tasks(
             yield tag, p
 
 
-def iter_cosmics_chunk_df_paths(sample: str) -> Iterator[str]:
-    """Yield ``.df`` paths for cosmics chunk map (``sample`` is ``offbeam`` or ``intime``)."""
+def iter_cosmics_chunk_df_paths(sample: str, input_stage: str = "sel_all") -> Iterator[str]:
+    """Yield ``.df`` paths for cosmics chunk map.
+
+    ``sample`` is ``offbeam`` or ``intime``. ``input_stage`` selects the input glob:
+
+    * ``sel_all`` (default): :data:`EVENT_SELECTION_GLOBS` — raw evt/trk/hdr dfs.
+    * ``final``: :data:`SELECTED_EVENTS_GLOBS` — already-final-selected dfs.
+    """
     if sample not in ("offbeam", "intime"):
         raise ValueError("sample must be 'offbeam' or 'intime', got %r" % sample)
-    yield from iter_event_selection_df_paths(sample)
+    if input_stage == "sel_all":
+        yield from iter_event_selection_df_paths(sample)
+        return
+    if input_stage == "final":
+        if sample not in SELECTED_EVENTS_GLOBS:
+            raise KeyError("sample %r not in SELECTED_EVENTS_GLOBS" % sample)
+        for p in sorted_glob(SELECTED_EVENTS_GLOBS[sample]):
+            yield p
+        return
+    raise ValueError(
+        "input_stage must be 'sel_all' or 'final', got %r" % input_stage
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -258,6 +302,63 @@ def default_multisim_syst_work_root(tag: str | None = None) -> Path:
     )
 
 
+def default_g4_syst_work_root(tag: str | None = None) -> Path:
+    """Default map-shard root for G4-only neutrino multisim chunks (parallel to multisim work dir)."""
+    from datetime import datetime
+
+    t = tag or datetime.now().strftime("%Y%m%d")
+    base = os.environ.get("NUMUCC_G4_SYST_WORK_BASE")
+    if base:
+        return Path(base)
+    return Path(
+        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/"
+        f"g4_syst-chunked-{t}"
+    )
+
+
+def default_flux_syst_work_root(tag: str | None = None) -> Path:
+    """Default map-shard root for Flux-only neutrino multisim chunks (parallel to multisim work dir)."""
+    from datetime import datetime
+
+    t = tag or datetime.now().strftime("%Y%m%d")
+    base = os.environ.get("NUMUCC_FLUX_SYST_WORK_BASE")
+    if base:
+        return Path(base)
+    return Path(
+        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/"
+        f"flux_syst-chunked-{t}"
+    )
+
+
+def default_detvar_syst_work_root(tag: str | None = None) -> Path:
+    """Scratch/output root for chunked detvar map pickles (``chunks/`` under here)."""
+    from datetime import datetime
+
+    t = tag or datetime.now().strftime("%Y%m%d")
+    base = os.environ.get("NUMUCC_DETVAR_SYST_WORK_BASE")
+    if base:
+        return Path(base)
+    return Path(
+        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/"
+        f"detvar_systematics-{t}"
+    )
+
+
+def default_syst_disk_root() -> Path:
+    """Default root for the unified ``syst_disk_layout`` tree (``Cosmics/``, ``MCstat/``, …).
+
+    Same logical tree that ``utils.get_syst_unc`` reads when ``NUMUCC_SYST_DISK_ROOT`` is set.
+    If that environment variable is set, this function returns that path (expanded). If not,
+    returns a stable per-user default so ``run_syst_*`` scripts can aggregate without extra args.
+    """
+    env = os.environ.get("NUMUCC_SYST_DISK_ROOT")
+    if env:
+        return Path(env).expanduser()
+    return Path(
+        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/syst_disk"
+    )
+
+
 # -----------------------------------------------------------------------------
 # Glob helpers
 # -----------------------------------------------------------------------------
@@ -291,13 +392,6 @@ def iter_multisim_syst_df_paths(mc_df_stage: str, syst_name: str) -> Iterator[st
         )
     glob_map = _multisim_glob_map(mc_df_stage)
     pattern = glob_map[syst_name]
-    if mc_df_stage == "final":
-        excl = MULTISIM_FINAL_EXCLUDE_SUBSTRING
-        for p in sorted_glob(pattern):
-            if excl and excl in Path(p).name:
-                continue
-            yield p
-        return
     yield from sorted_glob(pattern)
 
 
@@ -343,6 +437,7 @@ def summary_lines() -> Iterable[str]:
     yield "# dataset_locations (numucc_1p0pi)"
     yield "SPRING_GEN1_ROOT=%s" % SPRING_GEN1_ROOT
     yield "PLOTS_BASE=%s" % PLOTS_BASE
+    yield "default_syst_disk_root=%s" % default_syst_disk_root()
     yield ""
     yield "## event_selection"
     for k, pat in EVENT_SELECTION_GLOBS.items():

@@ -8,11 +8,12 @@ Runs, in order:
 3. **DetVar map** — ``syst_detvar_chunk.py`` per WireMod tag / ``.df`` (see ``dataset_locations.DETVAR_WIREMOD_GLOBS``), capped per tag.
 4. **DetVar aggregate** — ``syst_detvar_aggregate.py`` → ``detector_syst_dict.npz``.
 5. **Event-selection map** — ``event_selection_chunk.py`` per sample (mc, data, …), capped per type.
-6. **Event-selection reduce** — ``event_selection_aggregate.py`` with ``--syst-disk-root`` pointing at
-   the unified syst tree (``syst_disk_layout``): ``MCstat/``, ``Flux/``, ``G4/``, ``GENIE/``,
-   ``Cosmics/``, ``Detector/``. This driver passes ``--syst-disk-root`` only when multisim included
-   cosmics **and** DetVar ran (complete disk covariance tree). Set ``NUMUCC_GENIE_COV_MAT_PKL`` so
-   ``GENIE/cov_mat_dict.pkl`` exists before stage 6.
+6. **Event-selection reduce** — ``event_selection_aggregate.py`` with optional ``--syst-disk-root``
+   pointing at the unified syst tree (``syst_disk_layout``): ``MCstat/``, ``Flux/``, ``G4/``,
+   ``GENIE/``, ``Cosmics/``, ``Detector/``. Pass ``--with-syst-disk`` only when that tree is
+   complete (this driver runs multisim + DetVar; fill ``GENIE/`` and ``Cosmics/`` via their
+   producers, e.g. ``run_syst_cosmics_chunked.sh``). Set ``NUMUCC_GENIE_COV_MAT_PKL`` so
+   ``GENIE/cov_mat_dict.pkl`` exists before stage 6 when using disk syst.
 
 ``utils.get_syst_unc`` requires **all** category files under that root (no legacy fallbacks).
 
@@ -27,7 +28,7 @@ Outputs under ``--output-dir``::
       logs/workflow_<timestamp>.log
       logs/manifest_<timestamp>.json
       multisim/chunks/           # nu__*.pkl shards
-      syst_disk/                 # MCstat/, Flux/, G4/, Cosmics/, Detector/, GENIE/ (see syst_disk_layout)
+      syst_disk/                 # MCstat/, Flux/, G4/, Detector/, … (+ GENIE/, Cosmics/ from other producers)
       detvar/chunks/
       event_selection/chunks/  event_selection/plots/
 
@@ -229,9 +230,11 @@ def parse_args() -> argparse.Namespace:
         "NUMUCC_SYST_DISK_ROOT already holds a complete syst_disk_layout tree.",
     )
     p.add_argument(
-        "--multisim-include-cosmics",
+        "--with-syst-disk",
         action="store_true",
-        help="Pass cosmics loading to syst_multisim_aggregate (heavy). Default: skip cosmics.",
+        help="Pass --syst-disk-root to event_selection_aggregate.py in stage 6. Requires a "
+        "complete syst_disk_layout under syst_disk/ (multisim + DetVar from this driver, plus "
+        "GENIE and Cosmics from their producers). Default: omit disk syst (plots run without it).",
     )
     p.add_argument(
         "--multisim-no-plots",
@@ -372,15 +375,12 @@ def main() -> int:
                 "--var-set",
                 args.var_set,
             ]
-            if not args.multisim_include_cosmics:
-                agg_args.append("--skip-cosmics")
             if args.multisim_no_plots:
                 agg_args.append("--no-plots")
 
             meta_agg: Dict[str, Any] = {
                 "chunks_dir": str(multisim_chunks),
                 "syst_disk_root": str(syst_disk),
-                "skip_cosmics": not args.multisim_include_cosmics,
                 "no_plots": args.multisim_no_plots,
             }
             rc = _run_python(
@@ -529,11 +529,7 @@ def main() -> int:
             str(es_plots),
         ]
         # Disk syst requires a complete syst_disk_layout tree (utils.get_syst_unc has no fallbacks).
-        use_disk_syst = (
-            not args.skip_multisim
-            and args.multisim_include_cosmics
-            and run_detvar
-        )
+        use_disk_syst = args.with_syst_disk and (not args.skip_multisim) and run_detvar
         if use_disk_syst:
             _seed_genie_cov_pkl(syst_disk, logger, args.dry_run)
             agg_es_args.extend(["--syst-disk-root", str(syst_disk)])

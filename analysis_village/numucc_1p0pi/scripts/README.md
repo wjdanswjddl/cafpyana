@@ -31,9 +31,19 @@ Use this path when CAFs are split across many `.df` HDF files or HDF splits insi
 | File | Role |
 |------|------|
 | **`syst_multisim_chunk.py`** | **Map phase:** reads one `.df` sequentially (`evt_0`, `evt_1`, …), accumulates summed `univ_events` / `cv_events` per systematic and variable, writes **`nu__*.pkl`** (or `nu__<syst>__<stem>.pkl` when `--syst-names` is a subset). |
-| **`syst_multisim_aggregate.py`** | **Reduce phase:** merges all `nu__*.pkl` under a directory, builds covariances, writes `MCstat/`, `Flux/`, `G4/` under `--syst-disk-root`, and (unless `--skip-cosmics`) `Cosmics/`. |
+| **`syst_multisim_aggregate.py`** | **Reduce phase:** merges all `nu__*.pkl` under a directory, builds covariances, writes `MCstat/`, `Flux/`, `G4/` under `--syst-disk-root` (neutrino multisim only; cosmics use `run_syst_cosmics_chunked.sh`). |
 
-Shell convenience: **`run_syst_multisim_chunked.sh`** — loops chunk tasks from `dataset_locations` (see comments in that script).
+### `--input-stage` (`final` vs `sel_all`)
+
+Both `syst_multisim_chunk.py` and `syst_cosmics_chunk.py` accept
+`--input-stage {final,sel_all}`:
+
+- `final` *(default)*: the `.df` is at the final-selection level (e.g. `SELECTED_EVENTS_GLOBS` / `MULTISIM_SYST_GLOBS_FINAL`). The chunk reads only the `evt_{i}` table and histograms the final-selected variables. Multisim uses the legacy `get_univ_rates` (signal + background-subtracted rate covariance).
+- `sel_all`: the `.df` is a raw sel_all bundle (`EVENT_SELECTION_GLOBS` / `MULTISIM_SYST_GLOBS_SEL_ALL`) carrying `evt+trk+hdr`. The chunk re-runs the full numuCC 1p0pi event-selection pipeline (`event_selection_pipeline_def.build_pipeline`) on every split and accumulates histograms at every **cut stage** (`nu_score`, `n_trks`, `track_score`, `vtx_dist`, `trk_len`, `mcs_range_diff`, `chi2_mu`, `chi2_p`) *and* at the **final stage** for the final-selected variables.
+
+The aggregate scripts auto-detect the layout from the chunk pickles. Cut-stage and final-stage `var_save_name`s are disjoint, so the output NPZs (`cosmics_syst_dict.npz`, `mcstat_syst_dict.npz`, `flux_syst_dict.npz`, `g4_syst_dict.npz`) keep their existing flat layout while gaining the cut-variable covariances.
+
+Shell convenience: **`run_syst_multisim_chunked.sh`** — loops chunk tasks from `dataset_locations` (`MC_DF_STAGE={final,sel_all}` drives both the input glob *and* `--input-stage` on the chunk); **`run_syst_cosmics_chunked.sh`** — same, controlled by `INPUT_STAGE={final,sel_all}` (default `sel_all`).
 
 Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `drop_bad_g4_weights`, `save_neutrino_multisim_npzs`, `save_cosmics_legacy_npz`, …) and **`../syst_disk_layout.py`**.
 

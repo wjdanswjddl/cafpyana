@@ -33,7 +33,7 @@ from `syst_multisim_aggregate.py`, and a machine-readable **`covariance_manifest
 | MC statistics | Poisson-style universe weights (`makedf/mcstat.py`) | Folded into Flux/G4 map via `syst_multisim_chunk.py` or dedicated runners |
 | Flux & G4 | Multisim weights from MC CAFs | `scripts/run_syst_multisim_chunked.sh` → `syst_multisim_aggregate.py` |
 | GENIE | Multisim / unisim knobs | `scripts/get_systematics_genie.py` (`chunk-map` / `chunk-merge` isolates rate vs **xsec** paths in code) |
-| Cosmics | Offbeam CV vs intime unisim (`get_systematics_cosmics.py`) | Optional inside `syst_multisim_aggregate.py`, or standalone script |
+| Cosmics | Offbeam CV vs intime unisim | `scripts/run_syst_cosmics_chunked.sh` → `syst_cosmics_aggregate.py`, or `get_systematics_cosmics.py` |
 | Detector | DetVar CAFs (WireMod + calo) | `scripts/syst_detvar_chunk.py` → `syst_detvar_aggregate.py` |
 
 **Example — Flux/G4/MCstat map + aggregate:**
@@ -43,8 +43,8 @@ export PYTHONPATH="/path/to/cafpyana${PYTHONPATH:+:$PYTHONPATH}"
 cd /path/to/cafpyana/analysis_village/numucc_1p0pi/scripts
 export NUMUCC_SPRING_GEN1_ROOT="/exp/sbnd/data/users/<you>/xsec/2025Spring_v10_06_00_09"   # optional
 ./run_syst_multisim_chunked.sh
-# Outputs under WORK_BASE (default dated tree): syst_disk_layout folders MCstat/, Flux/, G4/,
-# optional Cosmics/, plus covariance_manifest.json at WORK_BASE.
+# Outputs under WORK_BASE (default dated tree): MCstat/, Flux/, G4/, plus covariance_manifest.json.
+# Cosmics/ is produced by run_syst_cosmics_chunked.sh into the same syst root when needed.
 ```
 
 **Example — GENIE chunk map/merge (after editing knob lists / paths as needed):**
@@ -121,5 +121,5 @@ python selected_events_cumulative.py --n_time_splits 15 --exposure-batch-indices
 ### Artifact reference
 
 - `syst_multisim_aggregate.py` output: under `--syst-disk-root`, writes `MCstat/`, `Flux/`, `G4/`,
-  optional `Cosmics/`, plus `covariance_manifest.json` at the root of that tree.
+  plus `covariance_manifest.json` at the root of that tree (no `Cosmics/`; use the cosmics driver).
 - Chunked map pickles: `nu__*.pkl` (multisim), `mc__*.pkl` / `data__*.pkl` (event selection).

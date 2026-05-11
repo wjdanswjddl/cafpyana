@@ -37,7 +37,7 @@ import os
 import pickle
 import sys
 from os import path
-from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+from typing import AbstractSet, Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -77,9 +77,52 @@ from analysis_village.numucc_1p0pi.utils import (  # noqa: E402
     signal_hists,
 )
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig  # noqa: E402
+from analysis_village.numucc_1p0pi.syst_pipeline_walker import (  # noqa: E402
+    CUT_STAGE_RATE_ONLY_SLUGS,
+    CUT_STAGE_VAR_SPECS,
+    FINAL_STAGE_KEY,
+    walk_pipeline,
+)
+
 logger = logging.getLogger(__name__)
 
 SystName = Tuple[str, str]
+
+
+def genie_final_var_configs() -> List[VariableConfig]:
+    """Variable set used for GENIE xsec tensors in the legacy ``final`` layout."""
+    return with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIABLE_CONFIGS))
+
+
+def genie_all_var_configs(input_stage: str) -> List[VariableConfig]:
+    """All ``VariableConfig`` objects produced by ``chunk-map`` for this input layout.
+
+    * ``final``: same as :func:`genie_final_var_configs` (unchanged behaviour).
+    * ``sel_all``: cut-stage observables (rate-only downstream) plus the same final
+      variables as ``final`` (rate + xsec), deduped by ``var_save_name``.
+    """
+    if input_stage == "final":
+        return genie_final_var_configs()
+    seen: set[str] = set()
+    out: List[VariableConfig] = []
+    for spec in CUT_STAGE_VAR_SPECS:
+        sn = spec.var_config.var_save_name
+        if sn not in seen:
+            seen.add(sn)
+            out.append(spec.var_config)
+    for vc in genie_final_var_configs():
+        if vc.var_save_name not in seen:
+            seen.add(vc.var_save_name)
+            out.append(vc)
+    return out
+
+
+def _align_evt_mcnu(evt_df: pd.DataFrame, mcnu_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Inner-join ``evt`` and ``mcnu`` on the index (same convention as split HDF producers)."""
+    if evt_df is None or len(evt_df) == 0:
+        return evt_df, mcnu_df.iloc[0:0]
+    ix = evt_df.index.intersection(mcnu_df.index)
+    return evt_df.loc[ix], mcnu_df.loc[ix]
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +391,7 @@ def accumulate_chunk_into_blob_root(
     syst_names: Sequence[SystName],
     *,
     bkgd_subtract: bool = True,
+    skip_xsec_slugs: Optional[AbstractSet[str]] = None,
 ) -> None:
     validate_split_pair(mc_evt_df, mc_nu_df, -1)
     rate_blk = blob_root.setdefault(RATE_ACC_KEY, {})
@@ -378,7 +422,9 @@ def accumulate_chunk_into_blob_root(
             slot_r["univ"] += np.asarray(univ_r, dtype=np.float64)
             slot_r["cv"] += np.asarray(cv_r, dtype=np.float64)
 
-            # ---- xsec tensors
+            # ---- xsec tensors (GENIE-only response-matrix recipe; unchanged math)
+            if skip_xsec_slugs is not None and slug in skip_xsec_slugs:
+                continue
             xsec_blk = blob_root.setdefault(XSEC_ACC_KEY, {})
             knob_blk = xsec_blk.setdefault(knob, {})
             if slug not in knob_blk:
@@ -396,11 +442,19 @@ def merge_genie_chunk_pickles(paths: List[str]) -> Dict[str, Any]:
             merged = {
                 "kind": "genie_syst_merged",
                 RATE_ACC_KEY: d[RATE_ACC_KEY],
-                XSEC_ACC_KEY: d[XSEC_ACC_KEY],
+                XSEC_ACC_KEY: d.get(XSEC_ACC_KEY, {}),
+                "input_stage": d.get("input_stage", "final"),
                 "meta": [d.get("meta", {})],
             }
             continue
         merged["meta"].append(d.get("meta", {}))
+        if d.get("input_stage", "final") != merged.get("input_stage", "final"):
+            logger.warning(
+                "GENIE chunk input_stage mismatch: merged=%r vs chunk=%r (file=%s)",
+                merged.get("input_stage"),
+                d.get("input_stage"),
+                fp,
+            )
 
         # rate
         for knob, vars_d in d[RATE_ACC_KEY].items():
@@ -415,7 +469,7 @@ def merge_genie_chunk_pickles(paths: List[str]) -> Dict[str, Any]:
                 mp["cv"] += pack["cv"]
 
         # xsec tensors
-        for knob, vars_d in d[XSEC_ACC_KEY].items():
+        for knob, vars_d in d.get(XSEC_ACC_KEY, {}).items():
             for slug, acc_new in vars_d.items():
                 mp_acc = merged[XSEC_ACC_KEY].setdefault(knob, {}).setdefault(slug, {})
                 if not mp_acc:
@@ -521,6 +575,28 @@ def get_systematics(
 # ---------------------------------------------------------------------------
 
 
+def _prefix_mcnu_columns(mc_nu_df: pd.DataFrame) -> None:
+    """Ensure ``mcnu`` columns have a leading ``mc`` level (same as legacy chunk-map)."""
+    if isinstance(mc_nu_df.columns, pd.MultiIndex):
+        try:
+            first_level = mc_nu_df.columns.get_level_values(0)
+            need_prefix = not np.all(first_level == "mc")
+        except Exception:
+            need_prefix = True
+        if need_prefix:
+            mc_nu_df.columns = pd.MultiIndex.from_tuples(
+                [tuple(["mc"] + list(c)) for c in mc_nu_df.columns]
+            )
+
+
+def _annotate_topo_genie_phi(evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame) -> None:
+    evt_df.loc[:, "topo_categ"] = get_topo_category(evt_df)
+    mc_nu_df.loc[:, "topo_categ"] = get_topo_category(mc_nu_df)
+    evt_df.loc[:, "genie_categ"] = get_genie_category(evt_df)
+    mc_nu_df.loc[:, "genie_categ"] = get_genie_category(mc_nu_df)
+    _attach_phi_degrees(evt_df, mc_nu_df)
+
+
 def run_chunk_map(
     df_file: str,
     out_dir: str,
@@ -530,6 +606,8 @@ def run_chunk_map(
     n_univ_cap: int = 0,
     max_splits: int = 0,
     bkgd_subtract: bool = True,
+    *,
+    input_stage: str = "final",
 ) -> str:
     os.makedirs(out_dir, exist_ok=True)
     n_keys = int(get_n_split(df_file))
@@ -539,57 +617,94 @@ def run_chunk_map(
 
     blob_root: Dict[str, Any] = {
         "kind": "genie_syst_chunk",
+        "input_stage": input_stage,
         "meta": {
             "df_file": df_file,
             "splits_processed": n_use,
             "genie_group": genie_group,
+            "input_stage": input_stage,
         },
         RATE_ACC_KEY: {},
         XSEC_ACC_KEY: {},
     }
 
+    cut_by_stage: Dict[str, List[Any]] = {}
+    for spec in CUT_STAGE_VAR_SPECS:
+        cut_by_stage.setdefault(spec.stage_key, []).append(spec)
+    final_only_vcs = genie_final_var_configs()
+    skip_xsec_cut = CUT_STAGE_RATE_ONLY_SLUGS
+
     for i in tqdm(range(n_use), desc="HDF splits"):
-        mc_evt_df = pd.read_hdf(df_file, key=f"evt_{i}")
-        mc_nu_df = pd.read_hdf(df_file, key=f"mcnu_{i}")
-        validate_genie_dataframes({"evt": mc_evt_df, "mcnu": mc_nu_df}, context=f"split {i}:")
-        mc_evt_df = mc_evt_df.copy()
-        mc_nu_df = mc_nu_df.copy()
+        if input_stage == "final":
+            mc_evt_df = pd.read_hdf(df_file, key=f"evt_{i}")
+            mc_nu_df = pd.read_hdf(df_file, key=f"mcnu_{i}")
+            validate_genie_dataframes({"evt": mc_evt_df, "mcnu": mc_nu_df}, context=f"split {i}:")
+            mc_evt_df = mc_evt_df.copy()
+            mc_nu_df = mc_nu_df.copy()
+            _prefix_mcnu_columns(mc_nu_df)
+            _annotate_topo_genie_phi(mc_evt_df, mc_nu_df)
+            if n_univ_cap > 0:
+                pass
+            accumulate_chunk_into_blob_root(
+                mc_evt_df,
+                mc_nu_df,
+                blob_root,
+                var_configs,
+                syst_names,
+                bkgd_subtract=bkgd_subtract,
+                skip_xsec_slugs=None,
+            )
+            del mc_evt_df, mc_nu_df
+            gc.collect()
+            continue
 
-        # Match the df-update notebook: ensure mcnu columns have a leading "mc" level so
-        # category helpers that expect df.mc.* work on both evt and mcnu frames.
-        if isinstance(mc_nu_df.columns, pd.MultiIndex):
-            try:
-                first_level = mc_nu_df.columns.get_level_values(0)
-                need_prefix = not np.all(first_level == "mc")
-            except Exception:
-                need_prefix = True
-            if need_prefix:
-                mc_nu_df.columns = pd.MultiIndex.from_tuples(
-                    [tuple(["mc"] + list(c)) for c in mc_nu_df.columns]
+        # ---- sel_all: raw evt / trk / hdr + mcnu; walk ``build_pipeline()`` like cosmics/multisim.
+        evt = pd.read_hdf(df_file, key=f"evt_{i}")
+        trk = pd.read_hdf(df_file, key=f"trk_{i}")
+        try:
+            hdr = pd.read_hdf(df_file, key=f"hdr_{i}")
+        except Exception:
+            hdr = None
+        mcnu = pd.read_hdf(df_file, key=f"mcnu_{i}")
+        validate_genie_dataframes({"evt": evt, "mcnu": mcnu}, context=f"split {i}:")
+        evt = evt.copy()
+        trk = trk.copy()
+        mcnu = mcnu.copy()
+        _prefix_mcnu_columns(mcnu)
+        _annotate_topo_genie_phi(evt, mcnu)
+        mcnu_full = mcnu
+
+        state0: Dict[str, Any] = {"evt": evt, "trk": trk, "hdr": hdr, "mcnu": None}
+        for stage_key, post_state in walk_pipeline(state0, sample="mc"):
+            post_evt = post_state.get("evt")
+            if post_evt is None or len(post_evt) == 0:
+                continue
+            pe, pn = _align_evt_mcnu(post_evt, mcnu_full)
+            if len(pe) == 0:
+                continue
+            for spec in cut_by_stage.get(stage_key, ()):
+                accumulate_chunk_into_blob_root(
+                    pe,
+                    pn,
+                    blob_root,
+                    [spec.var_config],
+                    syst_names,
+                    bkgd_subtract=bkgd_subtract,
+                    skip_xsec_slugs=skip_xsec_cut,
                 )
+            if stage_key == FINAL_STAGE_KEY:
+                for vc in final_only_vcs:
+                    accumulate_chunk_into_blob_root(
+                        pe,
+                        pn,
+                        blob_root,
+                        [vc],
+                        syst_names,
+                        bkgd_subtract=bkgd_subtract,
+                        skip_xsec_slugs=None,
+                    )
 
-        # Event categories (required for selections/hists downstream).
-        mc_evt_df.loc[:, "topo_categ"] = get_topo_category(mc_evt_df)
-        mc_nu_df.loc[:, "topo_categ"] = get_topo_category(mc_nu_df)
-
-        # Keep parity with the notebook even if not used everywhere yet.
-        mc_evt_df.loc[:, "genie_categ"] = get_genie_category(mc_evt_df)
-        mc_nu_df.loc[:, "genie_categ"] = get_genie_category(mc_nu_df)
-
-        _attach_phi_degrees(mc_evt_df, mc_nu_df)
-        if n_univ_cap > 0:
-            # Optionally truncate universe columns — uncommon; omitted unless weights exist
-            pass
-
-        accumulate_chunk_into_blob_root(
-            mc_evt_df,
-            mc_nu_df,
-            blob_root,
-            var_configs,
-            syst_names,
-            bkgd_subtract=bkgd_subtract,
-        )
-        del mc_evt_df, mc_nu_df
+        del evt, trk, hdr, mcnu, mcnu_full, state0
         gc.collect()
 
     stem = path.splitext(path.basename(df_file))[0]
@@ -621,6 +736,9 @@ def run_chunk_merge(
     merged = merge_genie_chunk_pickles(paths)
     os.makedirs(out_dir, exist_ok=True)
 
+    input_stage = merged.get("input_stage", "final")
+    skip_xsec_out = CUT_STAGE_RATE_ONLY_SLUGS if input_stage == "sel_all" else frozenset()
+
     syst_dict_out: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
     for knob in tqdm(sorted(merged[RATE_ACC_KEY].keys()), desc="GENIE knobs"):
@@ -644,21 +762,34 @@ def run_chunk_merge(
                 save_fig_dir=out_dir if save_figs else None,
             )
 
-            acc_x = merged[XSEC_ACC_KEY][knob][slug]
-            univ_xsec = finalize_xsec_univ_events(acc_x, xsec_unit=xsec_unit)
-            cv_xsec = finalize_cv_sel_reco_xsec(acc_x, xsec_unit=xsec_unit, bkgd_subtract=bkgd_subtract)
-            xsec_cov = covariance_bundle_univ_events(
-                univ_xsec,
-                cv_xsec,
-                syst_tuple,
-                vc,
-                "xsec",
-                plot=False,
-                save_fig=save_figs,
-                save_fig_dir=out_dir if save_figs else None,
-            )
+            out_pack: Dict[str, Any] = {"rate": rate_cov}
+            if slug not in skip_xsec_out:
+                knob_x = merged[XSEC_ACC_KEY].get(knob, {})
+                if slug not in knob_x:
+                    logger.warning(
+                        "[genie-chunk-merge] missing xsec accumulators for knob=%s slug=%s — skip xsec",
+                        knob,
+                        slug,
+                    )
+                else:
+                    acc_x = knob_x[slug]
+                    univ_xsec = finalize_xsec_univ_events(acc_x, xsec_unit=xsec_unit)
+                    cv_xsec = finalize_cv_sel_reco_xsec(
+                        acc_x, xsec_unit=xsec_unit, bkgd_subtract=bkgd_subtract
+                    )
+                    xsec_cov = covariance_bundle_univ_events(
+                        univ_xsec,
+                        cv_xsec,
+                        syst_tuple,
+                        vc,
+                        "xsec",
+                        plot=False,
+                        save_fig=save_figs,
+                        save_fig_dir=out_dir if save_figs else None,
+                    )
+                    out_pack["xsec"] = xsec_cov
 
-            syst_dict_out[knob][slug] = {"rate": rate_cov, "xsec": xsec_cov}
+            syst_dict_out[knob][slug] = out_pack
 
     if npz_path:
         # Nested dict of covariance arrays: store as a 0-d object array (NumPy pickles contents).
@@ -689,6 +820,15 @@ def parse_chunk_cli(argv: Optional[Sequence[str]] = None):
         choices=list(GENIE_GROUP_ORDER),
         help="Knob group / sample layout (must match dataset_locations GENIE_GROUP_GLOBS).",
     )
+    pm.add_argument(
+        "--input-stage",
+        choices=("final", "sel_all"),
+        default="final",
+        help="``final``: read ``evt``+``mcnu`` only (already selected). ``sel_all``: read "
+        "``evt``+``trk``+``hdr``+``mcnu``, re-run ``build_pipeline()`` per split; cut-stage "
+        "variables get **rate** systematics only (no xsec tensors). Final variables keep "
+        "the existing GENIE xsec recipe unchanged.",
+    )
     pm.add_argument("--max-splits", type=int, default=0, help="0 = all HDF splits")
     pm.add_argument(
         "--knobs",
@@ -708,6 +848,11 @@ def parse_chunk_cli(argv: Optional[Sequence[str]] = None):
         choices=list(GENIE_GROUP_ORDER),
         help="Must match the chunk-map --genie-group / pickle prefix.",
     )
+    rg.add_argument(
+        "--input-stage",
+        default=None,
+        help="Override ``final``/``sel_all`` layout (default: read from first chunk pickle).",
+    )
     rg.add_argument("--xsec-unit", type=float, default=1.0)
     rg.add_argument("--save-figs", action="store_true")
     rg.add_argument(
@@ -723,9 +868,10 @@ def parse_chunk_cli(argv: Optional[Sequence[str]] = None):
 def main_cli_chunk(argv: Optional[Sequence[str]] = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = parse_chunk_cli(argv)
-    var_configs = with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIABLE_CONFIGS))
 
     if args.cmd == "chunk-map":
+        input_stage = getattr(args, "input_stage", "final")
+        var_configs = genie_all_var_configs(input_stage)
         group = args.genie_group
         if args.knobs:
             knobs = [x.strip() for x in args.knobs.split(",") if x.strip()]
@@ -741,13 +887,16 @@ def main_cli_chunk(argv: Optional[Sequence[str]] = None) -> None:
             var_configs,
             syst_names,
             max_splits=args.max_splits,
+            input_stage=input_stage,
         )
 
     elif args.cmd == "chunk-merge":
         probe_paths = sorted(glob.glob(path.join(args.chunks_dir, "genie__%s__*.pkl" % args.genie_group)))
+        inferred = "final"
         if probe_paths:
             with open(probe_paths[0], "rb") as f:
                 probe = pickle.load(f)
+            inferred = probe.get("input_stage", "final")
             meta_g = probe.get("meta", {}).get("genie_group")
             if meta_g and meta_g != args.genie_group:
                 logger.warning(
@@ -755,6 +904,14 @@ def main_cli_chunk(argv: Optional[Sequence[str]] = None) -> None:
                     meta_g,
                     args.genie_group,
                 )
+        stage = args.input_stage or inferred
+        if args.input_stage and args.input_stage != inferred:
+            logger.warning(
+                "[chunk-merge] --input-stage=%r overrides first-chunk value %r",
+                args.input_stage,
+                inferred,
+            )
+        var_configs = genie_all_var_configs(stage)
         run_chunk_merge(
             args.chunks_dir,
             args.out_dir,

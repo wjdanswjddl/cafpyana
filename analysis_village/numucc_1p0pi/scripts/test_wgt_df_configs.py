@@ -50,7 +50,6 @@ def _cases():
 
     df_quick_ok: included in --caf runs unless --full-multisim is set (flux-all/genie-all are heavy).
     """
-    flux_groups = ["beam", "hadron", "xsec"]
     genie_one_offs = ["CCQE", "MEC"]
 
     out = []
@@ -60,15 +59,6 @@ def _cases():
     out.append(("configs/numucc_1p0pi/sel_2prong-wgts-mc.py", {}, "2prong-wgts-mc", True))
 
     out.append(("configs/numucc_1p0pi/sel_mup-fluxwgts-knobgroups.py", {}, "flux-all-groups", False))
-    for g in flux_groups:
-        out.append(
-            (
-                "configs/numucc_1p0pi/sel_mup-fluxwgts-knobgroups.py",
-                {"FLUX_GROUP": g},
-                "flux-group-%s" % g.lower(),
-                True,
-            )
-        )
 
     out.append(("configs/numucc_1p0pi/sel_mup-geniewgts-knobgroups.py", {}, "genie-all-groups", False))
     for g in genie_one_offs:

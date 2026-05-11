@@ -1,0 +1,2 @@
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-updatecalo.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/WireMod/mc_SBND2026A_prodgenie_corsika_proton_rockbox_sbnd_SV_v10_06_00_10_flatcaf_sbnd_xrootd.list  -o sel_2prong-mc-BNB_cosmics-WireModYZ -ngrid 3000
+python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-updatecalo.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/WireMod/WireMod_XTXW_testprod_xrootd.list  -o sel_2prong-mc-BNB_cosmics-WireModXTXW -ngrid 3000

@@ -282,19 +282,21 @@ def get_univ_rates(cov_type="rate",
                     n_univ=100, 
                     bkgd_subtract=True,
                     xsec_unit=0,
-                    plot=False):
+                    plot=False,
+                    verbose=False):
     """
     for the GENIE uncertainty on the xsec measurement
     """
-
     if cov_type == "xsec":
-        print("getting {} universes for {} uncertainty on the xsec".format(n_univ, syst_name))
+        if verbose:
+            print("getting {} universes for {} uncertainty on the xsec".format(n_univ, syst_name))
         scale_factor = xsec_unit
-        if xsec_unit == 0:
+        if xsec_unit == 0 and verbose:
             print("pass xsec_unit as an argument to get_univ_rates")
 
     elif cov_type == "rate":
-        print("getting {} universes for {} uncertainty on the event rate".format(n_univ, syst_name))
+        if verbose:
+            print("getting {} universes for {} uncertainty on the event rate".format(n_univ, syst_name))
         scale_factor = 1.0
 
     else:
@@ -315,7 +317,7 @@ def get_univ_rates(cov_type="rate",
     univ_effs   = []
     univ_smears = []
 
-    for uidx in tqdm(range(n_univ), desc="Getting universes"):
+    for uidx in tqdm(range(n_univ), desc="Getting universes", disable=not verbose):
         univ_col = f"univ_{uidx}"
 
         # ---- uncertainty on the signal rate ----

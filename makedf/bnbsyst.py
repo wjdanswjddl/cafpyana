@@ -40,7 +40,8 @@ bnb_systematics_xsec = [
     'nucleontotxsec_Flux',
 ]
 
-# Flux multisim bundles for df configs (see analysis_village ... build_flux_knobgroup_config).
+# Flux multisim bundles for legacy / ancillary scripts (e.g. get_systematics_multisim).
+# Full flux dfs use all regen_systematics in one evt table (build_flux_knobgroup_config).
 # Values are (systematics list, multisim_nuniv) matching sel_mup-wgts_flux_* defaults.
 BNB_FLUX_GROUPS = {
     "beam": (bnb_systematics_beam, 200),

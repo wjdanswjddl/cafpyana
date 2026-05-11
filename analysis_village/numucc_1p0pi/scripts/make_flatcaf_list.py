@@ -3,8 +3,12 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 
 # Configuration
-input_dir = "/pnfs/sbnd/scratch/users/jaz8600/TestEfieldSim/cathodeSim_DriftVelSim_2026"
-output_list = "/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/cathodeSim_DriftVelSim_2026.txt"
+#input_dir = "/pnfs/sbnd/scratch/users/jaz8600/TestEfieldSim/cathodeSim_DriftVelSim_2026"
+#output_list = "/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/cathodeSim_DriftVelSim_2026.txt"
+#input_dir = "/pnfs/sbnd/scratch/users/jaz8600/EField_R00/"
+#output_list = "/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R00.txt"
+input_dir = "/pnfs/sbnd/scratch/users/jaz8600/EField_R30_Short/"
+output_list = "/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R30_Short.txt"
 MIN_BRANCHES = 2000  # Threshold to distinguish data from skeletons
 NUM_WORKERS = 30  # Uses all available CPU cores
 

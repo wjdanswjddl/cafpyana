@@ -31,10 +31,11 @@ Examples:
   -- Note!!
   Output df files are sent to /pnfs/<exp>/scratch/users/<User>/cafpyana_out in Grid mode
 
-  -- Knob-group configs (GENIE / flux)
-  When using configs that read GENIE_KNOB_GROUP or FLUX_GROUP from the environment, set those
-  variables in the shell before invoking run_df_maker; they are forwarded into each grid worker
-  script so single-group jobs (HDF keys evt, mcnu, hdr) work under -ngrid.
+  -- Knob-group configs (GENIE)
+  When using configs that read GENIE_KNOB_GROUP from the environment, set it in the shell before
+  invoking run_df_maker; it is forwarded into each grid worker so single-group jobs (HDF keys
+  evt, mcnu, hdr) work under -ngrid. Flux multisim uses a single evt table (sel_mup-fluxwgts-knobgroups.py);
+  FLUX_GROUP is not used.
 """,
     formatter_class=argparse.RawTextHelpFormatter  # Ensures line breaks are preserved
 )
@@ -160,7 +161,7 @@ def run_grid(inputfiles):
         out.write('#!/bin/bash\n')
         out.write('rpm -q libuuid-devel\n')
         # Worker jobs do not inherit the submit-shell environment; configs that branch on e.g.
-        # GENIE_KNOB_GROUP / FLUX_GROUP must see the same values as the submit host.
+        # GENIE_KNOB_GROUP must see the same values as the submit host (FLUX_GROUP unused for flux df).
         for _env in ("GENIE_KNOB_GROUP", "FLUX_GROUP"):
             _v = os.environ.get(_env, "").strip()
             if _v:

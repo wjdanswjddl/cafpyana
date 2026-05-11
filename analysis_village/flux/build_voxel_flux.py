@@ -2,12 +2,6 @@
 """
 Read SBND voxel flux histogram ROOT files, merge jobs with POT weights from
 ``/run/beamOn`` in ``production*.in``, and write ``full_voxel_flux_potmacro.pkl``.
-
-Example::
-
-    python build_voxel_flux.py
-    python build_voxel_flux.py --force --n-jobs 100
-    python build_voxel_flux.py --no-check
 """
 
 from __future__ import annotations
@@ -23,36 +17,39 @@ import uproot
 from tqdm.auto import tqdm
 
 # ---------------------------------------------------------------------------
-# Defaults (override via CLI)
+# Job direcotories
 # ---------------------------------------------------------------------------
 DEFAULT_BASE_DIR = Path("/pnfs/sbnd/scratch/users/munjung/beammc_20cm")
 DEFAULT_PRODUCTION = "production_BooNE_50m_I174000A"
-DEFAULT_CACHE_DIR = Path("/exp/sbnd/data/users/munjung/flux/dk2nu_cache")
+DEFAULT_CACHE_DIR = Path("/exp/sbnd/data/users/munjung/flux/SBND_dk2nu")
 DEFAULT_VOXEL_SIZE = 20
 DEFAULT_N_JOBS = 100
 
+# ---------------------------------------------------------------------------
+# Nu Flavors
+# ---------------------------------------------------------------------------
 FLAVORS = ("nue", "nuebar", "numu", "numubar")
 FLAVOR_HIST = {f: f"h50{i + 1}" for i, f in enumerate(FLAVORS)}
 
 _BEAMON_RE = re.compile(r"/run/beamOn\s+(\d+)")
 
 
+# ---------------------------------------------------------------------------
+# Binnings
+# ---------------------------------------------------------------------------
 def edges_z(voxel_size: int = DEFAULT_VOXEL_SIZE) -> np.ndarray:
     return np.arange(11000, 11500 + voxel_size, voxel_size)
 
-
 def edges_y(voxel_size: int = DEFAULT_VOXEL_SIZE) -> np.ndarray:
-    """Y bin edges for ``y in (-200, 200)`` cm only (same span as ``x``).
-
-    Job outputs also include an extra slab ``(200, 220)``; we do not iterate it so
-    ``NY`` matches the 20 voxels from ``-200`` to ``+180`` low edges, same as ``NX``.
-    """
+    # jobs include (200, 220) -- exclude this
     return np.arange(-200, 200 + voxel_size, voxel_size)
-
 
 def edges_x(voxel_size: int = DEFAULT_VOXEL_SIZE) -> np.ndarray:
     return np.arange(-200, 200 + voxel_size, voxel_size)
 
+# ---------------------------------------------------------------------------
+# File name configs
+# ---------------------------------------------------------------------------
 
 def hist_filename(
     z_lo: int,
@@ -70,7 +67,6 @@ def hist_filename(
 
 
 _timestamp_dir_cache: dict[int, Path | None] = {}
-
 
 def timestamp_dir_for_z(z_lo: int, base_dir: Path, production: str) -> Path | None:
     if z_lo in _timestamp_dir_cache:

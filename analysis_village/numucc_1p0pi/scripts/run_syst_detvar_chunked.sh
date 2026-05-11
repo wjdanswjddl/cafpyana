@@ -20,14 +20,17 @@
 # Edit WIREMOD_DIRS for your inputs. Each entry is "tag|glob" where files
 # matching the glob are processed under that WireMod tag.
 #
-# Override output root:
+# Override output root (chunk pickles); aggregate NPZ root defaults separately:
 #   WORK_BASE=/path/to/out bash run_syst_detvar_chunked.sh
+#
+# ``NUMUCC_SYST_DISK_ROOT`` overrides where ``Detector/detector_syst_dict.npz`` is written
+# (default: ``dataset_locations.default_syst_disk_root()``).
 #
 # Skip aggregation:
 #   SKIP_AGGREGATE=1 bash run_syst_detvar_chunked.sh
 #
-# Progress: by default this script prints only **file-level** progress:
-#   [detvar-run] File 42/3000 (2%) tag=wiremod_yz  stem.df
+# Progress: file-level lines match other ``run_syst_*`` drivers (overall k/N, BEGIN/END):
+#   [detvar-run] progress map overall 42/3000 (1%) tag=wiremod_yz  BEGIN … stem.df
 # Enable tqdm bars inside Python (splits / merge / plots):
 #   PYTHON_PROGRESS_BARS=1 bash run_syst_detvar_chunked.sh
 #
@@ -40,13 +43,16 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$THIS_DIR/../../.." && pwd)"
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 
 _usage() {
     cat <<'EOF'
 run_syst_detvar_chunked.sh — chunked detector (calo) unisim driver.
 
 Environment:
-  WORK_BASE              Output root (default: ~/xsec/.../detvar_systematics-<date>)
+  WORK_BASE              Chunk pickle root (default: ``default_detvar_syst_work_root``)
+  NUMUCC_SYST_DISK_ROOT  Aggregate / syst_disk_layout root (default: ``default_syst_disk_root``)
   MAX_FILES_PER_TAG      Cap files per WireMod glob (0 = all)
   MAX_FILES              Global cap on queued .df jobs after per-tag cap (0 = all)
   MAX_FILES also accepts:  --max-files N   or   -n N   (CLI wins over env)
@@ -82,9 +88,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 TODAY=$(date +%Y%m%d)
-WORK_BASE=${WORK_BASE:-"/exp/sbnd/data/users/$(whoami)/xsec/numucc_1p0pi/detvar_systematics-$TODAY"}
+WORK_BASE=${WORK_BASE:-$(python3 -c "
+import sys
+sys.path.insert(0, '${REPO_ROOT}')
+from analysis_village.numucc_1p0pi.dataset_locations import default_detvar_syst_work_root
+print(default_detvar_syst_work_root('${TODAY}'))
+")}
 CHUNKS_DIR="$WORK_BASE/chunks"
 FAILED_LOG="$WORK_BASE/failed_df_files.log"
+SYST_DISK_ROOT="$(python3 -c "
+import sys
+sys.path.insert(0, '${REPO_ROOT}')
+from analysis_village.numucc_1p0pi.dataset_locations import default_syst_disk_root
+print(default_syst_disk_root())
+")"
 
 # tag|glob (one entry per WireMod model).
 declare -a WIREMOD_DIRS=(
@@ -104,8 +121,9 @@ if [[ "$PYTHON_PROGRESS_BARS" != "1" ]]; then
     PYTHON_PROGRESS_ARGS=(--no-progress)
 fi
 
-mkdir -p "$CHUNKS_DIR"
-echo "[detvar-run] WORK_BASE=$WORK_BASE"
+mkdir -p "$CHUNKS_DIR" "$SYST_DISK_ROOT"
+echo "[detvar-run] WORK_BASE=$WORK_BASE  CHUNKS_DIR=$CHUNKS_DIR"
+echo "[detvar-run] SYST_DISK_ROOT=$SYST_DISK_ROOT  (Detector/ aggregate target)"
 echo "[detvar-run] logging chunk failures to $FAILED_LOG"
 
 # Collect all (tag, path) jobs so we can print global File k/N progress.
@@ -149,7 +167,7 @@ if [[ "$MAX_FILES" =~ ^[0-9]+$ ]] && [[ "$MAX_FILES" -gt 0 ]] && [[ "$MAX_FILES"
     N_TOTAL=${#JOB_FILES[@]}
 fi
 
-echo "[detvar-run] Phase 1 (map): ${N_TOTAL} .df file(s) queued"
+echo "[detvar-run] chunk-map queue: ${N_TOTAL} .df file(s) (Phase 1 map)"
 
 # ---- Phase 1: map ---------------------------------------------------------
 for ((i = 0; i < N_TOTAL; i++)); do
@@ -162,21 +180,23 @@ for ((i = 0; i < N_TOTAL; i++)); do
     out_pkl="$CHUNKS_DIR/${tag}__${out_pkl_base}.pkl"
 
     if [[ -f "$out_pkl" ]]; then
-        echo "[detvar-run] File ${k}/${N_TOTAL} (${pct}%) tag=${tag}  SKIP (exists) ${out_pkl_base}.df"
+        echo "[detvar-run] progress map overall ${k}/${N_TOTAL} (${pct}%) tag=${tag}  (skip existing) ${out_pkl_base}.df"
         continue
     fi
 
-    echo "[detvar-run] File ${k}/${N_TOTAL} (${pct}%) tag=${tag}  RUN ${out_pkl_base}.df"
+    echo "[detvar-run] progress map overall ${k}/${N_TOTAL} (${pct}%) tag=${tag}  BEGIN $(date -Is) ${out_pkl_base}.df"
     if ! python "$THIS_DIR/syst_detvar_chunk.py" \
         --df_file "$f" \
         --wiremod_tag "$tag" \
         --out_dir "$CHUNKS_DIR" \
         "${PYTHON_PROGRESS_ARGS[@]}"; then
         ts="$(date '+%Y-%m-%d %H:%M:%S')"
+        echo "[detvar-run] progress map overall ${k}/${N_TOTAL} (${pct}%) tag=${tag}  FAILED $(date -Is) $f" >&2
         echo "[detvar-run] FAILED chunk (see $FAILED_LOG): $f" >&2
         printf '%s\t%s\t%s\n' "$ts" "$tag" "$f" >> "$FAILED_LOG"
         continue
     fi
+    echo "[detvar-run] progress map overall ${k}/${N_TOTAL} (${pct}%) tag=${tag}  END $(date -Is) ${out_pkl_base}.df"
 done
 
 echo "[detvar-run] Phase 1 complete (${N_TOTAL} file job(s) considered)"
@@ -184,13 +204,15 @@ echo "[detvar-run] Phase 1 complete (${N_TOTAL} file job(s) considered)"
 # ---- Phase 2: reduce -------------------------------------------------------
 if [[ "$SKIP_AGGREGATE" != "1" ]]; then
     echo "[detvar-run] Phase 2 (aggregate): merging pickles under $CHUNKS_DIR"
+    echo "[detvar-run] progress aggregate 1/1  BEGIN $(date -Is) syst_detvar_aggregate.py"
     python "$THIS_DIR/syst_detvar_aggregate.py" \
         --in_dir "$CHUNKS_DIR" \
-        --syst-disk-root "$WORK_BASE" \
+        --syst-disk-root "$SYST_DISK_ROOT" \
         "${PYTHON_PROGRESS_ARGS[@]}"
-    echo "[detvar-run] DONE detector NPZ -> $WORK_BASE/Detector/detector_syst_dict.npz"
+    echo "[detvar-run] progress aggregate 1/1  END $(date -Is)"
+    echo "[detvar-run] DONE detector NPZ -> $SYST_DISK_ROOT/Detector/detector_syst_dict.npz"
 
-    NPZ_SRC="$WORK_BASE/Detector/detector_syst_dict.npz"
+    NPZ_SRC="$SYST_DISK_ROOT/Detector/detector_syst_dict.npz"
     if [[ -f "$NPZ_SRC" ]]; then
         echo "[detvar-run] Merge with multisim/cosmics/GENIE outputs under one NUMUCC_SYST_DISK_ROOT for utils.get_syst_unc."
     fi

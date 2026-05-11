@@ -9,5 +9,5 @@ python run_df_maker.py \
     -ngrid 2000
 
 # One category (same as old thin configs)
-#FLUX_GROUP=beam python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-fluxwgts-knobgroups.py \
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-wgts_flux_beam.py \
 #  -l "$mc_list" -o sel_mup-wgts_flux_beam -ngrid 200
