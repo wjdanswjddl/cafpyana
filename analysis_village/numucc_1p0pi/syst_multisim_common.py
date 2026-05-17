@@ -6,6 +6,8 @@ import os
 import numpy as np
 import pandas as pd
 
+from pyanalib.covariance import cov_from_fraccov, fraccov_from_cov
+
 from analysis_village.numucc_1p0pi.syst_disk_layout import (
     FILE_COSMICS,
     FILE_FLUX,
@@ -159,13 +161,34 @@ count_merged_g4_var_slots = count_merged_knob_nested_var_slots
 
 
 def combine_indep_knob_cov_packs(packs: list, cv_events: np.ndarray) -> dict:
-    """Treat per-knob covariances as independent: sum absolute ``cov``, rebuild ``cov_frac`` / ``corr``."""
+    """Treat per-knob uncertainties as independent: sum fractional ``cov_frac``, rebuild ``cov`` / ``corr``.
+
+    Summing absolute ``cov`` and dividing once is equivalent only when every pack shares the
+    same nominal ``cv_events``; summing ``cov_frac`` matches the neutrino multisim / GENIE
+    aggregate convention used elsewhere in this analysis.
+    """
     if not packs:
         raise ValueError("combine_indep_knob_cov_packs: empty packs")
-    cov = np.sum([np.asarray(p["cov"], dtype=float) for p in packs], axis=0)
     mu = np.asarray(cv_events, dtype=float).reshape(-1)
-    safe = np.outer(np.maximum(mu, 1e-18), np.maximum(mu, 1e-18))
-    cov_frac = np.divide(cov, safe, out=np.zeros_like(cov), where=safe > 0)
+    cov_frac_sum = None
+    for p in packs:
+        cf = p.get("cov_frac")
+        if cf is None:
+            cf = fraccov_from_cov(np.asarray(p["cov"], dtype=float), mu)
+        else:
+            cf = np.asarray(cf, dtype=float)
+        if cov_frac_sum is None:
+            cov_frac_sum = cf.copy()
+        else:
+            if cf.shape != cov_frac_sum.shape:
+                raise ValueError(
+                    "combine_indep_knob_cov_packs: cov_frac shape mismatch %s vs %s"
+                    % (cov_frac_sum.shape, cf.shape)
+                )
+            cov_frac_sum += cf
+    assert cov_frac_sum is not None
+    cov = cov_from_fraccov(cov_frac_sum, mu)
+    cov_frac = cov_frac_sum
     d = np.sqrt(np.maximum(np.diag(cov), 0.0))
     outer = np.outer(np.maximum(d, 1e-18), np.maximum(d, 1e-18))
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -237,13 +260,69 @@ def build_var_configs(var_set: str):
 NEUTRINO_SYST_ORDER = ("MCstat", "Flux", "G4")
 
 
+def parse_neutrino_syst_type_csv(spec: str | None) -> tuple[str, ...]:
+    """Parse ``MCstat,Flux,G4``-style CSV into a tuple in :data:`NEUTRINO_SYST_ORDER` order.
+
+    ``None`` or blank → all three (used by ``syst_multisim_aggregate.py`` default). Raises
+    ``ValueError`` on unknown tokens or duplicates.
+    """
+    if not spec or not str(spec).strip():
+        return NEUTRINO_SYST_ORDER
+    raw = [x.strip() for x in str(spec).split(",") if x.strip()]
+    norm: list[str] = []
+    for token in raw:
+        u = token.upper().replace("-", "_")
+        if u in ("MCSTAT", "MC_STAT", "MC"):
+            norm.append("MCstat")
+        elif u == "FLUX":
+            norm.append("Flux")
+        elif u == "G4":
+            norm.append("G4")
+        else:
+            raise ValueError("unknown neutrino systematic %r (expected MCstat, Flux, G4)" % (token,))
+    if len(norm) != len(set(norm)):
+        raise ValueError("duplicate systematic in %r" % (spec,))
+    ordered = tuple(sn for sn in NEUTRINO_SYST_ORDER if sn in norm)
+    if not ordered:
+        raise ValueError("empty systematic list from %r" % (spec,))
+    return ordered
+
+
+# Default for ``syst_multisim_chunk.py`` / ``run_syst_multisim_chunked.sh`` when no subset is
+# given: Flux + G4 only. MCstat uses separate wgtdf/globs — opt in via ``--syst-names MCstat``
+# or ``MULTISIM_SYST_TYPES=MCstat,...``.
+DEFAULT_MULTISIM_CHUNK_SYST_NAMES = ("Flux", "G4")
+
+
 def syst_key_for_name(sname: str):
-    return ("mc", sname) if sname in ("Flux", "G4") else sname
+    """HDF weight column prefix for universe histograms.
+
+    ``make_pandora_evtdf`` / ``truth_match`` (``makedf.makedf``) prepends ``mc`` to every
+    ``make_mcnudf`` weight block — including **MCstat** from ``makedf.mcstat.mcstatsyst`` —
+    so live columns look like ``("mc", "MCstat", "univ_i", …)``, same pattern as Flux/G4.
+    """
+    return ("mc", sname) if sname in ("MCstat", "Flux", "G4") else sname
 
 
-def legacy_npz_wrap(inner_key: str, ret_by_var: dict):
-    """Layout expected by ``selected_events.get_syst_unc`` / ``utils.get_syst_unc``."""
-    return {vn: np.array({inner_key: ret}, dtype=object) for vn, ret in ret_by_var.items()}
+def legacy_npz_wrap(inner_key: str, ret_by_var: dict, by_knob_by_var: dict | None = None):
+    """Layout expected by ``selected_events.get_syst_unc`` / ``utils.get_syst_unc``.
+
+    For Flux/G4 **knob** mode, pass ``by_knob_by_var`` as ``var_save_name -> {knob: pack}`` where
+    each ``pack`` is ``{cov, cov_frac, corr}`` from :func:`pyanalib.covariance.get_covariance_matrix`.
+    Each variable's object dict then also contains ``"{inner_key}_by_knob"`` (e.g. ``flux_by_knob``,
+    ``G4_by_knob``) so downstream can plot per-knob breakdowns while the primary ``inner_key``
+    entry remains the **independent-sum combined** category covariance.
+    """
+    bk = by_knob_by_var or {}
+    extra_key = "%s_by_knob" % inner_key
+    out: dict = {}
+    for vn, ret in ret_by_var.items():
+        cell = {inner_key: ret}
+        knob_sub = bk.get(vn)
+        if knob_sub:
+            cell[extra_key] = dict(knob_sub)
+        out[vn] = np.array(cell, dtype=object)
+    return out
 
 
 def save_neutrino_multisim_npzs(syst_dict: dict, syst_disk_root: str) -> None:
@@ -260,7 +339,8 @@ def save_neutrino_multisim_npzs(syst_dict: dict, syst_disk_root: str) -> None:
             continue
         d = os.path.join(root, subdir)
         os.makedirs(d, exist_ok=True)
-        payload = legacy_npz_wrap(inner_key, block)
+        knob_block = syst_dict.get("%s_by_knob" % dict_key) if dict_key in ("Flux", "G4") else None
+        payload = legacy_npz_wrap(inner_key, block, by_knob_by_var=knob_block)
         np.savez_compressed(os.path.join(d, fname), **payload)
 
 

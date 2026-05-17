@@ -1,25 +1,38 @@
 import numpy as np
 
+# Floor for nominal counts when building **fractional** covariances (avoids inf/NaN in empty bins).
+_FRAC_CV_EPS = 1e-12
+
+
 def cov_from_fraccov(cov_frac, cv_vals):
-    cov = np.zeros_like(cov_frac)
-    for i in range(cov_frac.shape[0]):
-        for j in range(cov_frac.shape[1]):
-            cov[i, j] = cov_frac[i, j] * (cv_vals[i] * cv_vals[j])
-    return cov
+    """Absolute covariance from fractional matrix and per-bin CV (counts).
+
+    ``0 * inf`` can appear when ``cov_frac`` came from upstream code that divided by zero
+    nominal CV; those entries are cleared to zero so empty bins do not poison linear algebra.
+    """
+    cf = np.asarray(cov_frac, dtype=float)
+    v = np.asarray(cv_vals, dtype=float)
+    cov = cf * np.outer(v, v)
+    return np.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def fraccov_from_cov(cov, cv_vals):
     cov_frac = np.zeros_like(cov)
+    v = np.asarray(cv_vals, dtype=float)
     for i in range(cov.shape[0]):
         for j in range(cov.shape[1]):
-            cov_frac[i, j] = cov[i, j] / (cv_vals[i] * cv_vals[j])
+            den = max(abs(v[i] * v[j]), _FRAC_CV_EPS)
+            cov_frac[i, j] = cov[i, j] / den
     return cov_frac
 
 def corr_from_fraccov(cov_frac):
     corr = np.zeros_like(cov_frac)
     for i in range(cov_frac.shape[0]):
         for j in range(cov_frac.shape[1]):
-            corr[i, j] = cov_frac[i, j] / np.sqrt(cov_frac[i, i] * cov_frac[j, j])
+            di = max(float(cov_frac[i, i]), 0.0)
+            dj = max(float(cov_frac[j, j]), 0.0)
+            denom = np.sqrt(di * dj)
+            corr[i, j] = (cov_frac[i, j] / denom) if denom > _FRAC_CV_EPS else 0.0
     return corr
 
 def get_covariance_matrix(univ_events, 
@@ -41,7 +54,9 @@ def get_covariance_matrix(univ_events,
                 univ_j = univ_events[uidx, j] 
 
                 cov_entry = (univ_i - nom_i) * (univ_j - nom_j)
-                frac_cov_entry = ((univ_i - nom_i) / nom_i) * ( (univ_j - nom_j) / nom_j)
+                den_i = max(float(nom_i), _FRAC_CV_EPS)
+                den_j = max(float(nom_j), _FRAC_CV_EPS)
+                frac_cov_entry = ((univ_i - nom_i) / den_i) * ((univ_j - nom_j) / den_j)
 
                 # TODO: uboone code has clipping that I'm not sure why.. investigate later
                 # if cov_entry > 0:
@@ -62,7 +77,10 @@ def get_covariance_matrix(univ_events,
     corr = np.zeros_like(cov)
     for i in range(len(cv_events)):
         for j in range(len(cv_events)):
-            corr[i, j] = cov[i, j] / (np.sqrt(cov[i, i]) * np.sqrt(cov[j, j]))
+            di = max(float(cov[i, i]), 0.0)
+            dj = max(float(cov[j, j]), 0.0)
+            denom = np.sqrt(di * dj)
+            corr[i, j] = (cov[i, j] / denom) if denom > _FRAC_CV_EPS else 0.0
 
     return {"cov_frac": cov_frac, 
             "cov": cov,

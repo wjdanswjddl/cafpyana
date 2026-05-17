@@ -9,22 +9,26 @@ For every (variable, stage, WireMod model) we
 
     1. sum histograms across chunks (additive),
     2. plot selection-stage variables as separate figures per calorimetry parameter
-       (CV ± shifts per WireMod; ratio-to-CV panel; no titles),
+       (CV ± shifts per WireMod; area-normalized main panel; ratio-to-CV panel; no titles),
     3. plot **final stage** distributions per WireMod as CV plus max(|+|,|−|) unisim
-       per calo (ratio panel; legend describes the max-shift convention),
+       per calo (area-normalized density main panel; ratio panel; legend describes the max-shift convention),
     4. for the **final stage**, build a unisim universe per calo parameter:
        ``n_unisim[i] = n_cv[i] + sign(d) * max(|n_p[i]-n_cv[i]|, |n_m[i]-n_cv[i]|)``
        where the sign comes from whichever shift wins,
     5. compute (cov, cov_frac, corr) for each unisim universe via
        ``pyanalib.covariance.get_covariance_matrix``,
-    6. combine the four per-calo covariances by quadrature into a per-WireMod
-       covariance, and combine the WireMod models in quadrature into the global
+    6. combine the four per-calo **fractional** covariances (sum ``cov_frac``), rebuild absolute
+       ``cov`` from the CV spectrum, then combine WireMod models the same way into the global
        detector covariance,
     7. save ``detector_syst_dict.npz`` whose ``detector`` key plugs into
        ``analysis_village.numucc_1p0pi.utils.get_syst_unc`` (same layout as the
-       chunked event-selection workflow),
+       chunked event-selection workflow). Also writes ``detector_by_wiremod``:
+       ``var_save_name -> {wiremod_tag -> pack}``, mirroring Flux/G4
+       ``*_by_knob`` nesting while keeping legacy top-level ``detector-<tag>``
+       dicts for backward compatibility,
     8. save ``detector_syst_selection_dict.npz`` with the same fields for each
-       selection-stage histogram, keyed by ``stage__tgt__var_save_name``.
+       selection-stage histogram, keyed by ``stage__tgt__var_save_name``, plus
+       ``detector_by_wiremod`` for the same composite keys.
 
 Usage
 -----
@@ -47,7 +51,7 @@ import pickle
 import sys
 from itertools import product
 from os import path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 try:
     from tqdm import tqdm
@@ -94,7 +98,7 @@ from analysis_village.numucc_1p0pi.scripts.syst_detvar_chunk import (
 )
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
 from analysis_village.numucc_1p0pi.syst_disk_layout import SUB_DETECTOR, SYST_DISK_ENV
-from pyanalib.covariance import get_covariance_matrix
+from pyanalib.covariance import cov_from_fraccov, get_covariance_matrix
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +156,31 @@ def collect_chunks(in_dir: str) -> Dict[str, List[str]]:
     return out
 
 
+def build_detector_by_wiremod_block(
+    detector_root: Dict[str, Dict[str, dict]],
+    wiremod_tags: Sequence[str],
+) -> Dict[str, Dict[str, dict]]:
+    """``primary_key -> {wiremod_tag -> pack}`` for keys under ``detector_root['detector']``.
+
+    Same logical layout as multisim ``flux_by_knob`` / ``G4_by_knob`` before those
+    are folded into per-variable NPZ cells: one nested map for all WireMod types
+    from ``WIREMOD_DIRS`` instead of scanning ``detector-<tag>`` top-level keys.
+    """
+    out: Dict[str, Dict[str, dict]] = {}
+    base = detector_root.get("detector")
+    if not base:
+        return out
+    for pk in base.keys():
+        nested: Dict[str, dict] = {}
+        for tag in wiremod_tags:
+            ent = detector_root.get(f"detector-{tag}", {}).get(pk)
+            if ent is not None:
+                nested[tag] = ent
+        if nested:
+            out[pk] = nested
+    return out
+
+
 def aggregate_one_wiremod(
     chunk_files: List[str],
     wiremod_tag: str = "",
@@ -200,6 +229,22 @@ def aggregate_one_wiremod(
 # ---------------------------------------------------------------------------
 # Plotting: distributions + ratio-to-CV bottom panel (no titles on distributions)
 # ---------------------------------------------------------------------------
+def _area_normalize_stairs(h: np.ndarray, bin_edges: np.ndarray) -> np.ndarray:
+    """Scale per-bin heights so ``sum(h * Δx) == 1`` (probability density on bin centers/steps).
+
+    Matches ``numpy.histogram(..., density=True)`` convention for histogram/stairs plots.
+    """
+    h = np.asarray(h, dtype=float)
+    edges = np.asarray(bin_edges, dtype=float)
+    w = np.diff(edges)
+    if h.shape != w.shape:
+        raise ValueError("hist length must match len(bin_edges) - 1")
+    area = float(np.dot(h, w))
+    if not np.isfinite(area) or area <= 1e-30:
+        return np.zeros_like(h)
+    return h / area
+
+
 def _ratio_to_cv(num: np.ndarray, cv: np.ndarray) -> np.ndarray:
     num = np.asarray(num, dtype=float)
     cv = np.asarray(cv, dtype=float)
@@ -233,17 +278,24 @@ def plot_selection_var_per_calo(
 ):
     """Selection-variable plot: one figure per calorimetry parameter (CV + ± shifts only).
 
-    Panels: main distribution (Events / bin), bottom ratio to each WireMod's CV.
+    Panels: main distribution area-normalized (density, ∫ = 1), bottom ratio of
+    normalized shift curves to each WireMod's normalized CV.
     """
     fig, ax, axr = _make_distribution_ratio_axes()
 
     calo_p = f"{calo}_p"
     calo_m = f"{calo}_m"
-    cv_drawn = False
     for wm, cv_h in cv_per_wiremod.items():
-        lab = "CV" if not cv_drawn else None
-        ax.stairs(cv_h, bin_edges, color="black", linewidth=2.2, label=lab, zorder=5)
-        cv_drawn = True
+        wm_color = color_for_wiremod(wm)
+        cv_lab = "CV (%s)" % wiremod_display_title(wm)
+        ax.stairs(
+            _area_normalize_stairs(cv_h, bin_edges),
+            bin_edges,
+            color=wm_color,
+            linewidth=2,
+            label=cv_lab,
+            zorder=5,
+        )
 
     for wm, (hists, universes) in per_wiremod.items():
         color = color_for_wiremod(wm)
@@ -254,33 +306,36 @@ def plot_selection_var_per_calo(
         im = universes.index(calo_m)
         hp = hists[ip]
         hm = hists[im]
-        wm_disp = wm.replace("_", " ")
+        cv_n = _area_normalize_stairs(cv_h, bin_edges)
+        hp_n = _area_normalize_stairs(hp, bin_edges)
+        hm_n = _area_normalize_stairs(hm, bin_edges)
+        wm_title = wiremod_display_title(wm)
         ax.stairs(
-            hp,
+            hp_n,
             bin_edges,
             color=color,
             linestyle=SHIFT_STYLES["p"],
-            linewidth=1.6,
+            linewidth=2,
             alpha=0.9,
-            label=f"{wm_disp} " + r"$+1\sigma$",
+            label=f"{wm_title} " + r"$+1\sigma$",
             zorder=3,
         )
         ax.stairs(
-            hm,
+            hm_n,
             bin_edges,
             color=color,
             linestyle=SHIFT_STYLES["m"],
-            linewidth=1.6,
+            linewidth=2,
             alpha=0.9,
-            label=f"{wm_disp} " + r"$-1\sigma$",
+            label=f"{wm_title} " + r"$-1\sigma$",
             zorder=3,
         )
-        axr.stairs(_ratio_to_cv(hp, cv_h), bin_edges, color=color, linestyle=SHIFT_STYLES["p"], linewidth=1.4)
-        axr.stairs(_ratio_to_cv(hm, cv_h), bin_edges, color=color, linestyle=SHIFT_STYLES["m"], linewidth=1.4)
+        axr.stairs(_ratio_to_cv(hp_n, cv_n), bin_edges, color=color, linestyle=SHIFT_STYLES["p"], linewidth=2)
+        axr.stairs(_ratio_to_cv(hm_n, cv_n), bin_edges, color=color, linestyle=SHIFT_STYLES["m"], linewidth=2)
 
     ax.set_xlim(bin_edges[0], bin_edges[-1])
     ax.set_xlabel("")
-    ax.set_ylabel("Events / Bin")
+    ax.set_ylabel("Probability density")
     ax.legend(fontsize=7, frameon=False, loc="best", ncol=1)
     axr.set_xlim(bin_edges[0], bin_edges[-1])
     axr.set_xlabel(plot_xlabel)
@@ -300,17 +355,23 @@ def plot_final_max_per_calo(
     plot_xlabel: str,
     save_path: str,
     show_fig: bool = False,
+    wiremod_tag: str = "",
 ):
     """Final selection: CV + one curve per calo = max(|+|,|−|) unisim envelope.
 
-    Legend notes the max-shift convention. Ratio panel vs CV.
+    Legend notes the max-shift convention. Main panel is area-normalized density;
+    ratio panel compares normalized envelope to normalized CV. CV is labeled with
+    the WireMod tag and drawn in that model's color when ``wiremod_tag`` is set.
     """
     fig, ax, axr = _make_distribution_ratio_axes()
 
     cv_idx = universes.index("cv")
     n_cv = hist_univ[cv_idx]
+    n_cv_n = _area_normalize_stairs(n_cv, bin_edges)
 
-    ax.stairs(n_cv, bin_edges, color="black", linewidth=2.2, label="CV", zorder=5)
+    cv_color = color_for_wiremod(wiremod_tag) if wiremod_tag else "black"
+    cv_label = ("CV (%s)" % wiremod_display_title(wiremod_tag)) if wiremod_tag else "CV"
+    ax.stairs(n_cv_n, bin_edges, color=cv_color, linewidth=2, label=cv_label, zorder=5)
 
     for calo in CALO_PARAMS:
         p_u = f"{calo}_p"
@@ -320,14 +381,15 @@ def plot_final_max_per_calo(
         n_p = hist_univ[universes.index(p_u)]
         n_m = hist_univ[universes.index(m_u)]
         n_max = unisim_per_calo(n_cv, n_p, n_m)
+        n_max_n = _area_normalize_stairs(n_max, bin_edges)
         clr = CALO_COLORS_FINAL.get(calo, "gray")
         lbl = CALO_LABELS.get(calo, calo) + r" $\mathrm{max}(|+\sigma|, |-\sigma|)$"
-        ax.stairs(n_max, bin_edges, color=clr, linewidth=1.8, label=lbl, zorder=4)
-        axr.stairs(_ratio_to_cv(n_max, n_cv), bin_edges, color=clr, linewidth=1.5)
+        ax.stairs(n_max_n, bin_edges, color=clr, linewidth=2, label=lbl, zorder=4)
+        axr.stairs(_ratio_to_cv(n_max_n, n_cv_n), bin_edges, color=clr, linewidth=2)
 
     ax.set_xlim(bin_edges[0], bin_edges[-1])
     ax.set_xlabel("")
-    ax.set_ylabel("Events / Bin")
+    ax.set_ylabel("Probability density")
     ax.legend(fontsize=8, frameon=False, loc="best")
     axr.set_xlim(bin_edges[0], bin_edges[-1])
     axr.set_xlabel(plot_xlabel)
@@ -380,7 +442,6 @@ def unisim_wiremod_cov_bundle_from_histacc(
     n_bin = hd.hist.shape[1]
     bins = hd.bins.copy()
     cov_frac_wm = np.zeros((n_bin, n_bin))
-    cov_wm = np.zeros((n_bin, n_bin))
     per_calo: Dict[str, dict] = {}
     for calo in CALO_PARAMS:
         p_u = f"{calo}_p"
@@ -398,7 +459,7 @@ def unisim_wiremod_cov_bundle_from_histacc(
         pack["bins"] = bins.copy()
         per_calo[calo] = pack
         cov_frac_wm += pack["cov_frac"]
-        cov_wm += pack["cov"]
+    cov_wm = cov_from_fraccov(cov_frac_wm, n_cv)
     return cov_frac_wm, cov_wm, per_calo, n_cv.copy(), bins
 
 
@@ -694,6 +755,7 @@ def main():
                     xlab,
                     save_p,
                     show_fig=args.show_fig,
+                    wiremod_tag=tag,
                 )
         else:
             # Selection-stage variables: separate figure per calorimetry variation.
@@ -740,7 +802,6 @@ def main():
     ):
         n_bin = None
         cov_frac_total = None
-        cov_total = None
         per_wiremod_packs: Dict[str, dict] = {}
 
         for tag, agg in aggs.items():
@@ -751,7 +812,6 @@ def main():
             if n_bin is None:
                 n_bin = hd.hist.shape[1]
                 cov_frac_total = np.zeros((n_bin, n_bin))
-                cov_total = np.zeros((n_bin, n_bin))
             if hd.hist.shape[1] != n_bin:
                 print(f"[detvar-agg] WARN: bin mismatch for {vsn} ({tag}); skipping")
                 continue
@@ -768,7 +828,6 @@ def main():
                 "bins": bins_wm,
             }
             cov_frac_total += cov_frac_wm
-            cov_total += cov_wm
 
             detector_dict[f"detector-{tag}"][vsn] = {
                 "cov_frac": cov_frac_wm,
@@ -796,6 +855,7 @@ def main():
         if cov_frac_total is None:
             continue
         any_wm = next(iter(per_wiremod_packs.values()))
+        cov_total = cov_from_fraccov(cov_frac_total, any_wm["n_cv"])
         detector_dict["detector"][vsn] = {
             "cov_frac": cov_frac_total,
             "cov": cov_total,
@@ -823,6 +883,11 @@ def main():
             None,
         )
 
+    wiremod_tags_ordered = list(aggs.keys())
+    det_by_wm = build_detector_by_wiremod_block(detector_dict, wiremod_tags_ordered)
+    if det_by_wm:
+        detector_dict["detector_by_wiremod"] = det_by_wm
+
     # ------------------------------------------------------------------
     # 2b) Same unisim covariance treatment for SELECTION-cut stages (all tgt)
     # ------------------------------------------------------------------
@@ -849,7 +914,6 @@ def main():
 
         n_bin = None
         cov_frac_total = None
-        cov_total = None
         per_wiremod_packs: Dict[str, dict] = {}
 
         for tag, agg in aggs.items():
@@ -860,7 +924,6 @@ def main():
             if n_bin is None:
                 n_bin = hd.hist.shape[1]
                 cov_frac_total = np.zeros((n_bin, n_bin))
-                cov_total = np.zeros((n_bin, n_bin))
             if hd.hist.shape[1] != n_bin:
                 print(f"[detvar-agg] WARN: bin mismatch {cov_key} ({tag}); skipping")
                 continue
@@ -877,7 +940,6 @@ def main():
                 "bins": bins_wm,
             }
             cov_frac_total += cov_frac_wm
-            cov_total += cov_wm
 
             selection_detector_dict[f"detector-{tag}"][cov_key] = {
                 "cov_frac": cov_frac_wm,
@@ -908,6 +970,7 @@ def main():
         if cov_frac_total is None:
             continue
         any_wm = next(iter(per_wiremod_packs.values()))
+        cov_total = cov_from_fraccov(cov_frac_total, any_wm["n_cv"])
         selection_detector_dict["detector"][cov_key] = {
             "cov_frac": cov_frac_total,
             "cov": cov_total,
@@ -941,22 +1004,40 @@ def main():
             plot_slug,
         )
 
+    sel_by_wm = build_detector_by_wiremod_block(
+        selection_detector_dict, wiremod_tags_ordered
+    )
+    if sel_by_wm:
+        selection_detector_dict["detector_by_wiremod"] = sel_by_wm
+
     # ------------------------------------------------------------------
     # 3) Save outputs
     # ------------------------------------------------------------------
     # (a) npz that plugs into utils.get_syst_unc:
-    #     dict(detector_syst).item()['detector'][var_save_name]['cov_frac']
+    #     dict(detector_syst)['detector'].item()[var_save_name]['cov_frac']
+    #     Per-WireMod breakdown (Flux/G4 knob-style nesting):
+    #     dict(detector_syst)['detector_by_wiremod'].item()[var_save_name][tag].
     syst_save_path = path.join(args.out_dir, args.syst_save_name)
     np.savez(syst_save_path, **detector_dict)
     print(f"[detvar-agg] wrote {syst_save_path}  keys={list(detector_dict.keys())}")
     print(f"[detvar-agg]   variables in detector key: "
           f"{sorted(detector_dict['detector'].keys())}")
+    if "detector_by_wiremod" in detector_dict:
+        print(
+            "[detvar-agg]   detector_by_wiremod: %d variable(s) with per-WireMod breakdown"
+            % (len(detector_dict["detector_by_wiremod"]),)
+        )
 
     selection_npz_path = path.join(args.out_dir, args.selection_syst_save_name)
     np.savez(selection_npz_path, **selection_detector_dict)
     print(f"[detvar-agg] wrote {selection_npz_path}")
     print(f"[detvar-agg]   selection detector keys: "
           f"{sorted(selection_detector_dict['detector'].keys())}")
+    if "detector_by_wiremod" in selection_detector_dict:
+        print(
+            "[detvar-agg]   selection detector_by_wiremod: %d composite key(s)"
+            % (len(selection_detector_dict["detector_by_wiremod"]),)
+        )
 
     # (b) full per-WireMod + per-calo breakdown pickle (richer than the npz)
     breakdown_path = path.join(args.out_dir, "detector_unisim_breakdown.pkl")

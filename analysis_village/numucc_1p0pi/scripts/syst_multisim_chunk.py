@@ -33,9 +33,11 @@ Usage::
 
 When ``--syst-names`` is a proper subset of MCstat/Flux/G4, output is
 ``nu__<names>__<stem>.pkl`` so chunks from different input dirs do not collide.
-All three (default) keeps the legacy name ``nu__<stem>.pkl``.
-``run_syst_multisim_chunked.sh`` sets ``--out_dir`` to ``multisim_syst-chunked-*/chunks/{Combined,MCstat}``,
-``g4_syst-chunked-*/chunks``, or ``flux_syst-chunked-*/chunks`` by job type; aggregate merges all chunk roots.
+Exactly ``MCstat,Flux,G4`` (in order) keeps the legacy name ``nu__<stem>.pkl``; the
+CLI default is ``Flux,G4`` only.
+``run_syst_multisim_chunked.sh`` sets ``--out_dir`` to ``multisim_syst-chunked-*/chunks/Combined``,
+``mcstat_syst-chunked-*/chunks``, ``g4_syst-chunked-*/chunks``, or ``flux_syst-chunked-*/chunks`` by job type;
+aggregate merges all chunk roots.
 """
 from __future__ import annotations
 
@@ -70,8 +72,10 @@ from pyanalib.pandas_helpers import pad_column_name
 from pyanalib.split_df_helpers import get_n_split
 
 from analysis_village.numucc_1p0pi.categories import get_topo_category
+from analysis_village.numucc_1p0pi.evt_derived_kinematics import ensure_derived_trk_kinematics_cols
 from analysis_village.numucc_1p0pi.selection_framework import multicol_resolve_column_key
 from analysis_village.numucc_1p0pi.syst_multisim_common import (
+    DEFAULT_MULTISIM_CHUNK_SYST_NAMES,
     NEUTRINO_SYST_ORDER,
     build_var_configs,
     drop_bad_flux_knob_weights,
@@ -93,125 +97,15 @@ from analysis_village.numucc_1p0pi.syst_pipeline_walker import (
 from analysis_village.numucc_1p0pi.utils import get_univ_rates
 
 
-def ensure_derived_trk_kinematics_cols(evtdf: pd.DataFrame) -> pd.DataFrame:
-    """Add reco + truth kinematic columns used by :class:`~variable_configs.VariableConfig`.
-
-    Reco (CAF-style): ``theta_mu_p``, ``(mu|p).pfp.trk.phi`` from ``...dir.{x,y,z}``;
-    truth: ``mc_theta_mu_p`` from ``mu``/``p`` ``...truth.p.dir.*`` (same ``arccos(dot)`` in rad);
-    ``(mu|p).pfp.trk.truth.p.phi`` from ``...truth.p.dir.x/y`` in degrees (same ``arctan2`` as reco).
-    ``opening_angle`` bins are radians on ``[0, \\pi]`` for both reco and truth openers.
-    """
-    if evtdf is None or len(evtdf) == 0:
-        return evtdf
-    if not isinstance(evtdf.columns, pd.MultiIndex):
-        return evtdf
-
-    def _col(df: pd.DataFrame, *parts: str) -> pd.Series | None:
-        key = multicol_resolve_column_key(df, parts)
-        if key is None:
-            return None
-        try:
-            return df.loc[:, key]
-        except Exception:
-            return None
-
-    df = evtdf
-    add_theta = multicol_resolve_column_key(df, ("theta_mu_p", "", "", "", "", "", "")) is None
-    add_mu_phi = multicol_resolve_column_key(df, ("mu", "pfp", "trk", "phi", "", "", "")) is None
-    add_p_phi = multicol_resolve_column_key(df, ("p", "pfp", "trk", "phi", "", "", "")) is None
-    add_mc_theta = multicol_resolve_column_key(df, ("mc_theta_mu_p", "", "", "", "", "", "")) is None
-    add_mu_t_phi = multicol_resolve_column_key(df, ("mu", "pfp", "trk", "truth", "p", "phi", "")) is None
-    add_p_t_phi = multicol_resolve_column_key(df, ("p", "pfp", "trk", "truth", "p", "phi", "")) is None
-
-    dirs_ok = all(
-        _col(df, "mu", "pfp", "trk", "dir", ax, "", "") is not None
-        and _col(df, "p", "pfp", "trk", "dir", ax, "", "") is not None
-        for ax in ("x", "y", "z")
-    )
-    mu_xy_ok = _col(df, "mu", "pfp", "trk", "dir", "x", "", "") is not None and _col(
-        df, "mu", "pfp", "trk", "dir", "y", "", ""
-    ) is not None
-    p_xy_ok = _col(df, "p", "pfp", "trk", "dir", "x", "", "") is not None and _col(
-        df, "p", "pfp", "trk", "dir", "y", "", ""
-    ) is not None
-
-    truth_dirs_ok = all(
-        _col(df, "mu", "pfp", "trk", "truth", "p", "dir", ax) is not None
-        and _col(df, "p", "pfp", "trk", "truth", "p", "dir", ax) is not None
-        for ax in ("x", "y", "z")
-    )
-    mu_truth_xy_ok = _col(df, "mu", "pfp", "trk", "truth", "p", "dir", "x") is not None and _col(
-        df, "mu", "pfp", "trk", "truth", "p", "dir", "y"
-    ) is not None
-    p_truth_xy_ok = _col(df, "p", "pfp", "trk", "truth", "p", "dir", "x") is not None and _col(
-        df, "p", "pfp", "trk", "truth", "p", "dir", "y"
-    ) is not None
-
-    if not (
-        (add_theta and dirs_ok)
-        or (add_mu_phi and mu_xy_ok)
-        or (add_p_phi and p_xy_ok)
-        or (add_mc_theta and truth_dirs_ok)
-        or (add_mu_t_phi and mu_truth_xy_ok)
-        or (add_p_t_phi and p_truth_xy_ok)
-    ):
-        return df
-
-    out = df.copy()
-    if add_theta and dirs_ok:
-        mx = np.asarray(_col(out, "mu", "pfp", "trk", "dir", "x", "", ""), dtype=float)
-        my = np.asarray(_col(out, "mu", "pfp", "trk", "dir", "y", "", ""), dtype=float)
-        mz = np.asarray(_col(out, "mu", "pfp", "trk", "dir", "z", "", ""), dtype=float)
-        px = np.asarray(_col(out, "p", "pfp", "trk", "dir", "x", "", ""), dtype=float)
-        py = np.asarray(_col(out, "p", "pfp", "trk", "dir", "y", "", ""), dtype=float)
-        pz = np.asarray(_col(out, "p", "pfp", "trk", "dir", "z", "", ""), dtype=float)
-        dot = mx * px + my * py + mz * pz
-        dot = np.clip(dot, -1.0, 1.0)
-        out.loc[:, pad_column_name(("theta_mu_p", "", "", "", "", "", ""), out)] = np.arccos(dot)
-    if add_mu_phi and mu_xy_ok:
-        mux = np.asarray(_col(out, "mu", "pfp", "trk", "dir", "x", "", ""), dtype=float)
-        muy = np.asarray(_col(out, "mu", "pfp", "trk", "dir", "y", "", ""), dtype=float)
-        out.loc[:, pad_column_name(("mu", "pfp", "trk", "phi", "", "", ""), out)] = np.degrees(
-            np.arctan2(mux, muy)
-        )
-    if add_p_phi and p_xy_ok:
-        px = np.asarray(_col(out, "p", "pfp", "trk", "dir", "x", "", ""), dtype=float)
-        py = np.asarray(_col(out, "p", "pfp", "trk", "dir", "y", "", ""), dtype=float)
-        out.loc[:, pad_column_name(("p", "pfp", "trk", "phi", "", "", ""), out)] = np.degrees(
-            np.arctan2(px, py)
-        )
-    if add_mc_theta and truth_dirs_ok:
-        mx = np.asarray(_col(out, "mu", "pfp", "trk", "truth", "p", "dir", "x"), dtype=float)
-        my = np.asarray(_col(out, "mu", "pfp", "trk", "truth", "p", "dir", "y"), dtype=float)
-        mz = np.asarray(_col(out, "mu", "pfp", "trk", "truth", "p", "dir", "z"), dtype=float)
-        px = np.asarray(_col(out, "p", "pfp", "trk", "truth", "p", "dir", "x"), dtype=float)
-        py = np.asarray(_col(out, "p", "pfp", "trk", "truth", "p", "dir", "y"), dtype=float)
-        pz = np.asarray(_col(out, "p", "pfp", "trk", "truth", "p", "dir", "z"), dtype=float)
-        dot = mx * px + my * py + mz * pz
-        dot = np.clip(dot, -1.0, 1.0)
-        out.loc[:, pad_column_name(("mc_theta_mu_p", "", "", "", "", "", ""), out)] = np.arccos(dot)
-    if add_mu_t_phi and mu_truth_xy_ok:
-        mux = np.asarray(_col(out, "mu", "pfp", "trk", "truth", "p", "dir", "x"), dtype=float)
-        muy = np.asarray(_col(out, "mu", "pfp", "trk", "truth", "p", "dir", "y"), dtype=float)
-        out.loc[:, pad_column_name(("mu", "pfp", "trk", "truth", "p", "phi", ""), out)] = np.degrees(
-            np.arctan2(mux, muy)
-        )
-    if add_p_t_phi and p_truth_xy_ok:
-        px = np.asarray(_col(out, "p", "pfp", "trk", "truth", "p", "dir", "x"), dtype=float)
-        py = np.asarray(_col(out, "p", "pfp", "trk", "truth", "p", "dir", "y"), dtype=float)
-        out.loc[:, pad_column_name(("p", "pfp", "trk", "truth", "p", "phi", ""), out)] = np.degrees(
-            np.arctan2(px, py)
-        )
-    return out
-
-
 # ---------------------------------------------------------------------------
 # CLI helpers
 # ---------------------------------------------------------------------------
 def _parse_syst_names(spec: str | None):
     if not spec or not str(spec).strip():
-        return tuple(NEUTRINO_SYST_ORDER)
+        return tuple(DEFAULT_MULTISIM_CHUNK_SYST_NAMES)
     raw = [x.strip() for x in str(spec).split(",") if x.strip()]
+    if len(raw) == 1 and raw[0].lower() == "full":
+        return tuple(NEUTRINO_SYST_ORDER)
     unk = set(raw) - set(NEUTRINO_SYST_ORDER)
     if unk:
         raise SystemExit("[multisim-chunk] unknown --syst-names entries: %s" % sorted(unk))
@@ -237,8 +131,9 @@ def parse_args():
     p.add_argument(
         "--syst-names",
         default=None,
-        help="Comma-separated subset of MCstat,Flux,G4 (default: all). Use one name when that "
-        "systematic's weights live in a separate directory of .df files.",
+        help="Comma-separated subset of MCstat,Flux,G4 (default: Flux,G4 — MCstat is opt-in). "
+        "``full`` means MCstat,Flux,G4. Use one name when that systematic's weights live in a "
+        "separate directory of .df files.",
     )
     p.add_argument("--n-universe", type=int, default=100)
     p.add_argument(
@@ -312,7 +207,7 @@ def _accumulate_final(args, syst_names) -> Dict[str, Any]:
                         mc_evt_df, var_configs, g4_knobs, acc_syst["G4"], "G4", args.n_universe
                     )
                 continue
-            sk = syst_key_for_name(sname)
+            sk = _univ_syst_key_for_df(mc_evt_df, sname)
             n_u = min(int(args.n_universe), _count_univ_columns(mc_evt_df, sk))
             if n_u <= 0:
                 continue
@@ -366,6 +261,18 @@ def _count_univ_columns(evt_df: pd.DataFrame, syst_col_key: Any, cap: int = 512)
             break
         n += 1
     return n
+
+
+def _univ_syst_key_for_df(evt_df: pd.DataFrame, sname: str) -> Any:
+    """Resolve multisim weight column root for ``sname`` on this frame (MCstat layout variants)."""
+    sk = syst_key_for_name(sname)
+    if sname != "MCstat":
+        return sk
+    if _count_univ_columns(evt_df, ("mc", "MCstat")) > 0:
+        return ("mc", "MCstat")
+    if _count_univ_columns(evt_df, "MCstat") > 0:
+        return "MCstat"
+    return sk
 
 
 def _univ_weight_matrix(
@@ -586,7 +493,7 @@ def _accumulate_sel_all(args, syst_names) -> Dict[str, Any]:
                     continue
                 if sname == "G4" and args.g4_mode == "knobs":
                     continue
-                key = syst_key_for_name(sname)
+                key = _univ_syst_key_for_df(post_evt, sname)
                 wmat = _univ_weight_matrix(post_evt, key, n_univ)
                 if wmat is not None:
                     wmats[sname] = wmat
@@ -630,8 +537,24 @@ def _accumulate_sel_all(args, syst_names) -> Dict[str, Any]:
 # ===========================================================================
 # Driver
 # ===========================================================================
-def main():
-    args = parse_args()
+def compute_out_path(args, syst_names) -> str:
+    """Pickle path this run would produce (used by the parallel dispatcher for skip-existing)."""
+    stem = path.splitext(path.basename(args.df_file))[0]
+    if tuple(syst_names) == NEUTRINO_SYST_ORDER:
+        out_leaf = "nu__{}.pkl".format(stem)
+    else:
+        tag = "_".join(syst_names)
+        out_leaf = "nu__{}__{}.pkl".format(tag, stem)
+    return path.join(args.out_dir, out_leaf)
+
+
+def run_with_args(args, *, skip_existing: bool = False) -> Tuple[str, str]:
+    """Run one chunk-map job.
+
+    Returns ``(out_path, status)`` where ``status`` is ``"ok"`` if the pickle was
+    written or ``"skipped"`` if ``skip_existing`` and the pickle already existed.
+    Raises ``SystemExit`` on validation failure / empty accumulators (matches CLI).
+    """
     os.makedirs(args.out_dir, exist_ok=True)
     syst_names = _parse_syst_names(args.syst_names)
     if "G4" in syst_names and args.g4_mode == "knobs" and not g4_mc_knob_names():
@@ -649,6 +572,10 @@ def main():
                 "(check --flux-knob-groups / makedf.bnbsyst)."
             )
 
+    out_path = compute_out_path(args, syst_names)
+    if skip_existing and path.exists(out_path):
+        return out_path, "skipped"
+
     if args.input_stage == "sel_all":
         acc_syst = _accumulate_sel_all(args, syst_names)
         var_set_label = "sel_all"
@@ -659,13 +586,6 @@ def main():
     n_keys = int(get_n_split(args.df_file))
     n_use = n_keys if args.max_splits <= 0 else min(args.max_splits, n_keys)
 
-    stem = path.splitext(path.basename(args.df_file))[0]
-    if syst_names == NEUTRINO_SYST_ORDER:
-        out_leaf = "nu__{}.pkl".format(stem)
-    else:
-        tag = "_".join(syst_names)
-        out_leaf = "nu__{}__{}.pkl".format(tag, stem)
-    out_path = path.join(args.out_dir, out_leaf)
     empty_syst = [sn for sn in syst_names if not syst_acc_bucket_nonempty(sn, acc_syst.get(sn))]
     if empty_syst:
         raise SystemExit(
@@ -687,9 +607,19 @@ def main():
         "splits_processed": n_use,
         "syst": acc_syst,
     }
-    with open(out_path, "wb") as f:
+    # Atomic write: dump to a sibling .tmp then rename so partial files never
+    # appear as "done" to skip-existing logic / aggregator scans.
+    tmp_path = out_path + ".tmp"
+    with open(tmp_path, "wb") as f:
         pickle.dump(blob, f, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp_path, out_path)
     print("[multisim-chunk] wrote", out_path, "input_stage=", args.input_stage)
+    return out_path, "ok"
+
+
+def main():
+    args = parse_args()
+    run_with_args(args)
 
 
 if __name__ == "__main__":

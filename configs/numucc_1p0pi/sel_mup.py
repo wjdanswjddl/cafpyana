@@ -2,6 +2,6 @@
 # use for detector variation samples
 from analysis_village.numucc_1p0pi.makedf.makedf import *
 
-DFS = [make_pandora_evtdf_mup, make_hdrdf, make_metadf]
-ARGS = [{}, {}, {}]
-NAMES = ["evt", "hdr", "meta"]
+DFS = [make_pandora_evtdf_mup, make_hdrdf, make_metadf, make_mcnudf]
+ARGS = [{}, {}, {}, {}]
+NAMES = ["evt", "hdr", "meta", "mcnu"]

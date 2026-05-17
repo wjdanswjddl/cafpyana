@@ -143,9 +143,31 @@ def _flux_group_specs(group: str) -> Tuple[List[str], int | None]:
     raise ValueError(f"Unknown flux knob group: {group}")
 
 
+def _mcstat_univ_block(mc_evt_df: pd.DataFrame):
+    """MCstat weights live under ``mc.MCstat`` after ``make_pandora_evtdf`` / ``truth_match``."""
+    try:
+        return mc_evt_df["mc"]["MCstat"]
+    except (KeyError, TypeError, AttributeError):
+        return mc_evt_df["MCstat"]
+
+
+def _univ_rates_syst_key(mc_evt_df: pd.DataFrame, syst_name: SystKey) -> SystKey:
+    """Key passed to :func:`utils.get_univ_rates` for column indexing."""
+    if syst_name == "MCstat":
+        try:
+            mc_evt_df["mc"]["MCstat"]
+            return ("mc", "MCstat")
+        except (KeyError, TypeError, AttributeError):
+            return "MCstat"
+    return syst_name
+
+
 def infer_n_univ(mc_evt_df: pd.DataFrame, syst_name: SystKey) -> int:
     """Infer multisim count from ``univ_*`` columns under ``syst_name``."""
-    block = mc_evt_df[syst_name]
+    if syst_name == "MCstat":
+        block = _mcstat_univ_block(mc_evt_df)
+    else:
+        block = mc_evt_df[syst_name]
     max_i = -1
     for c in block.columns:
         leaf = c[-1] if isinstance(c, tuple) else c
@@ -280,13 +302,14 @@ def process_variable_two_metrics(
 ) -> Dict[str, Any]:
     """Return payload with total-rate and background-subtracted covariance bundles."""
     n_univ = infer_n_univ(mc_evt_df, syst_name)
+    rates_sk = _univ_rates_syst_key(mc_evt_df, syst_name)
 
     univ_total, cv_total = get_univ_rates(
         cov_type="rate",
         evtdf=mc_evt_df,
         nudf=None,
         var_config=var_config,
-        syst_name=syst_name,
+        syst_name=rates_sk,
         n_univ=n_univ,
         bkgd_subtract=False,
         plot=False,
@@ -296,7 +319,7 @@ def process_variable_two_metrics(
         evtdf=mc_evt_df,
         nudf=None,
         var_config=var_config,
-        syst_name=syst_name,
+        syst_name=rates_sk,
         n_univ=n_univ,
         bkgd_subtract=True,
         plot=False,

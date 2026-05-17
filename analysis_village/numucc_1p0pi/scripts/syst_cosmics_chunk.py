@@ -299,6 +299,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    _main_cosmics(args)
+
+
+def _main_cosmics(args) -> None:
     os.makedirs(args.out_dir, exist_ok=True)
 
     if args.verbose:
@@ -325,7 +329,8 @@ def main() -> None:
             verbose=args.verbose,
         )
 
-    stem = path.splitext(path.basename(args.df_file))[0]
+    payload["df_file"] = args.df_file
+    stem = path.splitext(path.basename(payload["df_file"]))[0]
     out_path = path.join(args.out_dir, "cosmics__%s__%s.pkl" % (args.sample, stem))
     with open(out_path, "wb") as f:
         pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)

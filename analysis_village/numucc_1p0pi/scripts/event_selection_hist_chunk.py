@@ -9,7 +9,7 @@ import pickle
 
 # local imports
 # sys.path.append('../../../')
-sys.path.append('/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana') # absolute path for running on EAF
+sys.path.append('/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana')  # repo root when cwd is not cafpyana
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
 from analysis_village.numucc_1p0pi.categories import *
 from analysis_village.numucc_1p0pi.utils import *

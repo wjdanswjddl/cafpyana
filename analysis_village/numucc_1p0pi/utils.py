@@ -17,6 +17,7 @@ from makedf.constants import *
 from analysis_village.unfolding.wienersvd import *
 from analysis_village.numucc_1p0pi.categories import *
 from analysis_village.numucc_1p0pi.constants import *
+from analysis_village.numucc_1p0pi.selection_framework import multicol_get_series
 from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV, syst_disk_paths
 
 import matplotlib as mpl
@@ -24,7 +25,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import matplotlib as mpl
 from matplotlib.legend import Legend
-plt.style.use("presentation.mplstyle")
+plt.style.use("/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/presentation.mplstyle")
 cmap = mpl.cm.viridis
 norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
 
@@ -43,7 +44,7 @@ def _fail_syst_disk(msg: str) -> None:
     raise FileNotFoundError(msg)
 
 
-def resolve_syst_disk_root(explicit: str | None) -> str:
+def resolve_syst_disk_root(explicit): # str | None) -> str:
     """Return normalized syst disk root from argument or ``NUMUCC_SYST_DISK_ROOT``."""
     root = explicit or os.environ.get(SYST_DISK_ENV)
     if not root:
@@ -56,6 +57,20 @@ def resolve_syst_disk_root(explicit: str | None) -> str:
     return syst_disk_paths(root)["root"]
 
 
+# Keys accepted by ``get_syst_unc(..., syst_components=...)`` (case-insensitive strings).
+SYST_UNC_DISK_KEYS = ("mcstat", "flux", "g4", "genie", "cosmics", "detector")
+SYST_UNC_FLAT_KEYS = ("pot", "ntargets")
+SYST_UNC_ALL_KEYS = SYST_UNC_DISK_KEYS + SYST_UNC_FLAT_KEYS
+_SYST_UNC_DISK_LABELS = {
+    "mcstat": "MC stat.",
+    "genie": "GENIE",
+    "flux": "Flux",
+    "g4": "G4",
+    "cosmics": "Cosmics",
+    "detector": "Detector",
+}
+
+
 # ======= util to load systematic uncertainties ======
 def get_syst_unc(
     var_config,
@@ -63,6 +78,8 @@ def get_syst_unc(
     save_fig=False,
     save_name=None,
     syst_disk_root=None,
+    syst_components=None,
+    genie_cov_frac_key: str = "genie",
 ):
     """Load fractional covariance blocks from the syst-disk tree and combine into total covariance.
 
@@ -70,36 +87,81 @@ def get_syst_unc(
     ``Flux/``, ``G4/``, ``GENIE/``, ``Cosmics/``, ``Detector/``. If ``syst_disk_root`` is omitted,
     ``NUMUCC_SYST_DISK_ROOT`` must be set. **Missing files abort with a loud error** — there are
     no alternate search paths or dated campaign fallbacks.
+
+    Parameters
+    ----------
+    syst_components
+        Optional subset of uncertainty sources to include. Each entry is a string, case-insensitive,
+        chosen from disk-backed keys ``mcstat``, ``flux``, ``g4``, ``genie``, ``cosmics``,
+        ``detector`` and flat correlated terms ``pot``, ``ntargets``. If ``None`` (default), all
+        of the above are included (original behavior). Only files needed for the selected disk
+        keys are required on disk.
+    genie_cov_frac_key
+        Which matrix to read from ``GENIE/cov_mat_dict.pkl`` for the ``genie`` disk component:
+        ``"genie"`` (response / **xsec** path) or ``"genie_rate"`` (**rate** reweight path), matching
+        :mod:`syst_genie_aggregate`. Default ``"genie"`` preserves legacy behavior.
     """
-    root = resolve_syst_disk_root(syst_disk_root)
-    paths = syst_disk_paths(root)
+    if syst_components is None:
+        active = frozenset(SYST_UNC_ALL_KEYS)
+    else:
+        active = frozenset(str(x).lower() for x in syst_components)
+        unknown = active - frozenset(SYST_UNC_ALL_KEYS)
+        if unknown:
+            raise ValueError(
+                "Invalid syst_components keys: %s. Allowed: %s"
+                % (", ".join(sorted(unknown)), ", ".join(SYST_UNC_ALL_KEYS))
+            )
 
-    missing = [(k, paths[k]) for k in paths if k != "root" and not os.path.isfile(paths[k])]
-    if missing:
-        detail = "\n".join("  [%s] %s" % (role, pth) for role, pth in missing)
-        _fail_syst_disk(
-            "Missing systematic covariance file(s). Run the producer pipelines into the "
-            "expected locations, then retry:\n%s" % detail
-        )
+    need_disk = any(k in active for k in SYST_UNC_DISK_KEYS)
+    root = None
+    paths = None
+    if need_disk:
+        root = resolve_syst_disk_root(syst_disk_root)
+        paths = syst_disk_paths(root)
+        missing = [
+            (k, paths[k])
+            for k in SYST_UNC_DISK_KEYS
+            if k in active and not os.path.isfile(paths[k])
+        ]
+        if missing:
+            detail = "\n".join("  [%s] %s" % (role, pth) for role, pth in missing)
+            _fail_syst_disk(
+                "Missing systematic covariance file(s). Run the producer pipelines into the "
+                "expected locations, then retry:\n%s" % detail
+            )
 
-    mcstat_syst = np.load(paths["mcstat"], allow_pickle=True)
-    mcstat_syst = dict(mcstat_syst)[var_config.var_save_name].item()["MCstat"]["cov_frac"]
-
-    flux_syst = np.load(paths["flux"], allow_pickle=True)
-    flux_syst = dict(flux_syst)[var_config.var_save_name].item()["flux"]["cov_frac"]
-
-    g4_syst = np.load(paths["g4"], allow_pickle=True)
-    g4_syst = dict(g4_syst)[var_config.var_save_name].item()["G4"]["cov_frac"]
-
-    with open(paths["genie"], "rb") as gf:
-        genie_blob = pickle.load(gf)
-    genie_syst = genie_blob[var_config.var_save_name]["genie"]
-
-    cosmics_syst = np.load(paths["cosmics"], allow_pickle=True)
-    cosmics_syst = dict(cosmics_syst)[var_config.var_save_name].item()["Cosmics"]["cov_frac"]
-
-    detector_syst = np.load(paths["detector"], allow_pickle=True)
-    detector_syst = dict(detector_syst)["detector"].item()[var_config.var_save_name]["cov_frac"]
+    def _load_disk_frac_cov(key: str) -> np.ndarray:
+        assert paths is not None
+        if key == "mcstat":
+            blob = np.load(paths["mcstat"], allow_pickle=True)
+            return dict(blob)[var_config.var_save_name].item()["MCstat"]["cov_frac"]
+        if key == "flux":
+            blob = np.load(paths["flux"], allow_pickle=True)
+            return dict(blob)[var_config.var_save_name].item()["flux"]["cov_frac"]
+        if key == "g4":
+            blob = np.load(paths["g4"], allow_pickle=True)
+            return dict(blob)[var_config.var_save_name].item()["G4"]["cov_frac"]
+        if key == "genie":
+            if genie_cov_frac_key not in ("genie", "genie_rate"):
+                raise ValueError(
+                    "genie_cov_frac_key must be 'genie' or 'genie_rate', got %r" % (genie_cov_frac_key,)
+                )
+            with open(paths["genie"], "rb") as gf:
+                genie_blob = pickle.load(gf)
+            row = genie_blob[var_config.var_save_name]
+            if genie_cov_frac_key not in row:
+                raise KeyError(
+                    "GENIE pickle for %r has no %r (keys: %s)"
+                    % (var_config.var_save_name, genie_cov_frac_key, sorted(row.keys()))
+                )
+            return row[genie_cov_frac_key]
+        if key == "cosmics":
+            blob = np.load(paths["cosmics"], allow_pickle=True)
+            return dict(blob)[var_config.var_save_name].item()["Cosmics"]["cov_frac"]
+        if key == "detector":
+            blob = np.load(paths["detector"], allow_pickle=True)
+            return dict(blob)["detector"].item()[var_config.var_save_name]["cov_frac"]
+        raise KeyError(key)
 
     # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
     # detvar_syst = detvar_syst[var_config.var_save_name]['detvar']
@@ -118,24 +180,30 @@ def get_syst_unc(
     # flat uncertainties
     frac_uncert_total = np.zeros(len(var_config.bin_centers))
     frac_cov_matrix_total = np.zeros((len(var_config.bin_centers), len(var_config.bin_centers)))
-    systs      = [mcstat_syst, genie_syst, flux_syst, g4_syst, cosmics_syst, detector_syst]
-    syst_names = ["MC stat.", "GENIE", "Flux", "G4", "Cosmics" , "Detector"]
 
-    for syst_name, syst in zip(syst_names, systs):
+    for key in SYST_UNC_DISK_KEYS:
+        if key not in active:
+            continue
+        syst = _load_disk_frac_cov(key)
+        syst_name = _SYST_UNC_DISK_LABELS[key]
         syst_uncert = np.sqrt(np.diag(syst))
-
-        if syst_name == "Cosmics":
+        if key == "cosmics":
             syst_uncert = np.max(syst_uncert) * np.ones(len(var_config.bin_centers))
-
         frac_uncert_total += syst_uncert ** 2
         frac_cov_matrix_total += syst
         if plot:
             plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert,   histtype="step", linewidth=2, label=syst_name)
 
-    flat_systs = [pot_frac_unc, ntargets_frac_unc]
-    flat_syst_names = ["POT", "Ntargets"]
-    for syst_name, syst in zip(flat_syst_names, flat_systs):
-        syst_uncert = syst * np.ones(len(var_config.bin_centers))
+    if "pot" in active:
+        syst_name = "POT"
+        syst_uncert = pot_frac_unc * np.ones(len(var_config.bin_centers))
+        frac_uncert_total += syst_uncert ** 2
+        frac_cov_matrix_total += np.diag(syst_uncert ** 2)
+        if plot:
+            plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert,   histtype="step", linewidth=2, label=syst_name)
+    if "ntargets" in active:
+        syst_name = "Ntargets"
+        syst_uncert = ntargets_frac_unc * np.ones(len(var_config.bin_centers))
         frac_uncert_total += syst_uncert ** 2
         frac_cov_matrix_total += np.diag(syst_uncert ** 2)
         if plot:
@@ -246,7 +314,11 @@ def generate_tags(end_tag=""):
 
 
 def get_clipped_evts(df, var_col, bins, verbose=False):
-    var = df[var_col]
+    # VariableConfig tuples are often padded to evt depth (e.g. 7); mcnu HDF may be 4-level.
+    if isinstance(var_col, tuple) and isinstance(df.columns, pd.MultiIndex):
+        var = multicol_get_series(df, var_col)
+    else:
+        var = df[var_col]
     var = np.asarray(var, dtype=float)
     var = np.clip(var, bins[0], bins[-1] - EPSILON)
 
@@ -271,6 +343,56 @@ def get_eff_err(success,total):  # success/total
         err[0].append(abs(eff[i]-interval[0]))
         err[1].append(abs(eff[i]-interval[1]))
     return err
+
+
+def _multicol_first_nonempty_leaf(col) -> str:
+    """First non-empty segment of a possibly padded MultiIndex column tuple."""
+    if not isinstance(col, tuple):
+        return str(col)
+    for x in col:
+        if x != "" and x is not None:
+            return str(x)
+    return str(col[0])
+
+
+def genie_univ_weight_series(weight_block: pd.DataFrame, uidx: int) -> pd.Series:
+    """GENIE weights from ``getsyst``: multisim ``univ_*``, unisim ``morph``, multisigma ``ps1``.
+
+    See :mod:`makedf.getsyst` — type-3 morph uses ``morph``; multisigma uses ``ps*`` / ``ms*``.
+    For covariance we treat one universe: unisim → ``morph``, multisigma → ``ps1`` (matches slim-mode).
+    """
+    want = "univ_%d" % uidx
+    cols = weight_block.columns
+    if isinstance(cols, pd.MultiIndex):
+        for c in cols:
+            if _multicol_first_nonempty_leaf(c) == want:
+                return weight_block[c]
+        if uidx == 0:
+            for alt in ("morph", "ps1"):
+                for c in cols:
+                    if _multicol_first_nonempty_leaf(c) == alt:
+                        return weight_block[c]
+    else:
+        if want in weight_block.columns:
+            return weight_block[want]
+        if uidx == 0:
+            for alt in ("morph", "ps1"):
+                if alt in weight_block.columns:
+                    return weight_block[alt]
+    raise KeyError(
+        "GENIE weight column %r not found under knob block (also tried morph, ps1 for uidx=0); "
+        "columns=%s" % (want, list(cols)[:20])
+    )
+
+
+def _genie_weight_series(syst_type: str, weight_block: pd.DataFrame, uidx: int) -> pd.Series:
+    univ_col = "univ_%d" % uidx
+    if syst_type != "GENIE":
+        return weight_block[univ_col]
+    try:
+        return weight_block[univ_col]
+    except KeyError:
+        return genie_univ_weight_series(weight_block, uidx)
 
 
 def get_univ_rates(cov_type="rate", 
@@ -309,6 +431,9 @@ def get_univ_rates(cov_type="rate",
     evtdf_div_topo = [evtdf[evtdf.topo_categ == mode]for mode in topology_list]
 
     if nudf is not None:
+        # print("NUDDF", nudf.head())
+        # for col in nudf.columns:
+        #     print(col)
         nudf_signal = nudf[nudf.topo_categ == 1]
 
     ret = signal_hists(evtdf, nudf, var_config, return_data=True, plot=plot)
@@ -319,6 +444,12 @@ def get_univ_rates(cov_type="rate",
 
     for uidx in tqdm(range(n_univ), desc="Getting universes", disable=not verbose):
         univ_col = f"univ_{uidx}"
+        w_evt_univ = _genie_weight_series(syst_type, evtdf_signal[syst_name], uidx)
+        w_nu_univ = (
+            _genie_weight_series(syst_type, nudf_signal[syst_name], uidx)
+            if nudf is not None
+            else None
+        )
 
         # ---- uncertainty on the signal rate ----
         # only consider effect on the response matrix for the signal channel
@@ -330,16 +461,16 @@ def get_univ_rates(cov_type="rate",
             else:
                 reco_vs_true, _, _ = np.histogram2d(ret["var_sel_truth"], 
                                                     ret["var_sel_reco"], 
-                                                    weights=ret["wgt_sel_truth"]*evtdf_signal[syst_name][univ_col],
+                                                    weights=ret["wgt_sel_truth"]*w_evt_univ,
                                                     bins=bins)
             univ_smears.append(reco_vs_true)
 
             # efficiency
             signal_allmc_univ, _ = np.histogram(ret["var_allmc"],
-                                               weights=ret["wgt_allmc"]*nudf_signal[syst_name][univ_col],
+                                               weights=ret["wgt_allmc"]*w_nu_univ,
                                                bins=bins)
             signal_sel_univ, _ = np.histogram(ret["var_sel_truth"],
-                                               weights=ret["wgt_sel_truth"]*evtdf_signal[syst_name][univ_col],
+                                               weights=ret["wgt_sel_truth"]*w_evt_univ,
                                                bins=bins)
             eff = signal_sel_univ / signal_allmc_univ
             univ_effs.append(eff)
@@ -350,7 +481,7 @@ def get_univ_rates(cov_type="rate",
 
         elif cov_type == "rate":
             signal_univ, _ = np.histogram(ret["var_sel_reco"], 
-                                          weights=ret["wgt_sel_reco"]*evtdf_signal[syst_name][univ_col],
+                                          weights=ret["wgt_sel_reco"]*w_evt_univ,
                                           bins=bins)
 
         else:
@@ -364,7 +495,7 @@ def get_univ_rates(cov_type="rate",
         #       doing it anyways for the plot of universes on background subtracted event rate.
         for this_evtdf in evtdf_div_topo[1:]:
             var, wgt = get_clipped_evts(this_evtdf, var_config.var_evt_reco_col, bins)
-            univ_wgt = this_evtdf[syst_name][univ_col].copy()
+            univ_wgt = _genie_weight_series(syst_type, this_evtdf[syst_name], uidx).copy()
             univ_wgt[np.isnan(univ_wgt)] = 1 ## IMPORTANT: make nan univ_wgt to 1. to ignore them
             background_cv, _   = np.histogram(var, bins=bins, weights=wgt)
             background_univ, _ = np.histogram(var, bins=bins, weights=wgt*univ_wgt)
@@ -389,8 +520,29 @@ def get_univ_rates(cov_type="rate",
     return univ_events, cv_events
 
 
+# Previous version (same math; only the docstring below was added later):
+# def get_response_matrix(reco_vs_true, eff):
+#     denom = reco_vs_true.T.sum(axis=0)
+#     num = reco_vs_true.T
+#     response = np.divide(
+#         num * eff, denom,
+#         out=np.zeros_like(num, dtype=float),  # fill with 0 where invalid
+#         where=denom != 0
+#     )
+#     return response
+
+
 def get_response_matrix(reco_vs_true, 
                         eff):
+    """Truth → reco response ``R[j,i]`` with shape (reco bins, truth bins).
+
+    ``reco_vs_true`` must be ``numpy.histogram2d(truth, reco, ...)[0]`` so that
+    ``reco_vs_true[i,j]`` counts (truth bin ``i``, reco bin ``j``).
+
+    With ``eff[i] = (selected signal in truth bin i) / (all generated signal in truth bin i)``,
+    each column satisfies ``sum_j R[j,i] = eff[i]`` (not 1): migration is normalized within
+    selected signal, then scaled by per-bin efficiency vs full true MC.
+    """
     denom = reco_vs_true.T.sum(axis=0)
     num = reco_vs_true.T
     response = np.divide(
@@ -441,7 +593,7 @@ def add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y, textloc_ha, label
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
     prefix = f"{label} " if label else ""
     ax.text(textloc_x, textloc_y, 
-            f"{prefix}$\chi^2$/ndof = {chi2_val:.2f}/{ndof} (p-value = {p_val:.2f})",
+            f"{prefix}$\chi^2$/ndof = {chi2_val:.1f}/{ndof}", # (p-value = {p_val:.2f})",
             transform=ax.transAxes, 
             ha=textloc_ha, va='top',
             fontsize=12, color='black')
@@ -1406,7 +1558,8 @@ def overlay_hists_from_histdata(histdata,
         try:
             data_handle_index = labels_orig.index('Data')
             ordered_handles.append(handles[data_handle_index])
-            ordered_labels.append('Observed ({:.0f})'.format(sum_data))
+            # ordered_labels.append('Observed ({:.0f})'.format(sum_data))
+            ordered_labels.append('Observed') # ({:.0f})'.format(sum_data))
         except ValueError:
             pass
 
@@ -1589,7 +1742,8 @@ def overlay_hists(breakdown_type="topology",
                   histdata=None,
                   cosmic_estimate="intime",
                   show_cosmic_model_unc=True,
-                  verbose_hist=False):
+                  verbose_hist=False,
+                  signal_truth_fv="per_tpc"):
 
     # If precomputed histogram contents are provided, dispatch to the
     # histdata-based renderer so that the chunked / aggregated framework
@@ -1654,7 +1808,9 @@ def overlay_hists(breakdown_type="topology",
         elif breakdown_type == "topology":
             labels = topology_labels
             colors = topology_colors
-            cuts = get_topo_category(mc_df, ret_cuts=True)
+            cuts = get_topo_category(
+                mc_df, ret_cuts=True, signal_truth_fv=signal_truth_fv
+            )
 
         elif breakdown_type == "genie":
             labels = genie_mode_labels
@@ -1708,8 +1864,10 @@ def overlay_hists(breakdown_type="topology",
         # colors = colors + ["silver"]
         # labels = labels + ["In-time\nCosmic"]
 
-        # add to the cosmic item in existing list
-        var_categ[0] = pd.concat([vardf_intime, var_categ[0]])
+        # add to the cosmic item in existing list (ndarray + possible Series -> single ndarray)
+        var_categ[0] = np.concatenate(
+            [np.asarray(vardf_intime, dtype=float), np.asarray(var_categ[0], dtype=float)]
+        )
         weights_categ[0] = list(intime_df.pot_weight) + list(weights_categ[0])
         
         total_mc = total_mc + total_intime
@@ -2030,7 +2188,7 @@ def overlay_hists(breakdown_type="topology",
         data_handle_index = labels_orig.index('Data')
         data_handle = handles[data_handle_index]
         ordered_handles.extend([data_handle])
-        data_text = 'Observed ({:.0f})'.format(sum_data)
+        data_text = 'Observed' # ({:.0f})'.format(sum_data)
         # data_text = 'Observed'
         ordered_labels.extend([data_text])
 
@@ -2441,6 +2599,14 @@ def plot_univ_hists(
         plt.close()
 
 
+def _covariance_per_bin_width(cov, bin_widths):
+    """If ``x_i = y_i / bw_i``, propagate ``Cov(y)`` to ``Cov(x)`` with ``D = diag(1/bw)``."""
+    invbw = 1.0 / np.clip(np.asarray(bin_widths, dtype=float), 1e-300, None)
+    d = np.diag(invbw)
+    cov = np.asarray(cov, dtype=float)
+    return d @ cov @ d
+
+
 def plot_unfolded_result(unfold, 
                          measured, 
                          models,
@@ -2454,13 +2620,18 @@ def plot_unfolded_result(unfold,
                          save_fig=False, 
                          save_name=None,
                          data=False,
-                         closure_test=False):
+                         closure_test=False,
+                         model_add_smear=None):
 
     bins = var_config.bins
     bin_centers = var_config.bin_centers
     bin_widths = np.diff(bins)
     if len(var_config.bins) == 2:
         bin_widths = np.array([1.0])
+
+    # Full unfolded covariance (stat + syst), scaled to the same per-bin-width units as the plot/chi2 vectors.
+    # Older code used only unfold['SystUnfoldCov'] and omitted per-width scaling → chi2 was vastly inflated.
+    cov_unfold_perwidth = _covariance_per_bin_width(unfold["UnfoldCov"], bin_widths)
 
     # unfolded result
     Unfolded = unfold['unfold']
@@ -2479,7 +2650,7 @@ def plot_unfolded_result(unfold,
     # --- decompose into norm and shape components
     # the first item in models dict is the nominal input model
     norm_model = list(models.keys())[0]
-    SystUnfoldCov_norm, SystUnfoldCov_shape = Matrix_Decomp(models[norm_model], UnfoldCov_syst)
+    SystUnfoldCov_norm, SystUnfoldCov_mixed, SystUnfoldCov_shape = Matrix_Decomp(models[norm_model], UnfoldCov_syst)
     Unfold_uncert_norm = np.sqrt(np.abs(np.diag(SystUnfoldCov_norm)))
     Unfold_uncert_shape = np.sqrt(np.abs(np.diag(SystUnfoldCov_shape)))
 
@@ -2542,12 +2713,18 @@ def plot_unfolded_result(unfold,
     if len(chi2_list) == 0:
         chi2_vals = []
         p_values = []
+        ndof_list = []
     else:
         chi2_vals = chi2_list
+        p_values = []
+        ndof_list = []
     model_handles = []
     model_labels = []
     for midx, mkey in enumerate(models.keys()):
-        model_smeared = unfold['AddSmear'] @ models[mkey]
+        add_smear = unfold["AddSmear"]
+        if model_add_smear is not None and mkey in model_add_smear:
+            add_smear = model_add_smear[mkey]
+        model_smeared = add_smear @ models[mkey]
         # if "SBN" in mkey:
         model_smeared_perwidth = model_smeared / bin_widths
 
@@ -2560,11 +2737,14 @@ def plot_unfolded_result(unfold,
             mask = (Unfolded_perwidth > 0) & (model_smeared_perwidth > 0)
             Unfolded_perwidth_safe = Unfolded_perwidth[mask]
             model_smeared_perwidth_safe = model_smeared_perwidth[mask]
-            UnfoldCov_syst_safe = UnfoldCov_syst[np.ix_(mask, mask)]
-            chi2_val, p_val = get_chi2(Unfolded_perwidth_safe, model_smeared_perwidth_safe, UnfoldCov_syst_safe)
+            cov_chi2_safe = cov_unfold_perwidth[np.ix_(mask, mask)]
+            chi2_val, p_val = get_chi2(
+                Unfolded_perwidth_safe, model_smeared_perwidth_safe, cov_chi2_safe
+            )
             # chi2_val, p_val = get_chi2(Unfolded_perwidth, model_smeared_perwidth, UnfoldCov_syst_smeared)
             chi2_vals.append(chi2_val)
             p_values.append(p_val)
+            ndof_list.append(int(np.sum(mask)))
 
         print("Unfolded perwidth: ", Unfolded_perwidth)
         print("Model smeared perwidth: ", model_smeared_perwidth)
@@ -2601,6 +2781,23 @@ def plot_unfolded_result(unfold,
     # ==== plot additions
     textloc_x, textloc_ha = get_textloc_x(Unfolded_perwidth, var_config.bins, textloc)
     textloc_y = textloc[1]
+    # Match overlay_hists: optional chi2 / p-value annotation (here: one line per model when computed)
+    if len(chi2_vals) == len(models) and len(p_values) == len(models):
+        ndofs = (
+            ndof_list
+            if len(ndof_list) == len(models)
+            else [len(bins) - 1] * len(models)
+        )
+        for midx, mkey in enumerate(models.keys()):
+            add_chi2_text(
+                chi2_vals[midx],
+                p_values[midx],
+                ndofs[midx],
+                textloc_x,
+                textloc_y + 0.08 + 0.055 * midx,
+                textloc_ha,
+                label="%s: " % mkey,
+            )
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
 
     add_genie_version_text(textloc_x, textloc_y-0.1, textloc_ha)
@@ -2767,12 +2964,13 @@ def variation_hists(evtdfs=None, var_name=None, breakdown_type=None,
     return nevts_list
 
 def signal_cut(df, detector=DETECTOR):
-    print("DETECTOR: ", detector)
-    signal_cut =  (df.mc.nmu_220MeVc == 1) & (df.mc.np_300MeVc == 1) & (df.mc.npi_70MeVc == 0) & (df.mc.npi0 == 0) &\
-                    (np.sqrt(df.mc.mu.genp.x**2 + df.mc.mu.genp.y**2 + df.mc.mu.genp.z**2) < 1) &\
-                    (np.sqrt(df.mc.p.genp.x**2 + df.mc.p.genp.y**2 + df.mc.p.genp.z**2) < 1) &\
-                        InFV(df.mc.mu.start, det=detector) & InFV(df.mc.p.start, det=detector) 
-    return df[signal_cut]
+    # print("DETECTOR: ", detector)
+    # signal_cut =  (df.mc.nmu_220MeVc == 1) & (df.mc.np_300MeVc == 1) & (df.mc.npi_70MeVc == 0) & (df.mc.npi0 == 0) &\
+    #                 (np.sqrt(df.mc.mu.genp.x**2 + df.mc.mu.genp.y**2 + df.mc.mu.genp.z**2) < 1) &\
+    #                 (np.sqrt(df.mc.p.genp.x**2 + df.mc.p.genp.y**2 + df.mc.p.genp.z**2) < 1) &\
+    #                     InFV(df.mc.mu.start, det=detector) & InFV(df.mc.p.start, det=detector) 
+    # return df[signal_cut]
+    return df[IsNuInFV_NumuCC_1p0pi(df, detector=detector)]
 
 def signal_hists(evtdf=None,  # df with selected & reco'ed events
                  nudf=None,   # df with all MC truth

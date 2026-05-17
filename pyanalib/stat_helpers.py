@@ -17,9 +17,21 @@ def return_data_stat_err(data_array):
 
 
 def get_chi2(data, model, cov):
-    chi2_value = (data - model) @ np.linalg.inv(cov) @ (data - model)
-    ndof = len(data)
-    p_value = 1 - chi2.cdf(chi2_value, df=ndof)
+    """Return (chi2, p-value) for Gaussian ``diff ~ N(0, cov)`` with ``diff = data - model``.
+
+    Uses ``solve`` for symmetric positive-definite ``cov``; falls back to ``pinv`` if singular.
+    """
+    diff = np.asarray(data - model, dtype=float).ravel()
+    cov = np.asarray(cov, dtype=float)
+    cov = 0.5 * (cov + cov.T)
+    ndof = int(len(diff))
+    if ndof == 0:
+        return 0.0, 1.0
+    try:
+        chi2_value = float(diff @ np.linalg.solve(cov, diff))
+    except np.linalg.LinAlgError:
+        chi2_value = float(diff @ np.linalg.pinv(cov) @ diff)
+    p_value = 1.0 - chi2.cdf(chi2_value, df=ndof)
     return chi2_value, p_value
 
 
@@ -27,9 +39,17 @@ def get_chi2_shape(data, model, cov):
     """Shape chi2 using full covariance matrix: model normalized to data integral."""
     scale = np.sum(data) / np.sum(model)
     model_shape = model * scale
-    chi2_value = (data - model_shape) @ np.linalg.inv(cov) @ (data - model_shape)
-    ndof = len(data)
-    p_value = 1 - chi2.cdf(chi2_value, df=ndof)
+    diff = np.asarray(data - model_shape, dtype=float).ravel()
+    cov = np.asarray(cov, dtype=float)
+    cov = 0.5 * (cov + cov.T)
+    ndof = int(len(diff))
+    if ndof == 0:
+        return 0.0, 1.0
+    try:
+        chi2_value = float(diff @ np.linalg.solve(cov, diff))
+    except np.linalg.LinAlgError:
+        chi2_value = float(diff @ np.linalg.pinv(cov) @ diff)
+    p_value = 1.0 - chi2.cdf(chi2_value, df=ndof)
     return chi2_value, p_value
 
 

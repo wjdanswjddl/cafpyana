@@ -26,7 +26,9 @@ export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 TODAY=$(date +%Y%m%d)
 WORK_BASE=${WORK_BASE:-"/exp/sbnd/data/users/$(whoami)/xsec/numucc_1p0pi/event_selection-chunked-$TODAY"}
 CHUNKS_DIR="$WORK_BASE/chunks"
-PLOTS_DIR="$WORK_BASE/plots"
+#PLOTS_DIR="$WORK_BASE/plots-nominal"
+#PLOTS_DIR="$WORK_BASE/plots-EField_R00"
+PLOTS_DIR="$WORK_BASE/plots-EField_R30_Short"
 # Failed chunk inputs (unreadable/missing HDF, etc.) are appended here; the driver keeps going.
 FAILED_LOG="$WORK_BASE/failed_df_files.log"
 

@@ -10,7 +10,7 @@ import pandas as pd
 
 import sys
 # sys.path.append('../../../')
-sys.path.append('/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana') # absolute path for running on EAF
+sys.path.append('/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana')  # repo root when cwd is not cafpyana
 from pyanalib.split_df_helpers import *
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
 from analysis_village.numucc_1p0pi.final_selected_evt_vars import (

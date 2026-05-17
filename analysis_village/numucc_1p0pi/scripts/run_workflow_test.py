@@ -321,7 +321,8 @@ def main() -> int:
             for idx, (syst_name, df_path) in enumerate(tasks, start=1):
                 stem = Path(df_path).stem
                 if syst_name == "COMBINED":
-                    out_leaf = "nu__{}.pkl".format(stem)
+                    # Match syst_multisim_chunk default --syst-names (Flux,G4, no MCstat).
+                    out_leaf = "nu__Flux_G4__{}.pkl".format(stem)
                     chunk_args = [
                         "--df_file",
                         df_path,
@@ -329,6 +330,8 @@ def main() -> int:
                         str(multisim_chunks),
                         "--var-set",
                         args.var_set,
+                        "--syst-names",
+                        "Flux,G4",
                     ]
                 else:
                     out_leaf = "nu__{}__{}.pkl".format(syst_name, stem)
@@ -374,6 +377,8 @@ def main() -> int:
                 args.mc_df_stage,
                 "--var-set",
                 args.var_set,
+                "--syst-types",
+                "Flux,G4",
             ]
             if args.multisim_no_plots:
                 agg_args.append("--no-plots")
@@ -382,6 +387,7 @@ def main() -> int:
                 "chunks_dir": str(multisim_chunks),
                 "syst_disk_root": str(syst_disk),
                 "no_plots": args.multisim_no_plots,
+                "syst_types": "Flux,G4",
             }
             rc = _run_python(
                 _SCRIPTS_DIR / "syst_multisim_aggregate.py",

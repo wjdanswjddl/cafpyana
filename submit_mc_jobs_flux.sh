@@ -6,6 +6,6 @@ python run_df_maker.py \
     -c configs/numucc_1p0pi/sel_mup-fluxwgts-knobgroups.py \
     -l "$list" \
     -o sel_mup-wgts_flux \
-    -ngrid 2000
+    -ngrid 4000
 
 # Flux subset only: sel_mup-wgts_flux_beam.py (etc.)

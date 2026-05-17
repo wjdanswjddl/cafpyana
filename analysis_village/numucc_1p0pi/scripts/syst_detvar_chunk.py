@@ -88,8 +88,7 @@ from analysis_village.numucc_1p0pi.categories import DETECTOR
 from analysis_village.numucc_1p0pi.selection_framework import (
     multicol_get_series, multicol_resolve_column_key,
 )
-from pyanalib.pandas_helpers import multicol_add, pad_column_name
-from pyanalib.variable_calculator import get_cc1p0pi_tki
+from pyanalib.variable_calculator import add_reco_cc1p0pi_tki_evtdf
 from pyanalib.split_df_helpers import get_n_split
 from makedf.util import avg_chi2
 
@@ -188,21 +187,6 @@ def _attach_chi2_avg_new(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _add_reco_cc1p0pi_tki_evt(evtdf: pd.DataFrame) -> pd.DataFrame:
-    """Same recipe as event_selection_pipeline_def's _add_reco_cc1p0pi_tki_evt."""
-    if evtdf is None or len(evtdf) == 0:
-        return evtdf
-    tki_var_names = ["del_alpha", "del_phi", "del_Tp", "del_p", "del_Tp_x", "del_Tp_y"]
-    slc_mudf = evtdf.mu.pfp.trk
-    slc_pdf = evtdf.p.pfp.trk
-    slc_P_mu_col = pad_column_name(("P", "p_muon"), slc_mudf)
-    slc_P_p_col = pad_column_name(("P", "p_proton"), slc_pdf)
-    tki_reco = get_cc1p0pi_tki(slc_mudf, slc_pdf, slc_P_mu_col, slc_P_p_col)
-    for var_name in tki_var_names:
-        evtdf = multicol_add(evtdf, tki_reco[var_name].rename(var_name))
-    return evtdf
-
-
 def build_stages() -> List[StageDef]:
     """Selection stages applied to each variation universe.
 
@@ -279,7 +263,7 @@ def build_stages() -> List[StageDef]:
     def _mup_cut(df):
         df = cut_has_p(df)
         df = cut_p_kinematics(df, p_Plo_th=P_PLO_TH, p_Phi_th=P_PHI_TH)
-        df = _add_reco_cc1p0pi_tki_evt(df)
+        df = add_reco_cc1p0pi_tki_evtdf(df)
         return df
 
     stages.append(StageDef(
@@ -480,6 +464,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+    _main_detvar(args)
+
+
+def _main_detvar(args) -> None:
     os.makedirs(args.out_dir, exist_ok=True)
 
     n_split = int(get_n_split(args.df_file))

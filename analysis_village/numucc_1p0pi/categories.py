@@ -8,6 +8,10 @@ from makedf.util import *
 DETECTOR = "SBND_nohighyz"
 # DETECTOR = "SBND"
 
+# Cathode inset (cm) for per-TPC x-fiducial; matches reco helpers in
+# ``scripts/selected_events.py`` / ``selected_events_cumulative.py``.
+PER_TPC_INCATHODE_CM = 5
+
 # ==== definitions for event categories ===-
 
 def IsNu(df):
@@ -28,28 +32,75 @@ def IsNuInFV_NuOther(df):
 def IsNuInFV_NumuNC(df):
     return IsNuInFV(df) & (df.mc.iscc == 0)
 
+
+def IsTruthCC1p0piPerTPCFV(df, incathode=PER_TPC_INCATHODE_CM):
+    """Truth fiducial aligned with reco per-TPC cut (vertex + μ/p ends in same TPC).
+
+    Reco uses ``slc.vertex`` and reconstructed track ends; truth uses ``mc.position``
+    and true lepton end positions. Same ``SBND_TPC1`` / ``SBND_TPC2`` x-bands as
+    ``InFV(..., det=\"SBND_TPC1|2\")`` in ``makedf.util``.
+    """
+    in_tpc1 = (
+        InFV(df.mc.position, det="SBND_TPC1", incathode=incathode)
+        & InFV(df.mc.mu.end, det="SBND_TPC1", incathode=incathode)
+        & InFV(df.mc.p.end, det="SBND_TPC1", incathode=incathode)
+    )
+    in_tpc2 = (
+        InFV(df.mc.position, det="SBND_TPC2", incathode=incathode)
+        & InFV(df.mc.mu.end, det="SBND_TPC2", incathode=incathode)
+        & InFV(df.mc.p.end, det="SBND_TPC2", incathode=incathode)
+    )
+    return in_tpc1 | in_tpc2
+
+
+def IsTruthCC1p0piNominalFV(df, detector=DETECTOR):
+    """Truth fiducial aligned with nominal ``SBND_nohighyz`` (μ/p start and end in volume)."""
+    return (
+        InFV(df.mc.mu.start, det=detector)
+        & InFV(df.mc.p.start, det=detector)
+        & InFV(df.mc.mu.end, det=detector)
+        & InFV(df.mc.p.end, det=detector)
+    )
+
+
 # ---- numu CC in FV, breakdown in topology
-def Is_1p0pi(df, detector=DETECTOR):
-    return (df.mc.nmu_220MeVc == 1) & (df.mc.np_300MeVc == 1) & (df.mc.npi_70MeVc == 0) & (df.mc.npi0 == 0) &\
-        (np.sqrt(df.mc.mu.genp.x**2 + df.mc.mu.genp.y**2 + df.mc.mu.genp.z**2) < 1) &\
-        (np.sqrt(df.mc.p.genp.x**2 + df.mc.p.genp.y**2 + df.mc.p.genp.z**2) < 1) &\
-            InFV(df.mc.mu.start, det=detector) & InFV(df.mc.p.start, det=detector) &\
-            InFV(df.mc.mu.end, det=detector) & InFV(df.mc.p.end, det=detector) 
+def Is_1p0pi(df, detector=DETECTOR, signal_truth_fv="per_tpc"):
+    """True CC 1p0π topology with configurable truth fiducial.
+
+    signal_truth_fv : {'per_tpc', 'nominal'}
+        ``per_tpc`` — ``IsTruthCC1p0piPerTPCFV`` (matches per-TPC reco selection).
+        ``nominal`` — μ/p start and end in ``detector`` (default ``SBND_nohighyz``).
+    """
+    topo = (
+        (df.mc.nmu_220MeVc == 1)
+        & (df.mc.np_300MeVc == 1)
+        & (df.mc.npi_70MeVc == 0)
+        & (df.mc.npi0 == 0)
+        & (np.sqrt(df.mc.mu.genp.x**2 + df.mc.mu.genp.y**2 + df.mc.mu.genp.z**2) < 1)
+        & (np.sqrt(df.mc.p.genp.x**2 + df.mc.p.genp.y**2 + df.mc.p.genp.z**2) < 1)
+    )
+    if signal_truth_fv == "per_tpc":
+        return topo & IsTruthCC1p0piPerTPCFV(df)
+    if signal_truth_fv == "nominal":
+        return topo & IsTruthCC1p0piNominalFV(df, detector=detector)
+    raise ValueError(
+        f"signal_truth_fv must be 'per_tpc' or 'nominal', got {signal_truth_fv!r}"
+    )
 
 def Is_Np0pi(df):
     return (df.mc.nmu_220MeVc == 1) & (df.mc.np_300MeVc > 1) & (df.mc.npi_70MeVc == 0) & (df.mc.npi0 == 0) 
 
-def IsNuInFV_NumuCC_Other(df, detector=DETECTOR):
+def IsNuInFV_NumuCC_Other(df, detector=DETECTOR, signal_truth_fv="per_tpc"):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              ~Is_1p0pi(df, detector=detector) & ~Is_Np0pi(df)
+              ~Is_1p0pi(df, detector=detector, signal_truth_fv=signal_truth_fv) & ~Is_Np0pi(df)
 
 def IsNuInFV_NumuCC_Np0pi(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
               Is_Np0pi(df)
 
-def IsNuInFV_NumuCC_1p0pi(df, detector=DETECTOR):
+def IsNuInFV_NumuCC_1p0pi(df, detector=DETECTOR, signal_truth_fv="per_tpc"):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              Is_1p0pi(df, detector=detector)
+              Is_1p0pi(df, detector=detector, signal_truth_fv=signal_truth_fv)
 
 # --- numu CC in FV, breakdown in interaction mode (GENIE)
 def IsNuInFV_NumuCC_QE(df):
@@ -145,15 +196,25 @@ pdg_labels = [r"$\mu^{\pm}$", r"$p$", r"$\pi^{\pm}$", r"Other"]
 pdg_colors = ["C0", "C1", "C2", "C3"]
 
 
-def get_topo_category(df, ret_cuts=False, print_summary=False, detector=DETECTOR):
+def get_topo_category(
+    df,
+    ret_cuts=False,
+    print_summary=False,
+    detector=DETECTOR,
+    signal_truth_fv="per_tpc",
+):
     cut_cosmic = IsCosmic(df)
     # cut_nu_outfv = IsNuOutFV(df)
     # cut_nu_infv_nu_other = IsNuInFV_NuOther(df)
     cut_nu_other = (IsNuOutFV(df) | IsNuInFV_NuOther(df))
     cut_nu_infv_numu_nc = IsNuInFV_NumuNC(df)
-    cut_nu_infv_numu_cc_other = IsNuInFV_NumuCC_Other(df)
+    cut_nu_infv_numu_cc_other = IsNuInFV_NumuCC_Other(
+        df, detector=detector, signal_truth_fv=signal_truth_fv
+    )
     cut_nu_infv_numu_cc_np0pi = IsNuInFV_NumuCC_Np0pi(df)
-    cut_nu_infv_numu_cc_1p0pi = IsNuInFV_NumuCC_1p0pi(df, detector=detector)
+    cut_nu_infv_numu_cc_1p0pi = IsNuInFV_NumuCC_1p0pi(
+        df, detector=detector, signal_truth_fv=signal_truth_fv
+    )
 
     # assert there's no overlap between the categories, AND that all categories are covered just in case i messed something up...
     assert (cut_cosmic & cut_nu_other & cut_nu_infv_numu_nc & cut_nu_infv_numu_cc_other & cut_nu_infv_numu_cc_np0pi & cut_nu_infv_numu_cc_1p0pi).sum() == 0

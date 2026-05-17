@@ -5,8 +5,15 @@
 # Phase 1: for each ``(GENIE_GROUP, .df)`` from ``dataset_locations.iter_genie_chunk_map_tasks``,
 #          run ``get_systematics_genie.py chunk-map`` with matching ``--genie-group`` and
 #          ``--input-stage`` (driven by ``MC_DF_STAGE``).
-# Phase 2: for each group in ``GENIE_GROUP_ORDER`` that has chunk pickles under ``CHUNKS_DIR``,
-#          ``chunk-merge`` → ``<MERGE_ROOT>/<group>/`` (NPZ optional).
+# Phase 2: for each group in the active glob map (optionally filtered by ``GENIE_RUN_GROUPS``)
+#          that has chunk pickles under ``CHUNKS_DIR``, ``chunk-merge`` → ``<MERGE_ROOT>/<group>/``.
+#          Merge output dict / NPZ ``syst`` includes per-knob entries plus
+#          ``__GENIE_group_combined__`` → per-variable ``{rate, xsec?}`` with cov / cov_frac / corr
+#          (independent-sum across knobs in that group, same recipe as multisim Flux/G4 aggregate).
+#
+# Phase 3: ``syst_genie_aggregate.py`` folds chunk pickles into the unified syst-disk tree:
+#          ``<SYST_DISK_ROOT>/GENIE/cov_mat_dict.pkl`` (same role as ``syst_multisim_aggregate.py``
+#          for Flux/G4). Always runs after phases 1–2.
 #
 # Paths: ``analysis_village.numucc_1p0pi.dataset_locations``:
 #   ``MC_DF_STAGE=final|sel_all`` → ``GENIE_GROUP_GLOBS`` vs ``GENIE_GROUP_GLOBS_SEL_ALL``.
@@ -25,6 +32,19 @@
 #   MC_DF_STAGE   ``final`` (default) or ``sel_all``
 #   SKIP_MERGE    1 → map only (default: run per-group ``chunk-merge`` after map)
 #   XSEC_UNIT     Passed to chunk-merge (default 1.0)
+#   MAX_FILES     Max ``.df`` paths per GENIE knob group for chunk-map (0 = all in each group).
+#                 Overridden by ``--max-files N`` / ``-n N``.
+#   GENIE_RUN_GROUPS  Comma-separated subset of ``GENIE_GROUP_GLOBS`` keys (e.g. ``CCQE,MEC``).
+#                     Overridden by ``--genie-groups LIST`` / ``-g LIST``. Empty = all groups
+#                     that appear in the active glob map for ``MC_DF_STAGE``.
+#   WORKERS           Map-phase parallel worker count for ``syst_genie_parallel.py``
+#                     (default: ``min(nproc, 8)``). Overridden by ``--workers N`` / ``-j N``.
+#                     Each worker calls ``get_systematics_genie.run_chunk_map`` directly inside
+#                     a forked process — no Python re-launch per file — so heavy imports are
+#                     paid ``WORKERS`` times instead of once per ``.df``.
+#   MERGE_WORKERS     Per-group merge worker count (default: ``min(N_groups, WORKERS)``).
+#                     0 = use the default.
+#   NUMUCC_SYST_DISK_ROOT     Syst disk root for phase 3 (default: ``dataset_locations.default_syst_disk_root()``).
 #
 # Logs ``progress map overall`` / ``progress merge`` lines (k/total, BEGIN/END timestamps).
 # -----------------------------------------------------------------------------
@@ -32,6 +52,86 @@ set -euo pipefail
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$THIS_DIR/../../.." && pwd)"
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
+
+_usage() {
+    cat <<'EOF'
+run_syst_genie_chunked.sh [OPTIONS]
+
+Options:
+  --max-files|-n N       Run at most N chunk-map jobs per GENIE knob group (each .df × group). 0 = no limit.
+  --genie-groups|-g LIST Comma-separated GENIE groups (keys of ``GENIE_GROUP_GLOBS`` for ``MC_DF_STAGE=final``).
+                         Default: all groups that have entries in the active glob map.
+  --workers|-j N         Number of parallel worker processes for the chunk-map phase
+                         (default: min(nproc, 8)). Imports are shared via fork — primary speed-up.
+  --merge-workers M      Number of parallel workers for the per-group chunk-merge phase
+                         (default: min(N_groups, --workers); 0 = default).
+  -h, --help             Show this message
+
+Environment:
+  MAX_FILES            Same as --max-files: per GENIE knob group, not total (CLI wins).
+  GENIE_RUN_GROUPS     Same as --genie-groups (CLI wins).
+  WORKERS              Same as --workers (CLI wins).
+  MERGE_WORKERS        Same as --merge-workers (CLI wins).
+  NUMUCC_SYST_DISK_ROOT     Syst disk root for phase 3 (default: default_syst_disk_root()).
+  See script header for other variables.
+EOF
+}
+
+_CLI_MAX_FILES=""
+_CLI_GENIE_GROUPS=""
+_CLI_WORKERS=""
+_CLI_MERGE_WORKERS=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --max-files|-n)
+            if [[ -z "${2:-}" ]] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo "[genie-run] ERROR: $1 requires a non-negative integer" >&2
+                exit 2
+            fi
+            _CLI_MAX_FILES="$2"
+            shift 2
+            ;;
+        --genie-groups|-g)
+            if [[ -z "${2:-}" ]]; then
+                echo "[genie-run] ERROR: $1 requires a comma-separated list of GENIE group tags" >&2
+                exit 2
+            fi
+            _CLI_GENIE_GROUPS="$2"
+            shift 2
+            ;;
+        --workers|-j)
+            if [[ -z "${2:-}" ]] || ! [[ "$2" =~ ^[0-9]+$ ]] || [[ "$2" -lt 1 ]]; then
+                echo "[genie-run] ERROR: $1 requires a positive integer" >&2
+                exit 2
+            fi
+            _CLI_WORKERS="$2"
+            shift 2
+            ;;
+        --merge-workers)
+            if [[ -z "${2:-}" ]] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo "[genie-run] ERROR: $1 requires a non-negative integer" >&2
+                exit 2
+            fi
+            _CLI_MERGE_WORKERS="$2"
+            shift 2
+            ;;
+        -h|--help)
+            _usage
+            exit 0
+            ;;
+        *)
+            echo "[genie-run] ERROR: unknown option: $1 (use --help)" >&2
+            exit 2
+            ;;
+    esac
+done
+
+MAX_FILES="${_CLI_MAX_FILES:-${MAX_FILES:-0}}"
+GENIE_RUN_GROUPS="${_CLI_GENIE_GROUPS:-${GENIE_RUN_GROUPS:-}}"
+_DEFAULT_WORKERS=$(python3 -c "import os; print(min(os.cpu_count() or 8, 8))")
+WORKERS="${_CLI_WORKERS:-${WORKERS:-$_DEFAULT_WORKERS}}"
+MERGE_WORKERS="${_CLI_MERGE_WORKERS:-${MERGE_WORKERS:-0}}"
+export MAX_FILES GENIE_RUN_GROUPS WORKERS MERGE_WORKERS
 
 TODAY=$(date +%Y%m%d)
 WORK_BASE=${WORK_BASE:-$(python3 -c "
@@ -41,7 +141,7 @@ from analysis_village.numucc_1p0pi.dataset_locations import default_genie_syst_w
 print(default_genie_syst_work_root('${TODAY}'))
 ")}
 CHUNKS_DIR=${CHUNKS_DIR:-"$WORK_BASE/chunks"}
-MERGE_ROOT=${MERGE_ROOT:-"$WORK_BASE/merged"}
+MERGE_ROOT=${MERGE_ROOT:-"$WORK_BASE/merged_perTPC"}
 XSEC_UNIT=${XSEC_UNIT:-1.0}
 
 MC_DF_STAGE=${MC_DF_STAGE:-final}
@@ -57,100 +157,65 @@ INPUT_STAGE="$MC_DF_STAGE"
 
 mkdir -p "$CHUNKS_DIR" "$MERGE_ROOT"
 
-genie_py="$THIS_DIR/get_systematics_genie.py"
+parallel_py="$THIS_DIR/syst_genie_parallel.py"
 FAILED_LOG="$WORK_BASE/failed_genie_df_files.log"
 touch "$FAILED_LOG"
 
 echo "[genie-run] WORK_BASE=$WORK_BASE  CHUNKS_DIR=$CHUNKS_DIR  MERGE_ROOT=$MERGE_ROOT"
 echo "[genie-run] MC_DF_STAGE=$MC_DF_STAGE  INPUT_STAGE=$INPUT_STAGE  XSEC_UNIT=$XSEC_UNIT"
+echo "[genie-run] MAX_FILES=${MAX_FILES} (0 = no per-group cap; else max .df files per GENIE knob group)"
+if [[ -n "${GENIE_RUN_GROUPS// /}" ]]; then
+    echo "[genie-run] GENIE_RUN_GROUPS=${GENIE_RUN_GROUPS} (subset mode)"
+else
+    echo "[genie-run] GENIE_RUN_GROUPS=(empty) — all groups in active GENIE glob map"
+fi
+echo "[genie-run] WORKERS=${WORKERS} parallel chunk-map worker processes (MERGE_WORKERS=${MERGE_WORKERS})"
 
-_genie_map_total="$(python3 -c "
-import os, sys
-sys.path.insert(0, '${REPO_ROOT}')
-from analysis_village.numucc_1p0pi.dataset_locations import iter_genie_chunk_map_tasks
-stage = os.environ.get('MC_DF_STAGE', 'final')
-print(sum(1 for _ in iter_genie_chunk_map_tasks(mc_df_stage=stage)))
-")"
-echo "[genie-run] chunk-map queue: ${_genie_map_total} (.df, group) job(s) for MC_DF_STAGE=$MC_DF_STAGE"
-
-mapfile -t _genie_map_jobs < <(python3 -c "
-import os, sys
-sys.path.insert(0, '${REPO_ROOT}')
-from analysis_village.numucc_1p0pi.dataset_locations import iter_genie_chunk_map_tasks
-stage = os.environ.get('MC_DF_STAGE', 'final')
-for grp, p in iter_genie_chunk_map_tasks(mc_df_stage=stage):
-    print('%s\t%s' % (grp, p))
-")
-_genie_map_n="${#_genie_map_jobs[@]}"
-_genie_map_done=0
-
-for ((_genie_mi = 0; _genie_mi < _genie_map_n; _genie_mi++)); do
-    line="${_genie_map_jobs[_genie_mi]}"
-    [[ -z "$line" ]] && continue
-    IFS=$'\t' read -r grp f <<<"$line"
-    if [[ -z "${grp:-}" ]] || [[ -z "${f:-}" ]]; then
-        continue
-    fi
-    _genie_cur=$((_genie_mi + 1))
-    out_stem="$(basename "$f" .df)"
-    out_pkl="$CHUNKS_DIR/genie__${grp}__${out_stem}.pkl"
-    if [[ -f "$out_pkl" ]]; then
-        ((_genie_map_done++)) || true
-        echo "[genie-run] progress map overall ${_genie_map_done}/${_genie_map_total}  job ${_genie_cur}/${_genie_map_n}  group=$grp  (skip existing) $out_pkl"
-        continue
-    fi
-    echo "[genie-run] progress map overall $((_genie_map_done + 1))/${_genie_map_total}  job ${_genie_cur}/${_genie_map_n}  group=$grp  BEGIN $(date -Is) df_file=$f"
-    if python "$genie_py" chunk-map \
-        --df-file "$f" \
-        --out-dir "$CHUNKS_DIR" \
-        --genie-group "$grp" \
-        --input-stage "$INPUT_STAGE"; then
-        ((_genie_map_done++)) || true
-        echo "[genie-run] progress map overall ${_genie_map_done}/${_genie_map_total}  job ${_genie_cur}/${_genie_map_n}  group=$grp  END $(date -Is) df_file=$f"
-    else
-        ((_genie_map_done++)) || true
-        ts="$(date '+%Y-%m-%d %H:%M:%S')"
-        echo "[genie-run] progress map overall ${_genie_map_done}/${_genie_map_total}  job ${_genie_cur}/${_genie_map_n}  group=$grp  FAILED $(date -Is) df_file=$f" >&2
-        printf '%s\t%s\t%s\t%s\n' "$ts" "$MC_DF_STAGE" "$grp" "$f" >> "$FAILED_LOG"
-    fi
-done
-
+# ``syst_genie_parallel.py`` imports the GENIE chunk-map code once and forks
+# workers. Per-file pickle outputs (``genie__<GROUP>__<stem>.pkl``) match the
+# legacy serial path bit-for-bit, so ``chunk-merge`` semantics are unchanged.
+# Atomic ``.tmp`` rename inside ``run_chunk_map`` makes resume safe.
+parallel_args=(
+    --mc-df-stage "$MC_DF_STAGE"
+    --chunks-dir "$CHUNKS_DIR"
+    --merge-root "$MERGE_ROOT"
+    --failed-log "$FAILED_LOG"
+    --workers "$WORKERS"
+    --merge-workers "$MERGE_WORKERS"
+    --max-files "$MAX_FILES"
+    --xsec-unit "$XSEC_UNIT"
+)
+if [[ -n "${GENIE_RUN_GROUPS// /}" ]]; then
+    parallel_args+=(--genie-groups "$GENIE_RUN_GROUPS")
+fi
 if [[ "${SKIP_MERGE:-0}" == "1" ]]; then
-    echo "[genie-run] SKIP_MERGE=1 — chunks only → $CHUNKS_DIR"
-    exit 0
+    parallel_args+=(--skip-merge)
 fi
 
-GENIE_GROUPS=$(python3 -c "
+echo "[genie-run] progress map BEGIN $(date -Is) (workers=${WORKERS})"
+python3 "$parallel_py" "${parallel_args[@]}"
+echo "[genie-run] DONE map=$CHUNKS_DIR merge=$MERGE_ROOT"
+
+agg_py="$THIS_DIR/syst_genie_aggregate.py"
+SYST_DISK_ROOT="${NUMUCC_SYST_DISK_ROOT:-$(python3 -c "
 import sys
 sys.path.insert(0, '${REPO_ROOT}')
-from analysis_village.numucc_1p0pi.dataset_locations import GENIE_GROUP_ORDER
-print(' '.join(GENIE_GROUP_ORDER))
-")
-
-_genie_merge_targets=()
-for grp in $GENIE_GROUPS; do
-    if compgen -G "$CHUNKS_DIR/genie__${grp}__"*.pkl > /dev/null; then
-        _genie_merge_targets+=("$grp")
-    else
-        echo "[genie-run] skip chunk-merge (no genie__${grp}__*.pkl under $CHUNKS_DIR)"
-    fi
-done
-_genie_merge_n="${#_genie_merge_targets[@]}"
-echo "[genie-run] chunk-merge queue: ${_genie_merge_n} knob group(s) with chunk pickles"
-
-for ((_genie_mj = 0; _genie_mj < _genie_merge_n; _genie_mj++)); do
-    grp="${_genie_merge_targets[_genie_mj]}"
-    _genie_mc=$((_genie_mj + 1))
-    out_sub="$MERGE_ROOT/$grp"
-    mkdir -p "$out_sub"
-    echo "[genie-run] progress merge ${_genie_mc}/${_genie_merge_n}  group=$grp  BEGIN $(date -Is) -> $out_sub"
-    python "$genie_py" chunk-merge \
-        --chunks-dir "$CHUNKS_DIR" \
-        --genie-group "$grp" \
-        --input-stage "$INPUT_STAGE" \
-        --out-dir "$out_sub" \
-        --xsec-unit "$XSEC_UNIT"
-    echo "[genie-run] progress merge ${_genie_mc}/${_genie_merge_n}  group=$grp  END $(date -Is)"
-done
-
-echo "[genie-run] DONE map=$CHUNKS_DIR merge=$MERGE_ROOT"
+from analysis_village.numucc_1p0pi.dataset_locations import default_syst_disk_root
+print(default_syst_disk_root())
+")}"
+mkdir -p "$SYST_DISK_ROOT"
+echo "[genie-run] SYST_DISK_ROOT=$SYST_DISK_ROOT  (GENIE/ aggregate target)"
+agg_cmd=(
+    python3 "$agg_py"
+    --chunks-dir "$CHUNKS_DIR"
+    --syst-disk-root "$SYST_DISK_ROOT"
+    --mc-df-stage "$MC_DF_STAGE"
+    --xsec-unit "$XSEC_UNIT"
+)
+if [[ -n "${GENIE_RUN_GROUPS// /}" ]]; then
+    agg_cmd+=(--genie-groups "$GENIE_RUN_GROUPS")
+fi
+echo "[genie-run] progress syst-disk 1/1  BEGIN $(date -Is)"
+"${agg_cmd[@]}"
+echo "[genie-run] progress syst-disk 1/1  END $(date -Is)"
+echo "[genie-run] $(date -Is) DONE GENIE -> ${SYST_DISK_ROOT}/GENIE/cov_mat_dict.pkl"

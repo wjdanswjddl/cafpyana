@@ -1,7 +1,13 @@
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_all-mc-BNB_cosmics -ngrid 1000
 
-python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R00.txt -o sel_all-mc-EField_R00 -ngrid 100
-python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R30_Short.txt -o sel_all-mc-EField_R30_Short -ngrid 100
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-mcstatwgts.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R00_xrootd.txt -o sel_mup-mc-EField_R00 -ngrid 100
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-mcstatwgts.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R30_Short_xrootd.txt -o sel_mup-mc-EField_R30_Short -ngrid 100
+
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R00.txt -o /exp/sbnd/data/users/munjung/xsec/DENT/R00/sel_mup-mc-EField_R00 
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_mup.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R30_Short.txt -o /exp/sbnd/data/users/munjung/xsec/DENT/R30Short/sel_mup-mc-EField_R30_Short
+
+python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R00_xrootd.txt -o sel_2prong-mc-EField_R00  -ngrid 100
+python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/EField_R30_Short_xrootd.txt -o sel_2prong-mc-EField_R30_Short -ngrid 100
 
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/Ar23+/ar23p_respin-xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 1000
 # python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 2000

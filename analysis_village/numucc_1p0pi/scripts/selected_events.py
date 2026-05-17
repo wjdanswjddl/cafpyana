@@ -13,8 +13,7 @@ import numpy as np
 import pandas as pd
 
 import sys
-# sys.path.append('../../../')
-sys.path.append('/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana') # absolute path for running on EAF
+sys.path.append('/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana')  # repo root when cwd is not cafpyana
 from pyanalib.split_df_helpers import *
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
 from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
@@ -169,6 +168,7 @@ def get_syst_unc(var_config):
 
 save_fig = True
 
+print("[save_fig] is set to ", save_fig)
 today_str = datetime.now().strftime("%Y%m%d")
 save_fig_dir = path.join(save_fig_base_dir, f"selected_events-data-mup-1e20-{today_str}/chunk{args.chunk_idx}")
 save_fig_dir_perTPC = path.join(save_fig_base_dir, f"selected_events-data-mup-1e20-{today_str}-perTPC/chunk{args.chunk_idx}")

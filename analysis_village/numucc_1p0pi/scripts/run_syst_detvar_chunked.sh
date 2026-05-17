@@ -12,7 +12,9 @@
 #                   and writes ``detector_syst_dict.npz`` -- the same format
 #                   loaded by analysis_village.numucc_1p0pi.utils.get_syst_unc,
 #                   which is what scripts/event_selection_aggregate.py picks up
-#                   at plot time. Drop the npz into the path baked into
+#                   at plot time. The NPZ also includes ``detector_by_wiremod``
+#                   (``var -> {wiremod_tag -> pack}``), analogous to Flux/G4
+#                   ``*_by_knob`` breakdowns. Drop the npz into the path baked into
 #                   ``utils.get_syst_unc`` and re-run the main driver to see
 #                   detector error bars.
 # -----------------------------------------------------------------------------
@@ -106,6 +108,7 @@ print(default_syst_disk_root())
 # tag|glob (one entry per WireMod model).
 declare -a WIREMOD_DIRS=(
     "wiremod_yz|/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_09_223419__sel_2prong-mc-BNB_cosmics-WireModYZ/*.df"
+    "wiremod_xtxw|/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_11_103733__sel_2prong-mc-BNB_cosmics-WireModXTXW/*df"
     # add more WireMod variants here, e.g.:
     # "wiremod_xtxw|/path/to/WireModXThetaXW/*.df"
 )

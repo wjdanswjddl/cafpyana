@@ -4,15 +4,18 @@ Edit paths **here only** so drivers stay thin:
 
 - ``run_event_selection_chunked.sh`` — map shards: MC/data/intime/offbeam/dirt ``.df`` files for
   ``event_selection_chunk.py`` / ``event_selection_aggregate.py``.
-- ``run_syst_multisim_chunked.sh`` — per systematic + CAF shard; MCstat+Combined chunks live under
-  ``multisim_syst-chunked-*`` / ``chunks/``, while G4 and Flux map shards use parallel
-  ``g4_syst-chunked-*`` and ``flux_syst-chunked-*`` (see :func:`default_g4_syst_work_root`,
-  :func:`default_flux_syst_work_root`).
+- ``run_syst_multisim_chunked.sh`` — per systematic + CAF shard (default syst subset: Flux+G4;
+  MCstat opt-in via ``MULTISIM_SYST_TYPES`` / ``--syst-types``); **Combined** chunks live under
+  ``multisim_syst-chunked-*`` / ``chunks/Combined/``; **MCstat**, **Flux**, and **G4** map shards use
+  parallel ``mcstat_syst-chunked-*``, ``flux_syst-chunked-*``, and ``g4_syst-chunked-*`` (see
+  :func:`default_mcstat_syst_work_root`, :func:`default_flux_syst_work_root`,
+  :func:`default_g4_syst_work_root`).
 - ``syst_multisim_aggregate.py`` — merge neutrino multisim map outputs into ``MCstat/``, ``Flux/``, ``G4/``.
 - ``syst_detvar_chunk.py`` / ``syst_detvar_aggregate.py`` — WireMod + calo variants;
   input globs are listed in ``DETVAR_WIREMOD_GLOBS`` / :func:`iter_detvar_chunk_jobs`.
 - ``get_systematics_genie.py`` / ``run_syst_genie_chunked.sh`` — GENIE reweights: one glob per
-  knob **group** (``GENIE_GROUP_GLOBS``) / :func:`iter_genie_chunk_map_tasks`.
+  knob **group** (``GENIE_GROUP_GLOBS``) / :func:`iter_genie_chunk_map_tasks`; ``syst_genie_aggregate.py``
+  publishes ``GENIE/cov_mat_dict.pkl`` on the syst disk (phase 3 of the shell driver).
 - ``run_syst_cosmics_chunked.sh`` — ``syst_cosmics_chunk.py`` / ``syst_cosmics_aggregate.py``;
   globs reuse ``EVENT_SELECTION_GLOBS`` ``offbeam`` / ``intime``.
 - ``default_syst_disk_root()`` — unified ``syst_disk_layout`` root (``Cosmics/``, ``MCstat/``,
@@ -52,6 +55,13 @@ SPRING_GEN1_ROOT = Path(
     )
 )
 
+SPRING_GEN1_ROOT_EAF = Path(
+    os.environ.get(
+        "NUMUCC_SPRING_GEN1_ROOT",
+        "/scratch/7DayLifetime/munjung/xsec",
+    )
+)
+
 PLOTS_BASE = Path(
     os.environ.get(
         "NUMUCC_PLOTS_BASE",
@@ -64,7 +74,9 @@ PLOTS_BASE = Path(
 # Keys: mc, data, intime, offbeam, dirt
 # -----------------------------------------------------------------------------
 EVENT_SELECTION_GLOBS: Dict[str, str] = {
-    "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*df"),
+    # "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*df"),
+    #"mc": str(SPRING_GEN1_ROOT / "2026_05_11_183347__sel_all-mc-BNB_cosmics-EField_R00/*df"),
+    "mc": str(SPRING_GEN1_ROOT / "2026_05_11_183505__sel_all-mc-BNB_cosmics-EField_R30_Short/*df"),
     "data": str(SPRING_GEN1_ROOT / "2026_05_11_040429__sel_all-data-Gen1/*df"),
     "intime": str(SPRING_GEN1_ROOT / "2026_05_11_040132__sel_all-mc-Intime/*df"),
     "offbeam": str(SPRING_GEN1_ROOT / "2026_05_11_035756__sel_all-data-OffBeamLight/*df"),
@@ -99,9 +111,11 @@ SELECTED_EVENTS_GLOBS: Dict[str, str] = {
 # ``final``: tight-selection-style bundles; ``sel_all``: loose + wgts.
 # -----------------------------------------------------------------------------
 MULTISIM_SYST_GLOBS_FINAL: Dict[str, str] = {
-    "MCstat": str(SPRING_GEN1_ROOT / "2026_05_11_084007__sel_mup-wgts_mcstat/*.df"),
-    "Flux": str(SPRING_GEN1_ROOT / "2026_05_11_031846__sel_mup-wgts_flux/*.df"),
-    "G4": str(SPRING_GEN1_ROOT / "2026_05_11_031351__sel_mup-wgts_g4/*.df"),
+    "MCstat": str(SPRING_GEN1_ROOT / "2026_05_11_084007__sel_mup-wgts_mcstat/merged_perTPC/*.df"),
+    "Flux": str(SPRING_GEN1_ROOT / "2026_05_11_155745__sel_mup-wgts_flux/merged_perTPC/*.df"),
+    # "Flux": str(SPRING_GEN1_ROOT_EAF / "2026_05_11_155745__sel_mup-wgts_flux/*.df"),
+    "G4": str(SPRING_GEN1_ROOT / "2026_05_11_031351__sel_mup-wgts_g4/merged_perTPC/*.df"),
+    # "G4": str(SPRING_GEN1_ROOT_EAF / "2026_05_11_031351__sel_mup-wgts_g4/*.df"),
 }
 MULTISIM_SYST_GLOBS_SEL_ALL: Dict[str, str] = {
     # "MCstat": str(SPRING_GEN1_ROOT / "2026_05_11_084007__sel_mup-wgts_mcstat/*.df"),
@@ -136,17 +150,17 @@ DETVAR_WIREMOD_GLOBS: List[Tuple[str, str]] = [
 # CCQE lives under ``genie_wgts-CCQE`` with ``*_geniewgts_CCQE.df`` filenames; other
 # groups use ``genie_wgts-<Tag>/*.df``.
 # -----------------------------------------------------------------------------
-GENIE_GROUP_ORDER: Tuple[str, ...] = ("CCQE", "MEC", "RES", "nonRES", "DIS", "Other")
+GENIE_GROUP_ORDER: Tuple[str, ...] = ("CCQE", "MEC", "RES", "nonRES", "DIS", "Other", "Ar23p")
 
 # Final-selection-style GENIE weight bundles (same convention as ``MULTISIM_SYST_GLOBS_FINAL``).
 GENIE_GROUP_GLOBS: Dict[str, str] = {
-    "CCQE": str(SPRING_GEN1_ROOT / "2026_05_11_024530__sel_mup-wgts_genie_CCQE/*.df"),
-    "MEC": str(SPRING_GEN1_ROOT / "2026_05_11_030314__sel_mup-wgts_genie_MEC/*.df"),
-    "RES": str(SPRING_GEN1_ROOT / "2026_05_11_030547__sel_mup-wgts_genie_RES/*.df"),
-    "nonRES": str(SPRING_GEN1_ROOT / "2026_05_11_030906__sel_mup-wgts_genie_nonRES/*.df"),
-    "DIS": str(SPRING_GEN1_ROOT / "2026_05_11_031206__sel_mup-wgts_genie_DIS/*.df"),
-    "Other": str(SPRING_GEN1_ROOT / "2026_05_11_031520__sel_mup-wgts_genie_Other/*.df"),
-    # "Ar23p": str(SPRING_GEN1_ROOT / "MC/BNB_cosmics/genie_wgts-Ar23p/*.df"),
+    "CCQE": str(SPRING_GEN1_ROOT / "2026_05_11_024530__sel_mup-wgts_genie_CCQE/merged_perTPC/*.df"),
+    "MEC": str(SPRING_GEN1_ROOT / "2026_05_11_030314__sel_mup-wgts_genie_MEC/merged_perTPC/*.df"),
+    "RES": str(SPRING_GEN1_ROOT / "2026_05_11_030547__sel_mup-wgts_genie_RES/merged_perTPC/*.df"),
+    "nonRES": str(SPRING_GEN1_ROOT / "2026_05_11_030906__sel_mup-wgts_genie_nonRES/merged_perTPC/*.df"),
+    "DIS": str(SPRING_GEN1_ROOT / "2026_05_11_031206__sel_mup-wgts_genie_DIS/merged_perTPC/*.df"),
+    "Other": str(SPRING_GEN1_ROOT / "2026_05_11_031520__sel_mup-wgts_genie_Other/merged_perTPC/*.df"),
+    "Ar23p": str(SPRING_GEN1_ROOT / "2026_05_12_010953__sel_mup-wgts_genie_Ar23p/merged_perTPC/*.df"),
 }
 
 # Loose ``sel_all``-style MC + GENIE weights (evt / trk / hdr / mcnu). Fill when running
@@ -164,6 +178,7 @@ GENIE_GROUP_KNOBS: Dict[str, List[str]] = dict(
             list(nonres_genie_systematics),
             list(dis_genie_systematics),
             list(other_genie_systematics),
+            list(ar23p_genie_systematics),
         ],
     )
 )
@@ -214,11 +229,19 @@ def iter_genie_chunk_map_tasks(
 
     ``mc_df_stage`` (``final`` | ``sel_all``) picks the default glob map; pass
     ``group_globs`` explicitly to override.
+
+    Tags are every key present in ``gmap``, ordered by :data:`GENIE_GROUP_ORDER` first,
+    then any remaining keys (sorted) so ad-hoc entries in ``GENIE_GROUP_GLOBS`` are included.
     """
     gmap = group_globs if group_globs is not None else _genie_glob_map(mc_df_stage)
+    seen: set[str] = set()
     for tag in GENIE_GROUP_ORDER:
         if tag not in gmap:
             continue
+        seen.add(tag)
+        for p in sorted_glob(gmap[tag]):
+            yield tag, p
+    for tag in sorted(k for k in gmap if k not in seen):
         for p in sorted_glob(gmap[tag]):
             yield tag, p
 
@@ -330,6 +353,20 @@ def default_flux_syst_work_root(tag: str | None = None) -> Path:
     )
 
 
+def default_mcstat_syst_work_root(tag: str | None = None) -> Path:
+    """Default map-shard root for MCstat-only neutrino multisim chunks (parallel to multisim work dir)."""
+    from datetime import datetime
+
+    t = tag or datetime.now().strftime("%Y%m%d")
+    base = os.environ.get("NUMUCC_MCSTAT_SYST_WORK_BASE")
+    if base:
+        return Path(base)
+    return Path(
+        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/"
+        f"mcstat_syst-chunked-{t}"
+    )
+
+
 def default_detvar_syst_work_root(tag: str | None = None) -> Path:
     """Scratch/output root for chunked detvar map pickles (``chunks/`` under here)."""
     from datetime import datetime
@@ -359,12 +396,71 @@ def default_syst_disk_root() -> Path:
     )
 
 
+def default_syst_disk_cc_root() -> Path:
+    """Default root for **joint** (cross-variable) syst outputs (``syst_disk_CC`` tree).
+
+    Set ``NUMUCC_SYST_DISK_CC_ROOT`` to override. Otherwise uses ``syst_disk_CC`` as a sibling
+    directory next to :func:`default_syst_disk_root` when that path ends with ``syst_disk``,
+    else ``<parent>/syst_disk_CC`` alongside the same parent as ``default_syst_disk_root``.
+    """
+    env = os.environ.get("NUMUCC_SYST_DISK_CC_ROOT")
+    if env:
+        return Path(env).expanduser()
+    base = default_syst_disk_root()
+    name = base.name
+    if name == "syst_disk":
+        return base.parent / "syst_disk_CC"
+    return base.parent / "syst_disk_CC"
+
+
+def default_joint_genie_cc_work_root(tag: str | None = None) -> Path:
+    """Default map-shard root for joint (cross-variable) GENIE CC chunks."""
+    from datetime import datetime
+
+    t = tag or datetime.now().strftime("%Y%m%d")
+    base = os.environ.get("NUMUCC_JOINT_GENIE_CC_WORK_BASE")
+    if base:
+        return Path(base)
+    return Path(
+        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/"
+        f"joint_genie_cc-chunked-{t}"
+    )
+
+
+def default_joint_multisim_cc_work_root(tag: str | None = None) -> Path:
+    """Default map-shard root for joint (cross-variable) multisim CC chunks."""
+    from datetime import datetime
+
+    t = tag or datetime.now().strftime("%Y%m%d")
+    base = os.environ.get("NUMUCC_JOINT_MULTISIM_CC_WORK_BASE")
+    if base:
+        return Path(base)
+    return Path(
+        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/"
+        f"joint_multisim_cc-chunked-{t}"
+    )
+
+
 # -----------------------------------------------------------------------------
 # Glob helpers
 # -----------------------------------------------------------------------------
 def sorted_glob(pattern: str) -> List[str]:
-    paths = sorted(glob.glob(pattern))
-    return [p for p in paths if Path(p).is_file()]
+    """Sorted ``glob.glob`` hits that exist and are not directories (after ``realpath``).
+
+    Avoids ``Path.is_file()``, which can be false on some PNFS/dCache shards.
+    """
+    out: List[str] = []
+    for p in sorted(glob.glob(pattern)):
+        if not os.path.exists(p):
+            continue
+        try:
+            resolved = os.path.realpath(p)
+        except OSError:
+            continue
+        if os.path.isdir(resolved):
+            continue
+        out.append(p)
+    return out
 
 
 def iter_event_selection_df_paths(sample: str) -> Iterator[str]:

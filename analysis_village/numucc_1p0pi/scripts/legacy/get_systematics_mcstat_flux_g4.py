@@ -170,6 +170,13 @@ def parse_args():
         default=None,
         help="If set, skip monolithic MC load and run syst_multisim_aggregate.py on nu__*.pkl chunks only.",
     )
+    p.add_argument(
+        "--syst-types",
+        default=None,
+        metavar="CSV",
+        help="With --chunks-dir: forwarded to syst_multisim_aggregate (MCstat,Flux,G4 subset). "
+        "Omit for aggregate default (all three).",
+    )
     return p.parse_args()
 
 
@@ -212,6 +219,8 @@ def main():
             cmd.append("--no-plots")
         if args.no_legacy_npz:
             cmd.append("--no-legacy-npz")
+        if args.syst_types:
+            cmd.extend(["--syst-types", args.syst_types])
         print("[get_systematics] chunked mode:", " ".join(cmd))
         subprocess.check_call(cmd)
         return

@@ -158,7 +158,62 @@ def _install_signal_loggers():
 
 
 from analysis_village.numucc_1p0pi.event_selection_pipeline_def import build_runner
+from analysis_village.numucc_1p0pi.evt_derived_kinematics import (
+    ensure_derived_trk_kinematics_cols,
+    ensure_mc_level_phi_mcnu,
+)
+from analysis_village.numucc_1p0pi.selection_framework import multicol_resolve_column_key
+from pyanalib.pandas_helpers import pad_column_name
 from pyanalib.split_df_helpers import get_n_split, load_dfs
+
+
+def _prefix_mcnu_columns(mc_nu_df: pd.DataFrame) -> None:
+    """Ensure ``mcnu`` columns have a leading ``mc`` level (same as GENIE / legacy chunk-map)."""
+    if isinstance(mc_nu_df.columns, pd.MultiIndex):
+        try:
+            first_level = mc_nu_df.columns.get_level_values(0)
+            need_prefix = not np.all(first_level == "mc")
+        except Exception:
+            need_prefix = True
+        if need_prefix:
+            mc_nu_df.columns = pd.MultiIndex.from_tuples(
+                [tuple(["mc"] + list(c)) for c in mc_nu_df.columns]
+            )
+
+
+def _ensure_trk_phi_col(trk_df: pd.DataFrame | None) -> None:
+    """Add ``pfp.trk.phi`` (degrees) from ``pfp.trk.dir.{x,y}`` when missing (same as pipeline)."""
+    if trk_df is None or len(trk_df) == 0:
+        return
+    if not isinstance(trk_df.columns, pd.MultiIndex):
+        return
+    if multicol_resolve_column_key(trk_df, ("pfp", "trk", "phi", "", "", "")) is not None:
+        return
+    kx = multicol_resolve_column_key(trk_df, ("pfp", "trk", "dir", "x", ""))
+    ky = multicol_resolve_column_key(trk_df, ("pfp", "trk", "dir", "y", ""))
+    if kx is None or ky is None:
+        return
+    phi_col = pad_column_name(("pfp", "trk", "phi", "", "", ""), trk_df)
+    trk_df.loc[:, phi_col] = np.degrees(
+        np.arctan2(
+            np.asarray(trk_df.loc[:, kx], dtype=float),
+            np.asarray(trk_df.loc[:, ky], dtype=float),
+        )
+    )
+
+
+def _ensure_phi_and_kinematics_cols(
+    evt_df: pd.DataFrame,
+    trk_df: pd.DataFrame | None,
+    mcnu_df: pd.DataFrame | None,
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """Add reco/truth/track ``phi`` and related columns so ``VariableConfig`` keys resolve in plots."""
+    evt_df = ensure_derived_trk_kinematics_cols(evt_df)
+    _ensure_trk_phi_col(trk_df)
+    if mcnu_df is not None and len(mcnu_df) > 0:
+        _prefix_mcnu_columns(mcnu_df)
+        mcnu_df = ensure_mc_level_phi_mcnu(mcnu_df)
+    return evt_df, mcnu_df
 
 
 def _hdf_has_mcnu(df_file: str) -> bool:
@@ -431,6 +486,7 @@ def _main_body(args) -> int:
         attach_intrinsic_weights(
             evt_df, trk_df, args.sample, use_mc_genweight=args.use_mc_genweight
         )
+        evt_df, mcnu_df = _ensure_phi_and_kinematics_cols(evt_df, trk_df, mcnu_df)
         n_evt_total = int(len(evt_df))
         if mem_diag:
             print(_mem_line("after attach_intrinsic_weights", bar_scale), flush=True)
@@ -472,6 +528,7 @@ def _main_body(args) -> int:
             attach_intrinsic_weights(
                 evt_df, trk_df, args.sample, use_mc_genweight=args.use_mc_genweight
             )
+            evt_df, mcnu_df = _ensure_phi_and_kinematics_cols(evt_df, trk_df, mcnu_df)
             n_evt_total += int(len(evt_df))
             if mem_diag:
                 print(_mem_line(f"split {i + 1}: after weights", bar_scale), flush=True)

@@ -52,8 +52,14 @@ def Matrix_C(n, matrix_type):
                         C[i, j] = -1 + epsilon2
     return C
 
+# Previous version (for reference; use current signature when Measure is in xsec-like units):
+# def WienerSVD(Response, Signal, Measure, Covariance, C_type, Norm_type):
+#     (body unchanged except statistical block below)
+#     StatCov = np.diag(Measure)
+#     TotalCov = Covariance + StatCov
 
-def WienerSVD(Response, Signal, Measure, Covariance, C_type, Norm_type):
+
+def WienerSVD(Response, Signal, Measure, Covariance, C_type, Norm_type, *, stat_scaling=1.0):
     """
     Perform Wiener-SVD unfolding.
 
@@ -64,6 +70,12 @@ def WienerSVD(Response, Signal, Measure, Covariance, C_type, Norm_type):
       Covariance : 2D numpy array (m x m) - covariance matrix.
       C_type     : int - type specifier for the smoothness matrix.
       Norm_type  : float - normalization exponent for Signal.
+      stat_scaling : float, optional (default 1.0)
+          Multiplier for the diagonal **statistical** (Poisson) covariance.
+          If ``Measure[i] = N_i * A`` with Poisson counts ``N_i`` and constant scale ``A``
+          (e.g. ``A = xsec_unit`` when converting events to cross-section-like units), then
+          ``Var(Measure[i]) ≈ N_i * A^2 = Measure[i] * A`` — pass ``stat_scaling=A``.
+          For ``Measure`` in raw event counts, leave the default ``1.0`` (``Var ≈ N``).
 
     Returns:
       A dictionary containing:
@@ -75,7 +87,11 @@ def WienerSVD(Response, Signal, Measure, Covariance, C_type, Norm_type):
     """
     m, n = Response.shape  # m measure, n signal bins
 
-    StatCov = np.diag(Measure)
+    # Older: StatCov = np.diag(Measure); TotalCov = Covariance + StatCov
+    # (Wrong when Measure = N * xsec_unit: Poisson Var needs extra xsec_unit factor → stat_scaling.)
+    m_eff = np.asarray(Measure, dtype=float)
+    stat_var = np.maximum(m_eff * float(stat_scaling), 1e-300)
+    StatCov = np.diag(stat_var)
     TotalCov = Covariance + StatCov
 
     # Decomposition of the total Covariance matrix to obtain Q.

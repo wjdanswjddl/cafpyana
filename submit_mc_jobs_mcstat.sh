@@ -12,7 +12,7 @@
 
 
 inputdir=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT
-list="${inputdir}/EField_R00.txt"
+list="${inputdir}/EField_R00_xrootd.txt"
 
 python run_df_maker.py \
   -c configs/numucc_1p0pi/sel_mup-mcstatwgts.py \
@@ -20,7 +20,7 @@ python run_df_maker.py \
   -o sel_mup-wgts_mcstat-EField_R00 \
   -ngrid 100
 
-list="${inputdir}/EField_R30_Short.txt"
+list="${inputdir}/EField_R30_Short_xrootd.txt"
 
 python run_df_maker.py \
   -c configs/numucc_1p0pi/sel_mup-mcstatwgts.py \

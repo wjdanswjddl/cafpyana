@@ -12,7 +12,10 @@ directory; within a group, all knobs share the same files.
   histograms for the **rate** path and xsec tensors (see module docstring in git history
   for the merge math).
 
-* ``chunk-merge`` — sums ``genie__<GROUP>__*.pkl`` from ``chunk-map`` and builds covariances.
+* ``chunk-merge`` — sums ``genie__<GROUP>__*.pkl`` from ``chunk-map`` and builds covariances
+  per knob, plus a **group-combined** block (independent-sum of per-knob **fractional**
+  covariances via :func:`syst_multisim_common.combine_indep_knob_cov_packs`, same recipe as
+  neutrino Flux/G4 aggregate) under key :data:`GENIE_MERGE_COMBINED_KEY` in the merge dict / NPZ.
 
 Example::
 
@@ -32,10 +35,11 @@ from __future__ import annotations
 import argparse
 import gc
 import glob
+from collections import defaultdict
 import logging
 import os
-import pickle
 import sys
+import pickle
 from os import path
 from typing import AbstractSet, Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
@@ -76,12 +80,22 @@ from analysis_village.numucc_1p0pi.utils import (  # noqa: E402
     plot_univ_hists,
     signal_hists,
 )
+from analysis_village.numucc_1p0pi.evt_derived_kinematics import (  # noqa: E402
+    ensure_derived_trk_kinematics_cols,
+    ensure_mc_level_phi_mcnu,
+)
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig  # noqa: E402
+from analysis_village.numucc_1p0pi.syst_multisim_common import combine_indep_knob_cov_packs  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_pipeline_walker import (  # noqa: E402
     CUT_STAGE_RATE_ONLY_SLUGS,
     CUT_STAGE_VAR_SPECS,
     FINAL_STAGE_KEY,
     walk_pipeline,
+)
+from pyanalib.variable_calculator import (  # noqa: E402
+    add_mc_cc1p0pi_tki_mcnu,
+    add_reco_cc1p0pi_tki_evtdf,
+    add_truth_cc1p0pi_tki_evtdf,
 )
 
 logger = logging.getLogger(__name__)
@@ -143,7 +157,7 @@ def validate_genie_dataframes(
             f"missing keys: {missing}. Present: {sorted(dfs.keys())}"
         )
     evt = dfs["evt"]
-    mcnu = dfs["mcnu"]
+    mcnu = dfs["mcnu"] #.mc.copy()
     if not isinstance(evt, pd.DataFrame) or not isinstance(mcnu, pd.DataFrame):
         raise TypeError(f"{context} 'evt' and 'mcnu' must be pandas DataFrames.")
     if len(evt) == 0 and len(mcnu) == 0:
@@ -157,20 +171,31 @@ def validate_split_pair(evt_df: pd.DataFrame, mcnu_df: pd.DataFrame, split_idx: 
 
 
 def _attach_phi_degrees(mc_evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame) -> None:
-    """Fill mu/p track phi in degrees (same recipe as the legacy monolithic driver)."""
-    for df in (mc_evt_df, mc_nu_df):
+    """Fill mu/p track phi in degrees (same recipe as the legacy monolithic driver).
+
+    Event frames use top-level ``mu`` / ``p`` under ``pfp.trk``; ``mcnu`` frames (after
+    :func:`_prefix_mcnu_columns`) nest the same under ``mc`` → ``mc.mu`` / ``mc.p``.
+    """
+    def _fill_trk_phi(df: pd.DataFrame, *, mcnu: bool) -> None:
         if df is None or len(df) == 0:
-            continue
+            return
         for pref in ("mu", "p"):
-            try:
-                df.loc[:, (pref, "pfp", "trk", "phi", "", "", "")] = np.degrees(
-                    np.arctan2(
-                        df[pref, "pfp", "trk", "dir", "x", "", ""],
-                        df[pref, "pfp", "trk", "dir", "y", "", ""],
-                    )
-                )
-            except (KeyError, TypeError, ValueError):
-                pass
+            if mcnu:
+                head: Tuple[str, ...] = ("mc", pref)
+                phi_col = head + ("phi", "")
+                dir_x = head + ("dir", "x")
+                dir_y = head + ("dir", "y")
+                df.loc[:, phi_col] = np.degrees(np.arctan2(df.loc[:, dir_x], df.loc[:, dir_y]))
+
+            else:
+                head: Tuple[str, ...] = (pref,)
+                phi_col = head + ("pfp", "trk", "phi", "", "", "")
+                dir_x = head + ("pfp", "trk", "dir", "x", "", "")
+                dir_y = head + ("pfp", "trk", "dir", "y", "", "")
+                df.loc[:, phi_col] = np.degrees(np.arctan2(df.loc[:, dir_x], df.loc[:, dir_y]))
+
+    _fill_trk_phi(mc_evt_df, mcnu=False)
+    _fill_trk_phi(mc_nu_df, mcnu=True)
 
 
 # ---------------------------------------------------------------------------
@@ -178,12 +203,22 @@ def _attach_phi_degrees(mc_evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame) -> None
 # ---------------------------------------------------------------------------
 
 
+def _block_column_weight_leaf(col) -> str:
+    """Leaf name for GENIE weight columns (univ_*, morph, ps*, ms*) under a knob block.
+
+    After ``multicol_concat``, tuples are often padded with trailing ``''``; the meaningful
+    leaf is the **first non-empty** segment (same idea as :mod:`makedf.getsyst`).
+    """
+    if not isinstance(col, tuple):
+        return str(col)
+    for x in col:
+        if x != "" and x is not None:
+            return str(x)
+    return str(col[0])
+
+
 def _iter_leaf_strings(block_cols: pd.Index) -> List[str]:
-    out: List[str] = []
-    for c in block_cols:
-        leaf = c[0] if isinstance(c, tuple) else c
-        out.append(str(leaf))
-    return out
+    return [_block_column_weight_leaf(c) for c in block_cols]
 
 
 def _infer_multisim_n_univ(block_cols: pd.Index) -> int:
@@ -198,6 +233,16 @@ def _infer_multisim_n_univ(block_cols: pd.Index) -> int:
     return max_i + 1
 
 
+def _replace_first_nonempty_segment(col: Tuple, value: str) -> Tuple:
+    parts = list(col)
+    for i, x in enumerate(parts):
+        if x != "" and x is not None:
+            parts[i] = value
+            return tuple(parts)
+    parts[0] = value
+    return tuple(parts)
+
+
 def _ensure_univ0_from_leaf(df: pd.DataFrame, syst_key: Tuple[str, ...], src_leaf: str) -> None:
     """
     For non-multisim knobs, alias one leaf (e.g. 'ps1' or 'morph') into a synthetic 'univ_0'
@@ -206,15 +251,14 @@ def _ensure_univ0_from_leaf(df: pd.DataFrame, syst_key: Tuple[str, ...], src_lea
     block = df.loc[:, syst_key]
     src_rest = None
     for c in block.columns:
-        leaf = c[-1] if isinstance(c, tuple) else c
-        if str(leaf) == src_leaf:
+        if _block_column_weight_leaf(c) == src_leaf:
             src_rest = c if isinstance(c, tuple) else (c,)
             break
     if src_rest is None:
         # Nothing to do; caller will raise a clearer error.
         return
 
-    dst_rest = tuple(src_rest[:-1]) + ("univ_0",)
+    dst_rest = _replace_first_nonempty_segment(tuple(src_rest), "univ_0")
     full_src = tuple(syst_key) + tuple(src_rest)
     full_dst = tuple(syst_key) + tuple(dst_rest)
 
@@ -381,6 +425,10 @@ def finalize_cv_sel_reco_xsec(
 
 RATE_ACC_KEY = "rate_univ_cv"
 XSEC_ACC_KEY = "xsec_accumulators"
+
+# Top-level key in ``chunk-merge`` output dict / NPZ ``syst`` object: ``slug -> {rate, xsec?}``
+# with the same matrix packs as per-knob entries, built by summing knob covariances as independent.
+GENIE_MERGE_COMBINED_KEY = "__GENIE_group_combined__"
 
 
 def accumulate_chunk_into_blob_root(
@@ -590,10 +638,10 @@ def _prefix_mcnu_columns(mc_nu_df: pd.DataFrame) -> None:
 
 
 def _annotate_topo_genie_phi(evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame) -> None:
-    evt_df.loc[:, "topo_categ"] = get_topo_category(evt_df)
-    mc_nu_df.loc[:, "topo_categ"] = get_topo_category(mc_nu_df)
-    evt_df.loc[:, "genie_categ"] = get_genie_category(evt_df)
-    mc_nu_df.loc[:, "genie_categ"] = get_genie_category(mc_nu_df)
+    # evt_df.loc[:, "topo_categ"] = get_topo_category(evt_df)
+    # mc_nu_df.loc[:, "topo_categ"] = get_topo_category(mc_nu_df)
+    # evt_df.loc[:, "genie_categ"] = get_genie_category(evt_df)
+    # mc_nu_df.loc[:, "genie_categ"] = get_genie_category(mc_nu_df)
     _attach_phi_degrees(evt_df, mc_nu_df)
 
 
@@ -641,7 +689,12 @@ def run_chunk_map(
             validate_genie_dataframes({"evt": mc_evt_df, "mcnu": mc_nu_df}, context=f"split {i}:")
             mc_evt_df = mc_evt_df.copy()
             mc_nu_df = mc_nu_df.copy()
-            _prefix_mcnu_columns(mc_nu_df)
+            # _prefix_mcnu_columns(mc_nu_df)
+            # mc_nu_df = ensure_mc_level_phi_mcnu(mc_nu_df)
+            mc_evt_df = ensure_derived_trk_kinematics_cols(mc_evt_df)
+            mc_evt_df = add_reco_cc1p0pi_tki_evtdf(mc_evt_df)
+            mc_evt_df = add_truth_cc1p0pi_tki_evtdf(mc_evt_df)
+            mc_nu_df = add_mc_cc1p0pi_tki_mcnu(mc_nu_df)
             _annotate_topo_genie_phi(mc_evt_df, mc_nu_df)
             if n_univ_cap > 0:
                 pass
@@ -670,7 +723,8 @@ def run_chunk_map(
         evt = evt.copy()
         trk = trk.copy()
         mcnu = mcnu.copy()
-        _prefix_mcnu_columns(mcnu)
+        # _prefix_mcnu_columns(mcnu)
+        # mcnu = ensure_mc_level_phi_mcnu(mcnu)
         _annotate_topo_genie_phi(evt, mcnu)
         mcnu_full = mcnu
 
@@ -709,8 +763,11 @@ def run_chunk_map(
 
     stem = path.splitext(path.basename(df_file))[0]
     out_path = path.join(out_dir, "genie__%s__%s.pkl" % (genie_group, stem))
-    with open(out_path, "wb") as f:
+    # Atomic write so concurrent dispatchers / re-runs never see partial files.
+    tmp_path = out_path + ".tmp"
+    with open(tmp_path, "wb") as f:
         pickle.dump(blob_root, f, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp_path, out_path)
     logger.info("wrote %s", out_path)
     return out_path
 
@@ -740,6 +797,10 @@ def run_chunk_merge(
     skip_xsec_out = CUT_STAGE_RATE_ONLY_SLUGS if input_stage == "sel_all" else frozenset()
 
     syst_dict_out: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    rate_cov_packs_by_slug: Dict[str, List[Dict[str, np.ndarray]]] = defaultdict(list)
+    cv_rate_ref_by_slug: Dict[str, np.ndarray] = {}
+    xsec_cov_packs_by_slug: Dict[str, List[Dict[str, np.ndarray]]] = defaultdict(list)
+    cv_xsec_ref_by_slug: Dict[str, np.ndarray] = {}
 
     for knob in tqdm(sorted(merged[RATE_ACC_KEY].keys()), desc="GENIE knobs"):
         syst_dict_out[knob] = {}
@@ -763,6 +824,10 @@ def run_chunk_merge(
             )
 
             out_pack: Dict[str, Any] = {"rate": rate_cov}
+            rate_cov_packs_by_slug[slug].append(rate_cov)
+            if slug not in cv_rate_ref_by_slug:
+                cv_rate_ref_by_slug[slug] = np.asarray(cv_rate, dtype=np.float64).copy()
+
             if slug not in skip_xsec_out:
                 knob_x = merged[XSEC_ACC_KEY].get(knob, {})
                 if slug not in knob_x:
@@ -788,8 +853,25 @@ def run_chunk_merge(
                         save_fig_dir=out_dir if save_figs else None,
                     )
                     out_pack["xsec"] = xsec_cov
+                    xsec_cov_packs_by_slug[slug].append(xsec_cov)
+                    if slug not in cv_xsec_ref_by_slug:
+                        cv_xsec_ref_by_slug[slug] = np.asarray(cv_xsec, dtype=np.float64).copy()
 
             syst_dict_out[knob][slug] = out_pack
+
+    combined_root: Dict[str, Dict[str, Any]] = {}
+    for slug in sorted(rate_cov_packs_by_slug.keys()):
+        rpacks = rate_cov_packs_by_slug[slug]
+        if not rpacks:
+            continue
+        comb_rate = combine_indep_knob_cov_packs(rpacks, cv_rate_ref_by_slug[slug])
+        merged_pack: Dict[str, Any] = {"rate": comb_rate}
+        xpacks = xsec_cov_packs_by_slug.get(slug, [])
+        if xpacks and slug in cv_xsec_ref_by_slug:
+            merged_pack["xsec"] = combine_indep_knob_cov_packs(xpacks, cv_xsec_ref_by_slug[slug])
+        combined_root[slug] = merged_pack
+    if combined_root:
+        syst_dict_out[GENIE_MERGE_COMBINED_KEY] = combined_root
 
     if npz_path:
         # Nested dict of covariance arrays: store as a 0-d object array (NumPy pickles contents).
@@ -838,7 +920,8 @@ def parse_chunk_cli(argv: Optional[Sequence[str]] = None):
 
     rg = sub.add_parser(
         "chunk-merge",
-        help="Merge genie__<GROUP>__*.pkl for one group → covariance dict / NPZ",
+        help="Merge genie__<GROUP>__*.pkl for one group → covariance dict / NPZ "
+        "(per-knob + ``%s`` group-combined rate/xsec packs)." % GENIE_MERGE_COMBINED_KEY,
     )
     rg.add_argument("--chunks-dir", required=True)
     rg.add_argument("--out-dir", required=True)

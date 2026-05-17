@@ -5,9 +5,12 @@
   (each is a **chunks** directory): under every root, pickles are collected from ``MCstat/``,
   ``Flux/``, ``G4/``, ``Combined/`` if present, and from the root itself (legacy flat layout).
   ``run_syst_multisim_chunked.sh`` passes ``multisim_syst-chunked-*/chunks``,
-  ``g4_syst-chunked-*/chunks``, and ``flux_syst-chunked-*/chunks`` together.
+  ``mcstat_syst-chunked-*/chunks``, ``g4_syst-chunked-*/chunks``, and ``flux_syst-chunked-*/chunks`` together,
+  and ``--syst-types`` so covariance / NPZs run only for the requested categories (e.g. G4-only).
 * Sum ``univ_events`` / ``cv_events`` across shards, build per-systematic covariances,
-  write ``MCstat/``, ``Flux/``, ``G4/`` under ``--syst-disk-root``.
+  write ``MCstat/``, ``Flux/``, ``G4/`` under ``--syst-disk-root``. Flux/G4 **knob**
+  combinations use :func:`syst_multisim_common.combine_indep_knob_cov_packs` (sum
+  ``cov_frac`` across independent knobs, then rebuild ``cov``).
 
 Cosmic background uncertainties are **not** produced here; use
 ``run_syst_cosmics_chunked.sh`` → ``syst_cosmics_aggregate.py`` (writes ``Cosmics/``).
@@ -34,8 +37,8 @@ sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath
 from pyanalib.covariance import get_covariance_matrix
 from analysis_village.numucc_1p0pi.syst_disk_layout import category_out_dir, normalized_root
 from analysis_village.numucc_1p0pi.syst_multisim_common import (
-    NEUTRINO_SYST_ORDER,
     build_var_configs,
+    parse_neutrino_syst_type_csv,
     combine_indep_knob_cov_packs,
     count_merged_knob_nested_var_slots,
     knob_nested_syst_block,
@@ -107,21 +110,34 @@ def _write_covariance_manifest(
     var_set: str,
 ) -> None:
     """Small JSON sidecar listing variables and NPZ outputs for downstream tools."""
+    _npz_by_cat = {
+        "MCstat": "mcstat_syst_dict.npz",
+        "Flux": "flux_syst_dict.npz",
+        "G4": "g4_syst_dict.npz",
+    }
     neutrino_npz = [
-        "mcstat_syst_dict.npz",
-        "flux_syst_dict.npz",
-        "g4_syst_dict.npz",
+        _npz_by_cat[k] for k in ("MCstat", "Flux", "G4") if (syst_dict or {}).get(k)
     ]
     var_names: set[str] = set()
     for _cat, block in (syst_dict or {}).items():
-        if isinstance(block, dict):
+        if isinstance(block, dict) and not str(_cat).endswith("_by_knob"):
             var_names.update(block.keys())
     manifest = {
         "schema": "numucc_multisim_covariance_v1",
-        "description": "Fractional and absolute covariance packs per category; NPZs use numpy.savez_compressed",
+        "description": (
+            "Fractional and absolute covariance packs per category; NPZs use numpy.savez_compressed. "
+            "Flux/G4 knob-mode NPZs: each variable dict has the combined matrices under keys "
+            "'flux' / 'G4' and per-knob packs under 'flux_by_knob' / 'G4_by_knob' "
+            "(knob name → {cov, cov_frac, corr})."
+        ),
         "mc_df_stage": mc_df_stage,
         "var_set": var_set,
-        "categories_present": sorted([k for k, v in (syst_dict or {}).items() if v]),
+        "categories_present": sorted(
+            k for k, v in (syst_dict or {}).items() if v and not str(k).endswith("_by_knob")
+        ),
+        "knob_breakdown_sidecars": sorted(
+            k for k, v in (syst_dict or {}).items() if v and str(k).endswith("_by_knob")
+        ),
         "variables": sorted(var_names),
         "neutrino_multisim_npz": [
             {"file": n, "role": "per-variable dict → inner syst matrices"} for n in neutrino_npz
@@ -178,13 +194,13 @@ def _merge_flux_or_g4_block(merged_block: dict, raw_block: dict, label: str) -> 
         _merge_pack_into(merged_block, vsn, pack, label, vsn)
 
 
-def merge_nu_chunks(paths: list[str]) -> dict:
+def merge_nu_chunks(paths: list[str], syst_types: tuple[str, ...]) -> dict:
     merged = None
     for fp in tqdm(paths, desc="merge nu chunks"):
         with open(fp, "rb") as f:
             d = pickle.load(f)
         if merged is None:
-            merged = {"syst": {sn: {} for sn in NEUTRINO_SYST_ORDER}, "meta": []}
+            merged = {"syst": {sn: {} for sn in syst_types}, "meta": []}
         merged["meta"].append(
             {
                 "df_file": d.get("df_file"),
@@ -197,7 +213,7 @@ def merge_nu_chunks(paths: list[str]) -> dict:
             }
         )
         raw_syst = d.get("syst") or {}
-        for sn in NEUTRINO_SYST_ORDER:
+        for sn in syst_types:
             block = raw_syst.get(sn, {})
             if sn in ("G4", "Flux"):
                 _merge_flux_or_g4_block(merged["syst"][sn], block, sn)
@@ -207,7 +223,7 @@ def merge_nu_chunks(paths: list[str]) -> dict:
     if merged is None:
         raise RuntimeError("no chunks merged")
     n_tot = 0
-    for sn in NEUTRINO_SYST_ORDER:
+    for sn in syst_types:
         b = merged["syst"][sn]
         if sn in ("G4", "Flux") and knob_nested_syst_block(b):
             n_tot += count_merged_knob_nested_var_slots(b)
@@ -238,8 +254,14 @@ def _covariance_nested_knob_block(
     save_fig: bool,
     sk,
     tag: str,
+    knob_breakdown_by_var: dict | None = None,
 ) -> None:
-    """Fill ``syst_dict_sn`` for Flux or G4 when ``merged_block`` is ``{knob: {var: pack}}``."""
+    """Fill ``syst_dict_sn`` for Flux or G4 when ``merged_block`` is ``{knob: {var: pack}}``.
+
+    Writes the **combined** (independent-knob sum) covariance per variable into ``syst_dict_sn``.
+    When ``knob_breakdown_by_var`` is provided, also stores ``knob_breakdown_by_var[vsn] =
+    {knob_name: {cov, cov_frac, corr}}`` for each knob that contributed.
+    """
     var_names = set()
     for kb in merged_block.values():
         var_names.update(kb.keys())
@@ -248,6 +270,7 @@ def _covariance_nested_knob_block(
         if vc is None:
             continue
         knob_rets = []
+        per_knob: dict[str, dict] = {}
         cv_ref = None
         univ_first = None
         cv_first = None
@@ -261,11 +284,16 @@ def _covariance_nested_knob_block(
                 cv_ref = cv.copy()
             if univ_first is None:
                 univ_first, cv_first = univ, cv
-            knob_rets.append(get_covariance_matrix(univ, cv))
+            one = get_covariance_matrix(univ, cv)
+            knob_rets.append(one)
+            if knob_breakdown_by_var is not None:
+                per_knob[knob] = one
         if not knob_rets or cv_ref is None:
             continue
         ret = combine_indep_knob_cov_packs(knob_rets, cv_ref)
         syst_dict_sn[vsn] = ret
+        if knob_breakdown_by_var is not None and per_knob:
+            knob_breakdown_by_var[vsn] = per_knob
         if save_fig and univ_first is not None and cv_first is not None:
             plot_univ_hists(
                 univ_first,
@@ -299,25 +327,38 @@ def covariance_dict_from_merged(
     var_configs: list,
     syst_disk_root: str,
     save_fig: bool,
+    syst_types: tuple[str, ...],
 ) -> dict:
     """Build per-category covariance dict; plots go under ``<root>/MCstat|Flux|G4/``.
 
     ``syst_disk_root`` is normalized to an absolute path so figures and NPZs are not
-    written relative to the process working directory.
+    written relative to the process working directory. Only categories in ``syst_types``
+    are processed (others are ignored even if present in merged chunk pickles).
     """
     root = normalized_root(syst_disk_root)
-    syst_dict = {sn: {} for sn in NEUTRINO_SYST_ORDER}
+    syst_dict = {sn: {} for sn in syst_types}
     vc_by = {v.var_save_name: v for v in var_configs}
-    for sn in NEUTRINO_SYST_ORDER:
+    for sn in syst_types:
         cat_dir = category_out_dir(root, sn)
         os.makedirs(cat_dir, exist_ok=True)
         sk = _syst_plot_key(sn)
         tag = sn
         cat_block = merged["syst"][sn]
         if sn in ("G4", "Flux") and knob_nested_syst_block(cat_block):
+            by_knob: dict[str, dict[str, dict]] = {}
             _covariance_nested_knob_block(
-                cat_block, syst_dict[sn], sn, vc_by, cat_dir, save_fig, sk, tag
+                cat_block,
+                syst_dict[sn],
+                sn,
+                vc_by,
+                cat_dir,
+                save_fig,
+                sk,
+                tag,
+                knob_breakdown_by_var=by_knob,
             )
+            if by_knob:
+                syst_dict["%s_by_knob" % sn] = by_knob
             continue
 
         for vsn, pack in tqdm(list(merged["syst"][sn].items()), desc="cov %s" % sn):
@@ -366,6 +407,7 @@ def run_syst_multisim_aggregate(
     var_set: str = "final",
     no_plots: bool = False,
     no_legacy_npz: bool = False,
+    syst_types: tuple[str, ...] | None = None,
 ) -> None:
     roots = [
         os.path.abspath(os.path.expanduser(str(d).rstrip(os.sep)))
@@ -374,11 +416,18 @@ def run_syst_multisim_aggregate(
     ]
     if not roots:
         raise SystemExit("[multisim-agg] no non-empty --chunks_dir paths provided")
+    try:
+        st = syst_types if syst_types is not None else parse_neutrino_syst_type_csv(None)
+    except ValueError as ex:
+        raise SystemExit("[multisim-agg] %s" % ex) from ex
     root = normalized_root(syst_disk_root)
     os.makedirs(root, exist_ok=True)
     save_fig = not no_plots
 
-    print("[multisim-agg] chunks_dir(s)=%s  syst-disk-root=%s" % ("; ".join(roots), root))
+    print(
+        "[multisim-agg] chunks_dir(s)=%s  syst-disk-root=%s  syst-types=%s"
+        % ("; ".join(roots), root, ",".join(st))
+    )
 
     ck = collect_nu_chunks_many(roots)
     if not ck:
@@ -400,8 +449,8 @@ def run_syst_multisim_aggregate(
         "[multisim-agg] merging %d nu chunk(s) (input_stage=%s var_set=%s)"
         % (len(ck), detected_stage, effective_var_set)
     )
-    merged = merge_nu_chunks(ck)
-    syst_dict = covariance_dict_from_merged(merged, var_configs, root, save_fig)
+    merged = merge_nu_chunks(ck, st)
+    syst_dict = covariance_dict_from_merged(merged, var_configs, root, save_fig, st)
 
     if not no_legacy_npz:
         save_neutrino_multisim_npzs(syst_dict, root)
@@ -432,7 +481,7 @@ def parse_args():
         required=True,
         metavar="DIR",
         help="One or more chunk directories (each may contain MCstat/, Flux/, G4/, Combined/ or "
-        "flat nu__*.pkl). The multisim driver passes multisim, g4, and flux chunk roots.",
+        "flat nu__*.pkl). The multisim driver passes multisim, mcstat, g4, and flux chunk roots.",
     )
     p.add_argument(
         "--syst-disk-root",
@@ -444,6 +493,13 @@ def parse_args():
         "MCstat/, Flux/, and G4/ subfolders for neutrino multisim.",
     )
     p.add_argument("--mc-df-stage", choices=("final", "sel_all"), default="final")
+    p.add_argument(
+        "--syst-types",
+        default=None,
+        metavar="CSV",
+        help="Comma-separated subset of MCstat,Flux,G4 to merge and build covariances for "
+        "(default: all three). Match the map phase, e.g. ``G4`` or ``Flux,G4``.",
+    )
     p.add_argument(
         "--var-set",
         choices=("final", "intermediate", "both", "sel_all"),
@@ -458,6 +514,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+    try:
+        st = parse_neutrino_syst_type_csv(args.syst_types)
+    except ValueError as ex:
+        raise SystemExit("[multisim-agg] %s" % ex) from ex
     run_syst_multisim_aggregate(
         chunks_dirs=args.chunks_dirs,
         syst_disk_root=args.syst_disk_root,
@@ -465,6 +525,7 @@ def main():
         var_set=args.var_set,
         no_plots=args.no_plots,
         no_legacy_npz=args.no_legacy_npz,
+        syst_types=st,
     )
 
 

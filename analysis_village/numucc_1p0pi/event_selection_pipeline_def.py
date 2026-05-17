@@ -39,8 +39,11 @@ from analysis_village.numucc_1p0pi.makedf.selections import (
     MU_CHI2MU_TH, MU_CHI2P_TH, MU_LEN_TH, QUAL_TH, P_CHI2P_TH, P_LEN_TH,
     MU_PLO_TH, MU_PHI_TH, P_PLO_TH, P_PHI_TH,
 )
-from pyanalib.pandas_helpers import multicol_add, multicol_merge, pad_column_name
-from pyanalib.variable_calculator import get_cc1p0pi_tki
+from pyanalib.variable_calculator import (
+    add_mc_cc1p0pi_tki_mcnu,
+    add_reco_cc1p0pi_tki_evtdf,
+    add_truth_cc1p0pi_tki_evtdf,
+)
 from makedf.util import avg_chi2, match_trkdf_to_slcdf
 
 from analysis_village.numucc_1p0pi.selection_framework import (
@@ -158,23 +161,18 @@ def _attach_evt_prim_trk_cols(state):
 
 
 def _add_reco_cc1p0pi_tki_evt(evtdf: pd.DataFrame) -> pd.DataFrame:
-    """Attach reco CC1pi TKI columns ``del_*`` onto ``evtdf``.
+    """Pipeline hook; implementation in :func:`pyanalib.variable_calculator.add_reco_cc1p0pi_tki_evtdf`."""
+    return add_reco_cc1p0pi_tki_evtdf(evtdf)
 
-    Same recipe as ``make_pandora_evtdf`` (final ``mup`` block) and
-    ``update_dfs.ipynb``: needs mu/p candidates with ``mu.pfp.trk`` /
-    ``p.pfp.trk``. Uses range-momentum columns ``P`` / ``p_muon`` and ``p_proton``.
-    """
-    if evtdf is None or len(evtdf) == 0:
-        return evtdf
-    tki_var_names = ["del_alpha", "del_phi", "del_Tp", "del_p", "del_Tp_x", "del_Tp_y"]
-    slc_mudf = evtdf.mu.pfp.trk
-    slc_pdf = evtdf.p.pfp.trk
-    slc_P_mu_col = pad_column_name(("P", "p_muon"), slc_mudf)
-    slc_P_p_col = pad_column_name(("P", "p_proton"), slc_pdf)
-    tki_reco = get_cc1p0pi_tki(slc_mudf, slc_pdf, slc_P_mu_col, slc_P_p_col)
-    for var_name in tki_var_names:
-        evtdf = multicol_add(evtdf, tki_reco[var_name].rename(var_name))
-    return evtdf
+
+def _add_mc_cc1p0pi_tki_mcnu(mc_nu_df: pd.DataFrame) -> pd.DataFrame:
+    """GENIE / HDF hook; implementation in :func:`pyanalib.variable_calculator.add_mc_cc1p0pi_tki_mcnu`."""
+    return add_mc_cc1p0pi_tki_mcnu(mc_nu_df)
+
+
+def _add_truth_cc1p0pi_tki_evt(evtdf: pd.DataFrame) -> pd.DataFrame:
+    """Truth TKI hook; implementation in :func:`pyanalib.variable_calculator.add_truth_cc1p0pi_tki_evtdf`."""
+    return add_truth_cc1p0pi_tki_evtdf(evtdf)
 
 
 # ===========================================================================
