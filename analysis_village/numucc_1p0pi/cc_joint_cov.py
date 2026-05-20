@@ -59,6 +59,138 @@ def resolve_syst_disk_cc_root(explicit: str | os.PathLike[str] | None) -> str:
     return syst_disk_cc_paths(str(root))["root"]
 
 
+_CROSS_DISK_TO_MULTISIM_NAME: dict[str, str] = {
+    "flux": "Flux",
+    "g4": "G4",
+    "genie": "GENIE",
+}
+_MS_DISK_TO_JOINT_CATEGORY: dict[str, str] = {
+    "mcstat": "MCstat",
+    "flux": "Flux",
+    "g4": "G4",
+}
+_JOINT_CATEGORY_TO_MARGINAL_SKIP: dict[str, str] = {
+    "MCstat": "mcstat",
+    "Flux": "flux",
+    "G4": "g4",
+}
+
+
+def resolve_primary_syst_disk_joint_options(
+    primary_syst_disk_keys: Sequence[str] | None,
+    syst_cc_root: str | os.PathLike[str],
+    *,
+    joint_multisim_categories: Sequence[str] | None = None,
+    joint_multisim_exclude_categories: Sequence[str] = ("MCstat",),
+) -> dict[str, object]:
+    """Map ``PRIMARY_SYST_DISK_KEYS`` to joint CC loader flags and legacy XY names.
+
+    Auto-detects whether the joint NPZ path is usable for the requested keys (i.e.
+    whether any joint GENIE or joint multisim NPZ exists on disk for those keys).
+    The caller should use ``use_joint_multisim_cc`` from the returned dict as the
+    master flag controlling the joint path — no manual ``USE_JOINT_MULTISIM_CC``
+    variable is needed.
+
+    When ``primary_syst_disk_keys`` is a subset, joint multisim loading is limited to
+    the requested ``mcstat`` / ``flux`` / ``g4`` disk keys. The indivisible legacy
+    ``JointMultisim/joint_multisim_combined.npz`` is only used when
+    ``primary_syst_disk_keys is None`` (load everything on disk).
+    """
+    paths = syst_disk_cc_paths(resolve_syst_disk_cc_root(syst_cc_root))
+    exc = frozenset(joint_multisim_exclude_categories)
+
+    if primary_syst_disk_keys is None:
+        pk: tuple[str, ...] | None = None
+        pk_set: frozenset[str] | None = None
+    else:
+        pk = tuple(str(x).lower() for x in primary_syst_disk_keys)
+        pk_set = frozenset(pk)
+
+    if pk is None:
+        syst_for_cross_cov: tuple[str, ...] = ("Flux", "G4", "GENIE")
+    else:
+        x = tuple(_CROSS_DISK_TO_MULTISIM_NAME[k] for k in pk if k in _CROSS_DISK_TO_MULTISIM_NAME)
+        syst_for_cross_cov = x if x else ("Flux", "G4", "GENIE")
+
+    if pk is None:
+        include_genie = True
+        include_multisim = True
+        ms_order = (
+            tuple(joint_multisim_categories)
+            if joint_multisim_categories is not None
+            else JOINT_MULTISIM_CATEGORY_ORDER
+        )
+    else:
+        include_genie = "genie" in pk_set
+        include_multisim = bool(pk_set & frozenset(_MS_DISK_TO_JOINT_CATEGORY))
+        if joint_multisim_categories is not None:
+            ms_order = tuple(
+                c
+                for c in joint_multisim_categories
+                if c in JOINT_MULTISIM_CATEGORY_ORDER
+                and _JOINT_CATEGORY_TO_MARGINAL_SKIP[c] in pk_set
+                and c not in exc
+            )
+        else:
+            ms_order = tuple(
+                cat
+                for cat in JOINT_MULTISIM_CATEGORY_ORDER
+                if _JOINT_CATEGORY_TO_MARGINAL_SKIP[cat] in pk_set and cat not in exc
+            )
+
+    legacy_exists = os.path.isfile(paths["joint_multisim_legacy"])
+    use_legacy = (
+        legacy_exists
+        and pk is None
+        and joint_multisim_categories is None
+        and include_multisim
+    )
+
+    if use_legacy:
+        cats_effective: tuple[str, ...] = ()
+    elif include_multisim:
+        cats_effective = tuple(
+            c
+            for c in ms_order
+            if c not in exc and os.path.isfile(paths[_JOINT_MULTISIM_PATH_KEYS[c]])
+        )
+    else:
+        cats_effective = ()
+
+    include_multisim_eff = include_multisim and (use_legacy or len(cats_effective) > 0)
+
+    # Auto-detect: the joint path is usable if at least one joint NPZ exists for the
+    # requested keys. Check GENIE NPZ existence when genie is requested.
+    genie_npz_exists = os.path.isfile(paths["joint_genie_combined"])
+    include_genie_eff = include_genie and genie_npz_exists
+    use_joint_multisim_cc = include_multisim_eff or include_genie_eff
+
+    skip: set[str] = set()
+    if include_multisim_eff:
+        if use_legacy:
+            skip.update(_JOINT_CATEGORY_TO_MARGINAL_SKIP.values())
+        else:
+            skip.update(_JOINT_CATEGORY_TO_MARGINAL_SKIP[c] for c in cats_effective)
+    if include_genie_eff:
+        skip.add("genie")
+
+    if pk is None:
+        marginal: tuple[str, ...] | None = None
+    else:
+        marginal = tuple(k for k in pk if k not in skip)
+
+    return {
+        "use_joint_multisim_cc": use_joint_multisim_cc,
+        "syst_for_cross_cov": syst_for_cross_cov,
+        "syst_unc_components": primary_syst_disk_keys,
+        "include_multisim": include_multisim_eff,
+        "include_genie": include_genie_eff,
+        "multisim_categories_effective": cats_effective,
+        "use_legacy_multisim_combined": use_legacy,
+        "marginal_syst_diag_components": marginal,
+    }
+
+
 def _multisim_frac_from_category_cell(
     cell: dict,
     category: str,

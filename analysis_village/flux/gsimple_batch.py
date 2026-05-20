@@ -15,8 +15,14 @@ Physics matches the notebook's intended normalization: spectra are ``sum(wgt in 
 * ``flux_histograms.npz`` — arrays ``hist_weighted_zwf`` and ``flux_density_zwf`` with shape
   ``(n_z, n_window, n_flavor, n_energy)`` for every combination of projection plane ``z``,
   rectangular flux window, and neutrino flavor; plus ``n_rays_zwf``, bin edges, and window
-  metadata.
+  metadata. Ray-traced FV sub-volumes add ``hist_weighted_raytrace_wvf`` /
+  ``flux_density_raytrace_wvf`` with shape ``(n_raytrace_volume, n_flavor, n_energy)``.
 * ``flux_histograms_meta.json`` — run configuration and window list.
+* ``raytrace_flux_histograms.npz`` — same ray-traced FV volume spectra as
+  ``gsimple_raytrace_batch.py`` (written next to ``flux_histograms.npz`` for cross-checks).
+* ``slab_zconfig_flux_histograms.npz`` — z-slab flux on several uniform $z$ grids
+  (``--slab-z-ns``), with volume-averaged spectra for each ray-traced FV comparison volume.
+* ``slab_zconfig_flux_histograms_meta.json`` — slab grid definitions and compare-volume mapping.
 * ``processed_files.txt`` / ``skipped_files.json`` — per-file success list and skip reasons
   (unless ``--no-manifest``).
 """
@@ -46,10 +52,6 @@ DEFAULT_GSIMPLE_DIR = (
     "/cvmfs/sbnd.osgstorage.org/pnfs/fnal.gov/usr/sbnd/persistent/stash/"
     "fluxFiles/bnb/BooNEtoGSimple/configK-v1/july2023/neutrinoMode/"
 )
-
-E_BINS = np.linspace(0.0, 4.0, 81)
-BIN_CENTERS = 0.5 * (E_BINS[:-1] + E_BINS[1:])
-N_E_BINS = len(BIN_CENTERS)
 
 Z_POSITIONS_CM = np.linspace(0.0, 500.0, 26)
 
@@ -97,6 +99,166 @@ CONFIGS = {
     "upstream face": ("plane", (FACE_Z_CM, -200.0, 200.0, -200.0, 200.0)),
     "downstream face": ("plane", (DOWNSTREAM_FACE_Z_CM, -200.0, 200.0, -200.0, 200.0)),
 }
+
+# Ray-traced 3D volumes (canonical definitions in raytrace_volume_defs.py / gsimple_raytrace.ipynb)
+from raytrace_volume_defs import (
+    BIN_CENTERS,
+    E_BINS,
+    FV_SPLIT_BOXES,
+    FV_SPLIT_TRUNCY_BOXES,
+    N_E_BINS,
+    RAYTRACE_VOLUME_DEFS,
+    RAYTRACE_VOLUME_LABEL,
+    SLAB_COMPARE_Z_RANGE_CM,
+    SLAB_Z_RANGE_FV_CM,
+    mask_xy_in_volume_at_z,
+    plane_area_m2_at_z,
+)
+
+# Default z-slab grids for convergence studies (uniform centers on FV z extent).
+DEFAULT_SLAB_Z_NS = [5, 11, 21, 26, 51, 101, 201]
+
+
+def build_slab_z_grid_defs(
+    n_slabs_list: list[int],
+    *,
+    z_range_fv_cm: tuple[float, float] = SLAB_Z_RANGE_FV_CM,
+    include_batch_grid: bool = True,
+) -> list[dict]:
+    """Build slab z-grid configs: uniform linspace grids plus optional batch default grid."""
+    z_lo, z_hi = z_range_fv_cm
+    defs: list[dict] = []
+    for n in n_slabs_list:
+        n = int(n)
+        if n < 2:
+            raise ValueError(f"slab z grid needs n >= 2, got {n}")
+        z_cm = np.linspace(z_lo, z_hi, n)
+        defs.append(
+            {
+                "key": f"z{z_lo:g}_{z_hi:g}_n{n}",
+                "z_cm": z_cm,
+                "z_range_cm": z_range_fv_cm,
+                "dz_cm": float((z_hi - z_lo) / (n - 1)),
+                "n_z": n,
+                "batch_default": False,
+            }
+        )
+    if include_batch_grid:
+        z_cm = np.linspace(0.0, 500.0, 26)
+        defs.append(
+            {
+                "key": "z0_500_n26_batch",
+                "z_cm": z_cm,
+                "z_range_cm": (0.0, 500.0),
+                "dz_cm": 20.0,
+                "n_z": 26,
+                "batch_default": True,
+            }
+        )
+    return defs
+
+
+def pack_hist_compare_czvf_from_union(
+    hist_union_czvf: np.ndarray,
+    slab_iz_maps: list[np.ndarray],
+) -> np.ndarray:
+    """Slice union (n_z, n_compare_vol, f, E) into padded (n_config, n_z_max, n_cv, f, E)."""
+    n_cfg = len(slab_iz_maps)
+    n_z_max = max(len(iz) for iz in slab_iz_maps)
+    n_cv, n_f, n_e = hist_union_czvf.shape[1:]
+    hist_czvf = np.zeros((n_cfg, n_z_max, n_cv, n_f, n_e))
+    for icfg, iz_map in enumerate(slab_iz_maps):
+        hist_czvf[icfg, : len(iz_map)] = hist_union_czvf[iz_map]
+    return hist_czvf
+
+
+def finalize_slab_zconfig_arrays(
+    hist_czwf: np.ndarray,
+    hist_compare_czvf: np.ndarray,
+    slab_defs: list[dict],
+    *,
+    total_pot: float,
+    window_area_m2_arr: np.ndarray,
+    compare_volume_defs: list[tuple[str, list[dict]]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Return (flux_density_czwf, flux_density_mean_cvwf, z_positions_cm_cz).
+
+    flux_density_czwf: (n_config, n_z_max, n_window, n_flavor, n_E) — legacy rectangular windows
+    flux_density_mean_cvwf: (n_config, n_compare_vol, n_flavor, n_E) — z-mean with raytrace geometry
+    z_positions_cm_cz: (n_config, n_z_max), NaN-padded
+    """
+    n_config, n_z_max, n_windows, n_flavors, n_e = hist_czwf.shape
+    inv_apot = 1.0 / (window_area_m2_arr[np.newaxis, :, np.newaxis, np.newaxis] * total_pot)
+    flux_czwf = hist_czwf * inv_apot
+
+    n_cv = len(compare_volume_defs)
+    flux_mean_cvwf = np.zeros((n_config, n_cv, n_flavors, n_e))
+
+    z_positions_cm_cz = np.full((n_config, n_z_max), np.nan, dtype=np.float64)
+    for icfg, sdef in enumerate(slab_defs):
+        nz = len(sdef["z_cm"])
+        z_positions_cm_cz[icfg, :nz] = sdef["z_cm"]
+        z_cm = sdef["z_cm"]
+        for iv, (vkey, boxes) in enumerate(compare_volume_defs):
+            z_lo, z_hi = SLAB_COMPARE_Z_RANGE_CM[vkey]
+            iz = np.where((z_cm >= z_lo) & (z_cm <= z_hi))[0]
+            if iz.size == 0:
+                raise ValueError(
+                    f"No z slabs of config {sdef['key']!r} in [{z_lo}, {z_hi}] for {vkey}"
+                )
+            plane_flux = []
+            for iz in iz:
+                z = float(z_cm[iz])
+                area_m2 = plane_area_m2_at_z(z, boxes)
+                if area_m2 <= 0.0:
+                    continue
+                plane_flux.append(hist_compare_czvf[icfg, iz, iv] / (area_m2 * total_pot))
+            if not plane_flux:
+                raise ValueError(f"No active z planes for {vkey} in config {sdef['key']!r}")
+            flux_mean_cvwf[icfg, iv] = np.mean(np.stack(plane_flux, axis=0), axis=0)
+
+    return flux_czwf, flux_mean_cvwf, z_positions_cm_cz
+
+
+def write_slab_zconfig_npz(
+    path: Path,
+    *,
+    total_pot: float,
+    slab_defs: list[dict],
+    hist_czwf: np.ndarray,
+    flux_density_czwf: np.ndarray,
+    flux_density_mean_cvwf: np.ndarray,
+    z_positions_cm_cz: np.ndarray,
+    window_area_m2_arr: np.ndarray,
+) -> None:
+    path = path.resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    config_keys = np.array([d["key"] for d in slab_defs], dtype=object)
+    config_n_z = np.array([len(d["z_cm"]) for d in slab_defs], dtype=np.int32)
+    config_dz_cm = np.array([d["dz_cm"] for d in slab_defs], dtype=np.float64)
+    config_batch_default = np.array([bool(d.get("batch_default", False)) for d in slab_defs], dtype=bool)
+    compare_volume_keys = np.array([v for v, _ in RAYTRACE_VOLUME_DEFS], dtype=object)
+    window_keys = np.array([t[0] for t in FLUX_WINDOW_DEFS], dtype=object)
+
+    np.savez_compressed(
+        path,
+        total_pot=np.array(total_pot),
+        E_BINS=E_BINS,
+        BIN_CENTERS=BIN_CENTERS,
+        flavors=np.array(FLAVORS, dtype=object),
+        window_keys=window_keys,
+        window_area_m2=window_area_m2_arr,
+        slab_config_keys=config_keys,
+        slab_config_n_z=config_n_z,
+        slab_config_dz_cm=config_dz_cm,
+        slab_config_batch_default=config_batch_default,
+        z_positions_cm_cz=z_positions_cm_cz,
+        compare_volume_keys=compare_volume_keys,
+        hist_weighted_czwf=hist_czwf,
+        flux_density_czwf=flux_density_czwf,
+        flux_density_mean_cvwf=flux_density_mean_cvwf,
+    )
 
 
 def _mplstyle() -> None:
@@ -202,8 +364,191 @@ def add_weighted_e_hist(
     return int(np.sum(m))
 
 
+def build_z_union_maps(
+    z_slabs_default: list[float] | np.ndarray,
+    slab_defs: list[dict],
+) -> tuple[np.ndarray, np.ndarray, list[np.ndarray]]:
+    """
+    Merge default and slab-sweep z grids into one sorted union.
+
+    Returns (z_union_cm, iz_default, slab_iz_maps) where iz_default indexes z_union
+  for the legacy 0–500 cm / n=26 grid, and each slab_iz_maps[icfg] indexes planes
+    for that config — each physical z is projected only once per ROOT file.
+    """
+    pieces = [np.asarray(z_slabs_default, dtype=np.float64)]
+    for sdef in slab_defs:
+        pieces.append(np.asarray(sdef["z_cm"], dtype=np.float64))
+    z_union = np.unique(np.concatenate(pieces))
+    z_union.sort()
+
+    def _indices(z_query: np.ndarray) -> np.ndarray:
+        z_query = np.asarray(z_query, dtype=np.float64)
+        iz = np.searchsorted(z_union, z_query)
+        if not np.all(np.isclose(z_union[iz], z_query, rtol=0, atol=1e-9)):
+            raise ValueError("z grid values not found in union (non-linspace z?)")
+        return iz
+
+    iz_default = _indices(np.asarray(z_slabs_default, dtype=np.float64))
+    slab_iz_maps = [_indices(np.asarray(sdef["z_cm"], dtype=np.float64)) for sdef in slab_defs]
+    return z_union, iz_default, slab_iz_maps
+
+
+def pack_hist_czwf_from_union(
+    hist_union_zwf: np.ndarray,
+    slab_iz_maps: list[np.ndarray],
+) -> np.ndarray:
+    """Slice union histogram (n_z, w, f, E) into padded (n_config, n_z_max, w, f, E)."""
+    n_cfg = len(slab_iz_maps)
+    n_z_max = max(len(iz) for iz in slab_iz_maps)
+    n_w, n_f, n_e = hist_union_zwf.shape[1:]
+    hist_czwf = np.zeros((n_cfg, n_z_max, n_w, n_f, n_e))
+    for icfg, iz_map in enumerate(slab_iz_maps):
+        hist_czwf[icfg, : len(iz_map)] = hist_union_zwf[iz_map]
+    return hist_czwf
+
+
+def accumulate_z_histograms_for_file(
+    data: dict,
+    z_union_cm: np.ndarray,
+    hist_zwf: np.ndarray,
+    n_rays_zwf: np.ndarray,
+    *,
+    hist_compare_czvf: np.ndarray | None = None,
+    n_rays_compare_czvf: np.ndarray | None = None,
+    compare_volume_defs: list[tuple[str, list[dict]]] | None = None,
+) -> None:
+    """Project each z plane once per file; fill rectangular windows and optional FV slab volumes."""
+    e = data["E"]
+    wgt = data["wgt"]
+    pdg = data["pdg"]
+    tally_compare = hist_compare_czvf is not None
+    if tally_compare:
+        if compare_volume_defs is None or n_rays_compare_czvf is None:
+            raise ValueError("compare_volume_defs and n_rays_compare_czvf required for FV slab tally")
+    for iz, z in enumerate(z_union_cm):
+        z_f = float(z)
+        x_cm, y_cm = project_to_z(data, z_f)
+        for iw, (_name, xr, yr) in enumerate(FLUX_WINDOW_DEFS):
+            in_window = mask_xy(x_cm, y_cm, xr, yr)
+            for iflav, flav in enumerate(FLAVORS):
+                m = (pdg == PDG_BY_FLAVOR[flav]) & in_window
+                if not np.any(m):
+                    continue
+                h, _ = np.histogram(e[m], bins=E_BINS, weights=wgt[m])
+                hist_zwf[iz, iw, iflav] += h
+                n_rays_zwf[iz, iw, iflav] += int(np.count_nonzero(m))
+        if tally_compare:
+            for ivol, (_vname, boxes) in enumerate(compare_volume_defs):
+                in_vol = mask_xy_in_volume_at_z(x_cm, y_cm, z_f, boxes)
+                for iflav, flav in enumerate(FLAVORS):
+                    m = (pdg == PDG_BY_FLAVOR[flav]) & in_vol
+                    if not np.any(m):
+                        continue
+                    h, _ = np.histogram(e[m], bins=E_BINS, weights=wgt[m])
+                    hist_compare_czvf[iz, ivol, iflav] += h
+                    n_rays_compare_czvf[iz, ivol, iflav] += int(np.count_nonzero(m))
+
+
+def _slab_t(v: np.ndarray, d: np.ndarray, lo: float, hi: float) -> tuple[np.ndarray, np.ndarray]:
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t1 = (lo - v) / d
+        t2 = (hi - v) / d
+    t_near = np.minimum(t1, t2)
+    t_far = np.maximum(t1, t2)
+    parallel = d == 0
+    if np.any(parallel):
+        inside = (v >= lo) & (v <= hi)
+        t_near = np.where(parallel, np.where(inside, -np.inf, np.inf), t_near)
+        t_far = np.where(parallel, np.where(inside, np.inf, -np.inf), t_far)
+    return t_near, t_far
+
+
+def path_length_box(
+    vx: np.ndarray,
+    vy: np.ndarray,
+    vz: np.ndarray,
+    dx: np.ndarray,
+    dy: np.ndarray,
+    dz: np.ndarray,
+    box: dict,
+) -> np.ndarray:
+    """Path length [cm] through one axis-aligned box, clipped to forward ray (t >= 0)."""
+    tx_n, tx_f = _slab_t(vx, dx, *box["x_range"])
+    ty_n, ty_f = _slab_t(vy, dy, *box["y_range"])
+    tz_n, tz_f = _slab_t(vz, dz, *box["z_range"])
+    t_enter = np.maximum.reduce([tx_n, ty_n, tz_n, np.zeros_like(vx)])
+    t_exit = np.minimum.reduce([tx_f, ty_f, tz_f])
+    return np.maximum(0.0, t_exit - t_enter)
+
+
+def path_length_volume(
+    vx: np.ndarray,
+    vy: np.ndarray,
+    vz: np.ndarray,
+    dx: np.ndarray,
+    dy: np.ndarray,
+    dz: np.ndarray,
+    boxes: list[dict],
+) -> np.ndarray:
+    L = np.zeros_like(vx)
+    for box in boxes:
+        L += path_length_box(vx, vy, vz, dx, dy, dz, box)
+    return L
+
+
+def volume_cm3(boxes: list[dict]) -> float:
+    v = 0.0
+    for b in boxes:
+        dx = b["x_range"][1] - b["x_range"][0]
+        dy = b["y_range"][1] - b["y_range"][0]
+        dz = b["z_range"][1] - b["z_range"][0]
+        v += dx * dy * dz
+    return v
+
+
+def add_raytrace_weighted_hist(
+    data: dict,
+    flavor: str,
+    path_lengths: np.ndarray,
+    out: np.ndarray,
+) -> int:
+    """Add sum(wgt * L) per energy bin for rays with L > 0; return ray count."""
+    pdg = PDG_BY_FLAVOR[flavor]
+    m = (data["pdg"] == pdg) & (path_lengths > 0)
+    h, _ = np.histogram(data["E"][m], bins=E_BINS, weights=data["wgt"][m] * path_lengths[m])
+    out += h
+    return int(np.sum(m))
+
+
 def integrated_flux(spectrum: np.ndarray) -> float:
     return float(np.sum(spectrum))
+
+
+def write_raytrace_npz(
+    path: Path,
+    *,
+    total_pot: float,
+    hist_wvf: np.ndarray,
+    n_rays_wvf: np.ndarray,
+    flux_density_wvf: np.ndarray,
+    volume_cm3_arr: np.ndarray,
+) -> None:
+    """Write ray-traced volume histograms in the same schema as ``gsimple_raytrace_batch.py``."""
+    path = path.resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    volume_keys = np.array([t[0] for t in RAYTRACE_VOLUME_DEFS], dtype=object)
+    np.savez_compressed(
+        path,
+        total_pot=np.array(total_pot),
+        E_BINS=E_BINS,
+        BIN_CENTERS=BIN_CENTERS,
+        volume_keys=volume_keys,
+        volume_cm3=volume_cm3_arr,
+        flavors=np.array(FLAVORS, dtype=object),
+        hist_weighted_wvf=hist_wvf,
+        n_rays_wvf=n_rays_wvf,
+        flux_density_wvf=flux_density_wvf,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -240,11 +585,50 @@ def parse_args() -> argparse.Namespace:
         "If omitted but --out-dir is set, defaults to OUT_DIR/flux_histograms.npz",
     )
     p.add_argument(
+        "--save-raytrace-npz",
+        type=Path,
+        default=None,
+        help="Write ray-traced FV volume histograms (gsimple_raytrace_batch schema) to this path. "
+        "If omitted but flux_histograms.npz is written, defaults to "
+        "OUT_DIR/raytrace_flux_histograms.npz",
+    )
+    p.add_argument(
         "--no-manifest",
         action="store_true",
         help="Do not write processed_files.txt / skipped_files.json next to the histogram .npz",
     )
+    p.add_argument(
+        "--slab-z-ns",
+        type=int,
+        nargs="+",
+        default=None,
+        help=(
+            "Uniform z-slab grids on [10,450] cm with this many centers each "
+            f"(default: {DEFAULT_SLAB_Z_NS}). Written to slab_zconfig_flux_histograms.npz."
+        ),
+    )
+    p.add_argument(
+        "--no-batch-slab-grid",
+        action="store_true",
+        help="Do not add the legacy linspace(0,500,26) grid to the slab z-config sweep.",
+    )
+    p.add_argument(
+        "--no-slab-zconfig-npz",
+        action="store_true",
+        help="Skip writing slab_zconfig_flux_histograms.npz (saves memory/time).",
+    )
+    p.add_argument(
+        "--save-slab-zconfig-npz",
+        type=Path,
+        default=None,
+        help="Path for slab z-config histograms. Default: OUT_DIR/slab_zconfig_flux_histograms.npz",
+    )
     p.add_argument("--explore-only", action="store_true", help="Print one file's structure and exit")
+    p.add_argument(
+        "--no-plots",
+        action="store_true",
+        help="Skip diagnostic PNG figures at end of run (recommended for batch jobs)",
+    )
     return p.parse_args()
 
 
@@ -272,7 +656,6 @@ def main() -> None:
     z_slabs = list(Z_POSITIONS_CM)
     n_z_slabs = len(z_slabs)
     z_volume_indices = [iz for iz, z in enumerate(z_slabs) if z_lo <= z <= z_hi]
-    n_vol_planes = len(z_volume_indices)
     IW_AV = 0  # AV ±200 cm; same geometry as ``FLUX_WINDOW_XY`` / SBND AV plots
 
     total_pot = 0.0
@@ -280,10 +663,46 @@ def main() -> None:
 
     n_windows = len(FLUX_WINDOW_DEFS)
     n_flavors = len(FLAVORS)
+    n_raytrace_volumes = len(RAYTRACE_VOLUME_DEFS)
 
-    # z × window × flavor × energy: raw sum of weights in each E bin (same as np.histogram weights).
-    hist_zwf = np.zeros((n_z_slabs, n_windows, n_flavors, N_E_BINS))
-    n_rays_zwf = np.zeros((n_z_slabs, n_windows, n_flavors), dtype=np.int64)
+    write_slab_zconfig = not args.no_slab_zconfig_npz
+    slab_defs: list[dict] = []
+    slab_iz_maps: list[np.ndarray] = []
+    if write_slab_zconfig:
+        z_ns = args.slab_z_ns if args.slab_z_ns is not None else DEFAULT_SLAB_Z_NS
+        slab_defs = build_slab_z_grid_defs(
+            z_ns,
+            include_batch_grid=not args.no_batch_slab_grid,
+        )
+
+    z_union, iz_default, slab_iz_maps_sweep = build_z_union_maps(z_slabs, slab_defs)
+    if write_slab_zconfig:
+        slab_iz_maps = slab_iz_maps_sweep
+        n_redundant = n_z_slabs + sum(len(d["z_cm"]) for d in slab_defs)
+        print(
+            f"Slab z-config sweep: {len(slab_defs)} grids | "
+            f"unique z planes per file: {len(z_union)} (deduped from {n_redundant})"
+        )
+
+    n_z_union = len(z_union)
+    hist_union_zwf = np.zeros((n_z_union, n_windows, n_flavors, N_E_BINS))
+    n_rays_union_zwf = np.zeros((n_z_union, n_windows, n_flavors), dtype=np.int64)
+
+    n_compare_volumes = len(RAYTRACE_VOLUME_DEFS)
+    hist_compare_union_czvf = (
+        np.zeros((n_z_union, n_compare_volumes, n_flavors, N_E_BINS))
+        if write_slab_zconfig
+        else None
+    )
+    n_rays_compare_union_czvf = (
+        np.zeros((n_z_union, n_compare_volumes, n_flavors), dtype=np.int64)
+        if write_slab_zconfig
+        else None
+    )
+
+    # volume × flavor × energy: raw sum of wgt * path_length [cm] per E bin
+    hist_raytrace_wvf = np.zeros((n_raytrace_volumes, n_flavors, N_E_BINS))
+    n_rays_raytrace_wvf = np.zeros((n_raytrace_volumes, n_flavors), dtype=np.int64)
 
     ok_files: list[str] = []
     skipped: list[dict[str, str]] = []
@@ -293,12 +712,26 @@ def main() -> None:
         d = load_gsimple(fpath)
         pot = float(d["pot"])
 
-        for iz, z in enumerate(z_slabs):
-            for iw, (_name, xr, yr) in enumerate(FLUX_WINDOW_DEFS):
-                for iflav, flav in enumerate(FLAVORS):
-                    n_rays_zwf[iz, iw, iflav] += add_weighted_e_hist(
-                        d, flav, z, xr, yr, hist_zwf[iz, iw, iflav]
-                    )
+        accumulate_z_histograms_for_file(
+            d,
+            z_union,
+            hist_union_zwf,
+            n_rays_union_zwf,
+            hist_compare_czvf=hist_compare_union_czvf,
+            n_rays_compare_czvf=n_rays_compare_union_czvf,
+            compare_volume_defs=RAYTRACE_VOLUME_DEFS if write_slab_zconfig else None,
+        )
+
+        p_mag = np.sqrt(d["px"] ** 2 + d["py"] ** 2 + d["pz"] ** 2)
+        dx = d["px"] / p_mag
+        dy = d["py"] / p_mag
+        dz = d["pz"] / p_mag
+        for ivol, (_vname, boxes) in enumerate(RAYTRACE_VOLUME_DEFS):
+            path_L = path_length_volume(d["vtxx"], d["vtxy"], d["vtxz"], dx, dy, dz, boxes)
+            for iflav, flav in enumerate(FLAVORS):
+                n_rays_raytrace_wvf[ivol, iflav] += add_raytrace_weighted_hist(
+                    d, flav, path_L, hist_raytrace_wvf[ivol, iflav]
+                )
 
         total_pot += pot
         n_files_ok += 1
@@ -331,6 +764,9 @@ def main() -> None:
     print(f"Files read OK: {n_files_ok} / {len(all_files)}")
     print(f"Total simulated POT (sum over files): {total_pot:.6g}")
 
+    hist_zwf = hist_union_zwf[iz_default]
+    n_rays_zwf = n_rays_union_zwf[iz_default]
+
     # --- finalize spectra (/ m^2 / POT / bin) ---
     def to_flux(hist: np.ndarray, area_m2: float) -> np.ndarray:
         return hist / (area_m2 * total_pot)
@@ -346,6 +782,18 @@ def main() -> None:
             axis=0,
         )
         sbnd_volume_spectra[flav] = np.mean(plane_specs, axis=0)
+
+    raytrace_volume_cm3 = np.array([volume_cm3(boxes) for _, boxes in RAYTRACE_VOLUME_DEFS])
+    inv_vpot = 1.0e4 / (
+        raytrace_volume_cm3[:, np.newaxis, np.newaxis] * total_pot
+    )
+    flux_density_raytrace_wvf = hist_raytrace_wvf * inv_vpot
+    raytrace_volume_spectra: dict[str, dict[str, np.ndarray]] = {
+        vname: {} for vname, _ in RAYTRACE_VOLUME_DEFS
+    }
+    for ivol, (vname, _boxes) in enumerate(RAYTRACE_VOLUME_DEFS):
+        for iflav, flav in enumerate(FLAVORS):
+            raytrace_volume_spectra[vname][flav] = flux_density_raytrace_wvf[ivol, iflav]
 
     z_slab_spectra = np.zeros((n_flavors, n_z_slabs, N_E_BINS))
     z_slab_integ = np.zeros((n_flavors, n_z_slabs))
@@ -369,6 +817,11 @@ def main() -> None:
     if histogram_npz is None and args.out_dir is not None:
         histogram_npz = args.out_dir / "flux_histograms.npz"
 
+    window_area_m2_arr = np.array(
+        [window_area_m2(t[1], t[2]) for t in FLUX_WINDOW_DEFS],
+        dtype=np.float64,
+    )
+
     if histogram_npz is not None:
         histogram_npz = histogram_npz.resolve()
         histogram_npz.parent.mkdir(parents=True, exist_ok=True)
@@ -376,10 +829,6 @@ def main() -> None:
         window_keys = np.array([t[0] for t in FLUX_WINDOW_DEFS], dtype=object)
         wx = np.array([t[1] for t in FLUX_WINDOW_DEFS], dtype=np.float64)
         wy = np.array([t[2] for t in FLUX_WINDOW_DEFS], dtype=np.float64)
-        window_area_m2_arr = np.array(
-            [window_area_m2(t[1], t[2]) for t in FLUX_WINDOW_DEFS],
-            dtype=np.float64,
-        )
         # flux density φ: (z, window, flavor, Ebin) in /m²/POT/bin
         inv_apot = 1.0 / (window_area_m2_arr[np.newaxis, :, np.newaxis, np.newaxis] * total_pot)
         flux_density_zwf = hist_zwf * inv_apot
@@ -396,11 +845,29 @@ def main() -> None:
             ],
             "flavors": FLAVORS,
             "pdg_by_flavor": PDG_BY_FLAVOR,
+            "raytrace_volume_definitions": [
+                {
+                    "key": vname,
+                    "label": RAYTRACE_VOLUME_LABEL[vname],
+                    "volume_cm3": volume_cm3(boxes),
+                    "boxes_cm": [
+                        {
+                            "x_range": list(b["x_range"]),
+                            "y_range": list(b["y_range"]),
+                            "z_range": list(b["z_range"]),
+                        }
+                        for b in boxes
+                    ],
+                }
+                for vname, boxes in RAYTRACE_VOLUME_DEFS
+            ],
         }
         (histogram_npz.parent / "flux_histograms_meta.json").write_text(
             json.dumps(meta, indent=2), encoding="utf-8"
         )
         print(f"Wrote {histogram_npz.parent / 'flux_histograms_meta.json'}")
+
+        raytrace_volume_keys = np.array([t[0] for t in RAYTRACE_VOLUME_DEFS], dtype=object)
 
         np.savez_compressed(
             histogram_npz,
@@ -416,8 +883,37 @@ def main() -> None:
             hist_weighted_zwf=hist_zwf,
             n_rays_zwf=n_rays_zwf,
             flux_density_zwf=flux_density_zwf,
+            raytrace_volume_keys=raytrace_volume_keys,
+            raytrace_volume_cm3=raytrace_volume_cm3,
+            hist_weighted_raytrace_wvf=hist_raytrace_wvf,
+            n_rays_raytrace_wvf=n_rays_raytrace_wvf,
+            flux_density_raytrace_wvf=flux_density_raytrace_wvf,
         )
         print(f"Wrote {histogram_npz}")
+
+        raytrace_npz = args.save_raytrace_npz
+        if raytrace_npz is None:
+            raytrace_npz = histogram_npz.parent / "raytrace_flux_histograms.npz"
+        write_raytrace_npz(
+            raytrace_npz,
+            total_pot=total_pot,
+            hist_wvf=hist_raytrace_wvf,
+            n_rays_wvf=n_rays_raytrace_wvf,
+            flux_density_wvf=flux_density_raytrace_wvf,
+            volume_cm3_arr=raytrace_volume_cm3,
+        )
+        print(f"Wrote {raytrace_npz}")
+
+        raytrace_meta = {
+            "source": "gsimple_batch.py",
+            "paired_flux_histograms_npz": str(histogram_npz),
+            "n_files_ok": n_files_ok,
+            "batch_size": args.batch_size,
+            "volume_definitions": meta["raytrace_volume_definitions"],
+        }
+        raytrace_meta_path = raytrace_npz.parent / "raytrace_flux_histograms_meta.json"
+        raytrace_meta_path.write_text(json.dumps(raytrace_meta, indent=2), encoding="utf-8")
+        print(f"Wrote {raytrace_meta_path}")
 
         if not args.no_manifest:
             manifest_dir = histogram_npz.parent
@@ -427,6 +923,89 @@ def main() -> None:
             skip_path = manifest_dir / "skipped_files.json"
             skip_path.write_text(json.dumps(skipped, indent=2), encoding="utf-8")
             print(f"Wrote {skip_path} ({len(skipped)} entries)")
+
+    if write_slab_zconfig and slab_defs:
+        if histogram_npz is not None:
+            out_parent = histogram_npz.parent
+        elif args.out_dir is not None:
+            out_parent = args.out_dir.resolve()
+            out_parent.mkdir(parents=True, exist_ok=True)
+        else:
+            raise SystemExit(
+                "slab z-config output requires --out-dir or --save-npz / --save-slab-zconfig-npz"
+            )
+        hist_czwf = pack_hist_czwf_from_union(hist_union_zwf, slab_iz_maps)
+        hist_compare_czvf = pack_hist_compare_czvf_from_union(
+            hist_compare_union_czvf, slab_iz_maps
+        )
+        flux_czwf, flux_mean_cvwf, z_pos_cz = finalize_slab_zconfig_arrays(
+            hist_czwf,
+            hist_compare_czvf,
+            slab_defs,
+            total_pot=total_pot,
+            window_area_m2_arr=window_area_m2_arr,
+            compare_volume_defs=RAYTRACE_VOLUME_DEFS,
+        )
+        slab_zconfig_npz = args.save_slab_zconfig_npz
+        if slab_zconfig_npz is None:
+            slab_zconfig_npz = out_parent / "slab_zconfig_flux_histograms.npz"
+        write_slab_zconfig_npz(
+            slab_zconfig_npz,
+            total_pot=total_pot,
+            slab_defs=slab_defs,
+            hist_czwf=hist_czwf,
+            flux_density_czwf=flux_czwf,
+            flux_density_mean_cvwf=flux_mean_cvwf,
+            z_positions_cm_cz=z_pos_cz,
+            window_area_m2_arr=window_area_m2_arr,
+        )
+        print(f"Wrote {slab_zconfig_npz}")
+
+        slab_zconfig_meta = {
+            "source": "gsimple_batch.py",
+            "paired_flux_histograms_npz": str(histogram_npz) if histogram_npz else None,
+            "n_files_ok": n_files_ok,
+            "batch_size": args.batch_size,
+            "slab_z_ns": args.slab_z_ns if args.slab_z_ns is not None else DEFAULT_SLAB_Z_NS,
+            "slab_z_range_fv_cm": list(SLAB_Z_RANGE_FV_CM),
+            "slab_config_definitions": [
+                {
+                    "key": d["key"],
+                    "n_z": d["n_z"],
+                    "dz_cm": d["dz_cm"],
+                    "z_range_cm": list(d["z_range_cm"]),
+                    "z_positions_cm": np.asarray(d["z_cm"]).tolist(),
+                    "batch_default": bool(d.get("batch_default", False)),
+                }
+                for d in slab_defs
+            ],
+            "compare_volume_definitions": [
+                {
+                    "raytrace_volume_key": vkey,
+                    "z_range_cm": list(SLAB_COMPARE_Z_RANGE_CM[vkey]),
+                    "boxes_cm": [
+                        {
+                            "x_range": list(b["x_range"]),
+                            "y_range": list(b["y_range"]),
+                            "z_range": list(b["z_range"]),
+                        }
+                        for b in boxes
+                    ],
+                }
+                for vkey, boxes in RAYTRACE_VOLUME_DEFS
+            ],
+        }
+        slab_meta_path = slab_zconfig_npz.parent / "slab_zconfig_flux_histograms_meta.json"
+        slab_meta_path.write_text(json.dumps(slab_zconfig_meta, indent=2), encoding="utf-8")
+        print(f"Wrote {slab_meta_path}")
+
+        if not args.no_manifest and histogram_npz is None:
+            proc_txt = out_parent / "processed_files.txt"
+            proc_txt.write_text("\n".join(ok_files) + ("\n" if ok_files else ""), encoding="utf-8")
+            print(f"Wrote {proc_txt} ({len(ok_files)} paths)")
+
+    if args.no_plots:
+        return
 
     # --- plots (mirror notebook) ---
     def _save_or_show(fig: plt.Figure, name: str) -> None:
@@ -458,6 +1037,50 @@ def main() -> None:
     ax.set_yscale("log")
     fig.tight_layout()
     _save_or_show(fig, "sbnd_volume_mean_spectrum")
+
+    for vname, _boxes in RAYTRACE_VOLUME_DEFS:
+        fig, ax = plt.subplots()
+        for flav in FLAVORS:
+            spectrum = raytrace_volume_spectra[vname][flav]
+            integ = integrated_flux(spectrum)
+            ax.step(
+                BIN_CENTERS,
+                spectrum,
+                where="mid",
+                label=rf"{FLAVOR_LATEX[flav]} ($\int\phi\,dE$ = {integ:.3e})",
+            )
+        ax.set_xlim(0, 4)
+        ax.set_xlabel("Neutrino energy [GeV]")
+        ax.set_ylabel(r"$\phi$ [/m$^2$/POT/50MeV]")
+        ax.set_yscale("log")
+        ax.grid(True, alpha=0.4)
+        ax.legend(fontsize=10)
+        ax.set_title(f"Ray-traced volume mean — {vname}\n{RAYTRACE_VOLUME_LABEL[vname]}")
+        fig.tight_layout()
+        _save_or_show(fig, f"raytrace_volume_{vname}")
+
+    for flav in FLAVORS:
+        fig, ax = plt.subplots()
+        for vname, _boxes in RAYTRACE_VOLUME_DEFS:
+            spec = raytrace_volume_spectra[vname][flav]
+            ivol = next(i for i, (vn, _) in enumerate(RAYTRACE_VOLUME_DEFS) if vn == vname)
+            n_rays = int(n_rays_raytrace_wvf[ivol, FLAVORS.index(flav)])
+            integ = integrated_flux(spec)
+            ax.step(
+                BIN_CENTERS,
+                spec,
+                where="mid",
+                label=rf"{vname}, {n_rays:,} rays ($\int$={integ:.2e})",
+            )
+        ax.set_xlim(0, 4)
+        ax.set_xlabel("Neutrino energy [GeV]")
+        ax.set_ylabel(r"$\phi$ [/m$^2$/POT/50MeV]")
+        ax.set_yscale("log")
+        ax.grid(True, alpha=0.4)
+        ax.legend(fontsize=9)
+        ax.set_title(f"{FLAVOR_LATEX[flav]} — ray-traced FV volumes")
+        fig.tight_layout()
+        _save_or_show(fig, f"raytrace_volumes_compare_{flav}")
 
     cmap = plt.cm.viridis
     norm = plt.Normalize(vmin=z_slabs[0], vmax=z_slabs[-1])

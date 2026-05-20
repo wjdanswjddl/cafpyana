@@ -63,7 +63,10 @@ from pyanalib.covariance import get_covariance_matrix  # noqa: E402
 
 from analysis_village.numucc_1p0pi.files_config import get_ana_dfs  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_disk_layout import SUB_COSMICS, SYST_DISK_ENV  # noqa: E402
-from analysis_village.numucc_1p0pi.syst_cosmics_common import build_variable_configs  # noqa: E402
+from analysis_village.numucc_1p0pi.syst_cosmics_common import (  # noqa: E402
+    apply_flat_cosmic_uncertainty,
+    build_variable_configs,
+)
 from analysis_village.numucc_1p0pi.utils import dpi, fig_ext, plot_heatmap, plot_univ_hists  # noqa: E402
 try:
     plt.style.use(path.join(path.dirname(__file__), "presentation.mplstyle"))
@@ -149,6 +152,8 @@ def process_variable_cosmics_from_histograms(
     cv_mode: str,
     save_fig_dir: str,
     save_plots: bool,
+    flat_uncertainty: bool = True,
+    blow_up_frac_unc_threshold: float = 1.0,
 ) -> Dict[str, Any]:
     """Covariance + optional plots from precomputed offbeam / intime histograms."""
     h_off = np.asarray(h_off, dtype=float)
@@ -256,7 +261,7 @@ def process_variable_cosmics_from_histograms(
             f"{var_config.var_save_name}-cosmics",
         )
 
-    return {
+    pay = {
         "cov": ret["cov"],
         "cov_frac": ret["cov_frac"],
         "corr": ret["corr"],
@@ -267,6 +272,11 @@ def process_variable_cosmics_from_histograms(
         "cv_histogram": cv_events,
         "n_univ": int(univ_events.shape[0]),
     }
+    if flat_uncertainty:
+        apply_flat_cosmic_uncertainty(
+            pay, blow_up_frac_unc_threshold=blow_up_frac_unc_threshold
+        )
+    return pay
 
 
 def process_variable_cosmics(
@@ -276,10 +286,19 @@ def process_variable_cosmics(
     cv_mode: str,
     save_fig_dir: str,
     save_plots: bool,
+    flat_uncertainty: bool = True,
+    blow_up_frac_unc_threshold: float = 1.0,
 ) -> Dict[str, Any]:
     h_off, h_in = cosmic_histograms(offbeam_df, intime_df, var_config)
     return process_variable_cosmics_from_histograms(
-        h_off, h_in, var_config, cv_mode, save_fig_dir, save_plots
+        h_off,
+        h_in,
+        var_config,
+        cv_mode,
+        save_fig_dir,
+        save_plots,
+        flat_uncertainty=flat_uncertainty,
+        blow_up_frac_unc_threshold=blow_up_frac_unc_threshold,
     )
 
 

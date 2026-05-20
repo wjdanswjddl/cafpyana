@@ -73,6 +73,7 @@ from analysis_village.numucc_1p0pi.final_selected_evt_vars import (  # noqa: E40
     with_final_selected_evt_variables,
 )
 from analysis_village.numucc_1p0pi.utils import (  # noqa: E402
+    genie_univ_weight_series,
     get_clipped_evts,
     get_response_matrix,
     get_univ_rates,
@@ -80,11 +81,14 @@ from analysis_village.numucc_1p0pi.utils import (  # noqa: E402
     plot_univ_hists,
     signal_hists,
 )
+from analysis_village.numucc_1p0pi.variable_configs import (  # noqa: E402
+    INTEGRATED_VAR_SAVE_NAME,
+    VariableConfig,
+)
 from analysis_village.numucc_1p0pi.evt_derived_kinematics import (  # noqa: E402
     ensure_derived_trk_kinematics_cols,
     ensure_mc_level_phi_mcnu,
 )
-from analysis_village.numucc_1p0pi.variable_configs import VariableConfig  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_multisim_common import combine_indep_knob_cov_packs  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_pipeline_walker import (  # noqa: E402
     CUT_STAGE_RATE_ONLY_SLUGS,
@@ -302,6 +306,67 @@ def _syst_plot_key(syst_name: SystName) -> SystName:
     return syst_name
 
 
+def copy_matrix_pack(pack: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    """Deep copy of a ``{cov, cov_frac, corr}`` pack."""
+    return {
+        k: np.asarray(pack[k], dtype=np.float64).copy() for k in ("cov", "cov_frac", "corr")
+    }
+
+
+def xsec_pack_from_accumulators(
+    mc_evt_df: pd.DataFrame,
+    mc_nu_df: pd.DataFrame,
+    var_config: VariableConfig,
+    syst_name: SystName,
+    n_univ: int,
+    *,
+    xsec_unit: float,
+    bkgd_subtract: bool = True,
+    plot: bool = False,
+    save_fig: bool = False,
+    save_fig_dir: Optional[str] = None,
+) -> Dict[str, np.ndarray]:
+    """Cross-section covariance for one knob (response-matrix path).
+
+    For the integrated single-bin variable, holds the signal rate fixed at CV and varies
+    efficiency, smearing, and background subtraction — do **not** copy the rate matrix.
+    """
+    nb = len(var_config.bins) - 1
+    acc = _empty_xsec_tensor_acc(n_univ, nb)
+    accumulate_xsec_path_chunk(mc_evt_df, mc_nu_df, var_config, syst_name, n_univ, acc)
+    univ_xsec = finalize_xsec_univ_events(acc, xsec_unit=xsec_unit)
+    cv_xsec = finalize_cv_sel_reco_xsec(
+        acc, xsec_unit=xsec_unit, bkgd_subtract=bkgd_subtract
+    )
+    return covariance_bundle_univ_events(
+        univ_xsec,
+        cv_xsec,
+        syst_name,
+        var_config,
+        "xsec",
+        plot=plot,
+        save_fig=save_fig,
+        save_fig_dir=save_fig_dir,
+    )
+
+
+def sanitize_matrix_pack(
+    ret: Mapping[str, np.ndarray], *, context: str = ""
+) -> Dict[str, np.ndarray]:
+    """Replace non-finite matrix elements with zero; log when that happens."""
+    out: Dict[str, np.ndarray] = {}
+    for k in ("cov", "cov_frac", "corr"):
+        arr = np.asarray(ret[k], dtype=float)
+        if np.any(~np.isfinite(arr)):
+            logger.warning(
+                "%s: non-finite values in %s matrix — zeroed (check empty MC bins / eff division)",
+                context or "sanitize_matrix_pack",
+                k,
+            )
+        out[k] = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # XSEC-path accumulation (chunk-additive)
 # ---------------------------------------------------------------------------
@@ -347,37 +412,46 @@ def accumulate_xsec_path_chunk(
     acc["cv_sel_reco"] += np.asarray(ret["nevts_sel_reco"], dtype=np.float64)
     acc["cv_allsel_reco"] += np.asarray(ret["nevts_allsel_reco"], dtype=np.float64)
 
+    wblock_evt = evtdf_signal[syst_name]
+    wblock_nu = nudf_signal[syst_name]
     for uidx in range(n_univ):
-        univ_col = f"univ_{uidx}"
+        w_evt_univ = genie_univ_weight_series(wblock_evt, uidx)
+        w_nu_univ = genie_univ_weight_series(wblock_nu, uidx)
         if nb == 1:
             reco_vs_true = np.array([[1.0]], dtype=np.float64)
         else:
             reco_vs_true, _, _ = np.histogram2d(
                 ret["var_sel_truth"],
                 ret["var_sel_reco"],
-                weights=ret["wgt_sel_truth"] * evtdf_signal[syst_name][univ_col],
+                weights=ret["wgt_sel_truth"] * w_evt_univ,
                 bins=bins,
             )
         acc["reco_vs_true"][uidx] += reco_vs_true
 
         sam, _ = np.histogram(
             ret["var_allmc"],
-            weights=ret["wgt_allmc"] * nudf_signal[syst_name][univ_col],
+            weights=ret["wgt_allmc"] * w_nu_univ,
             bins=bins,
         )
         sst, _ = np.histogram(
             ret["var_sel_truth"],
-            weights=ret["wgt_sel_truth"] * evtdf_signal[syst_name][univ_col],
+            weights=ret["wgt_sel_truth"] * w_evt_univ,
             bins=bins,
         )
         acc["signal_allmc"][uidx] += sam
         acc["signal_sel_truth"][uidx] += sst
 
     for this_evtdf in evtdf_div_topo[1:]:
-        var, wgt = get_clipped_evts(this_evtdf, var_config.var_evt_reco_col, bins)
+        var, wgt = get_clipped_evts(
+            this_evtdf,
+            var_config.var_evt_reco_col,
+            bins,
+            var_save_name=var_config.var_save_name,
+        )
         acc["bg_cv"] += np.histogram(var, bins=bins, weights=wgt)[0].astype(np.float64)
+        wblock_bg = this_evtdf[syst_name]
         for uidx in range(n_univ):
-            uw = this_evtdf[syst_name][f"univ_{uidx}"].copy()
+            uw = genie_univ_weight_series(wblock_bg, uidx).copy()
             uw[np.isnan(uw)] = 1.0
             acc["bg_univ"][uidx] += np.histogram(var, bins=bins, weights=wgt * uw)[0].astype(
                 np.float64
@@ -417,6 +491,165 @@ def finalize_cv_sel_reco_xsec(
     scale = float(xsec_unit)
     base = acc["cv_sel_reco"] if bkgd_subtract else acc["cv_allsel_reco"]
     return np.asarray(base, dtype=np.float64) * scale
+
+
+XSEC_COMPONENTS = ("full", "efficiency", "smearing", "background", "signal")
+
+
+def _xsec_cv_tensors(acc: Mapping[str, np.ndarray]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """CV efficiency, truth→reco migration, and background yield (integrated: smear is 1×1)."""
+    nevts_allmc = np.asarray(acc["nevts_allmc"], dtype=np.float64)
+    nb = int(nevts_allmc.shape[0])
+    eff_cv = np.asarray(acc["signal_sel_truth"][0], dtype=np.float64) / np.asarray(
+        acc["signal_allmc"][0], dtype=np.float64
+    )
+    if nb == 1:
+        reco_cv = np.array([[1.0]], dtype=np.float64)
+    else:
+        reco_cv = np.asarray(acc["reco_vs_true"][0], dtype=np.float64)
+    bg_cv = np.asarray(acc["bg_cv"], dtype=np.float64)
+    return eff_cv, reco_cv, bg_cv
+
+
+def xsec_component_univ_events(
+    acc: Mapping[str, np.ndarray],
+    xsec_unit: float,
+    component: str,
+) -> np.ndarray:
+    """Universe xsec vector varying only one part of the response-matrix path.
+
+    * **efficiency** — ``eff(u)`` with CV smearing and no background term
+    * **smearing** — ``R(reco(u), eff_CV)`` with no background term
+    * **background** — CV signal ``R(reco_CV, eff_CV) @ N_gen`` plus ``bg(u)-bg_CV``
+    * **signal** — efficiency + smearing, no background
+    * **full** — same as :func:`finalize_xsec_univ_events`
+    """
+    if component not in XSEC_COMPONENTS:
+        raise ValueError(f"component must be one of {XSEC_COMPONENTS}, got {component!r}")
+
+    if component == "full":
+        return finalize_xsec_univ_events(acc, xsec_unit=xsec_unit)
+
+    nevts_allmc = np.asarray(acc["nevts_allmc"], dtype=np.float64)
+    nb = int(nevts_allmc.shape[0])
+    n_univ = int(acc["reco_vs_true"].shape[0])
+    scale = float(xsec_unit)
+    eff_cv, reco_cv, _bg_cv = _xsec_cv_tensors(acc)
+
+    rows: List[np.ndarray] = []
+    for uidx in range(n_univ):
+        eff_u = np.asarray(acc["signal_sel_truth"][uidx], dtype=np.float64) / np.asarray(
+            acc["signal_allmc"][uidx], dtype=np.float64
+        )
+        if nb == 1:
+            reco_u = np.array([[1.0]], dtype=np.float64)
+        else:
+            reco_u = np.asarray(acc["reco_vs_true"][uidx], dtype=np.float64)
+        bg_delta = np.asarray(acc["bg_univ"][uidx], dtype=np.float64) - np.asarray(
+            acc["bg_cv"], dtype=np.float64
+        )
+
+        if component == "efficiency":
+            response = get_response_matrix(reco_cv, eff_u)
+            signal = response @ nevts_allmc
+        elif component == "smearing":
+            response = get_response_matrix(reco_u, eff_cv)
+            signal = response @ nevts_allmc
+        elif component == "background":
+            response = get_response_matrix(reco_cv, eff_cv)
+            signal = response @ nevts_allmc + bg_delta
+        elif component == "signal":
+            response = get_response_matrix(reco_u, eff_u)
+            signal = response @ nevts_allmc
+        else:
+            raise AssertionError(component)
+
+        rows.append(np.asarray(signal * scale, dtype=np.float64))
+    return np.asarray(rows, dtype=np.float64)
+
+
+def xsec_path_component_diagnostics(
+    acc: Mapping[str, np.ndarray],
+    var_config: VariableConfig,
+    syst_name: SystName,
+    *,
+    xsec_unit: float = 1.0,
+    bkgd_subtract: bool = True,
+) -> Dict[str, Any]:
+    """Per-component fractional covariance for one knob (integrated xsec decomposition)."""
+    cv_events = finalize_cv_sel_reco_xsec(
+        acc, xsec_unit=xsec_unit, bkgd_subtract=bkgd_subtract
+    )
+    out: Dict[str, Any] = {
+        "knob": syst_name[1],
+        "var": var_config.var_save_name,
+        "n_univ": int(acc["reco_vs_true"].shape[0]),
+        "n_bins": len(var_config.bin_centers),
+        "cv_xsec": np.asarray(cv_events, dtype=np.float64),
+        "nevts_allmc": np.asarray(acc["nevts_allmc"], dtype=np.float64).copy(),
+    }
+    eff_cv, reco_cv, bg_cv = _xsec_cv_tensors(acc)
+    out["eff_cv"] = eff_cv
+    out["reco_cv_sum"] = float(np.sum(reco_cv))
+    out["bg_cv"] = bg_cv
+
+    for comp in XSEC_COMPONENTS:
+        univ = xsec_component_univ_events(acc, xsec_unit, comp)
+        pack = sanitize_matrix_pack(
+            get_covariance_matrix(univ, cv_events),
+            context=f"{var_config.var_save_name}/{comp}/{syst_name[1]}",
+        )
+        frac_var = float(np.asarray(pack["cov_frac"]).flat[0])
+        rel_pulls = (univ[:, 0] - cv_events[0]) / cv_events[0] if cv_events[0] else univ[:, 0] * 0.0
+        out[comp] = {
+            "univ_events": univ,
+            "cov_frac": pack["cov_frac"],
+            "frac_variance": frac_var,
+            "unc_pct": 100.0 * np.sqrt(max(frac_var, 0.0)),
+            "rel_pull_mean": float(np.mean(rel_pulls)),
+            "rel_pull_rms": float(np.std(rel_pulls)),
+            "rel_pull_min": float(np.min(rel_pulls)),
+            "rel_pull_max": float(np.max(rel_pulls)),
+        }
+    return out
+
+
+def combine_component_cov_fracs(
+    diagnostics: Sequence[Mapping[str, Any]],
+    component: str,
+) -> np.ndarray:
+    """Sum per-knob ``cov_frac`` for one component (independent-knob recipe)."""
+    total: Optional[np.ndarray] = None
+    for diag in diagnostics:
+        block = np.asarray(diag[component]["cov_frac"], dtype=np.float64)
+        total = block.copy() if total is None else total + block
+    if total is None:
+        raise ValueError("no diagnostics to combine")
+    return total
+
+
+def print_xsec_component_table(
+    diagnostics: Sequence[Mapping[str, Any]],
+    *,
+    title: str = "",
+) -> None:
+    """Print per-knob and summed component uncertainties [%]."""
+    if title:
+        print(title)
+    comps = [c for c in XSEC_COMPONENTS if c != "full"]
+    hdr = f"{'knob':40s}  " + "  ".join(f"{c:12s}" for c in ["full"] + comps)
+    print(hdr)
+    print("-" * len(hdr))
+    for diag in diagnostics:
+        row = f"{diag['knob'][:40]:40s}  "
+        row += "  ".join(f"{diag[c]['unc_pct']:12.4f}" for c in ["full"] + comps)
+        print(row)
+    print("-" * len(hdr))
+    row = f"{'SUM(indep)':40s}  "
+    for c in ["full"] + comps:
+        cf = combine_component_cov_fracs(diagnostics, c)
+        row += f"{100.0 * np.sqrt(max(float(cf.flat[0]), 0.0)):12.4f}"
+    print(row)
 
 
 # ---------------------------------------------------------------------------
@@ -470,7 +703,7 @@ def accumulate_chunk_into_blob_root(
             slot_r["univ"] += np.asarray(univ_r, dtype=np.float64)
             slot_r["cv"] += np.asarray(cv_r, dtype=np.float64)
 
-            # ---- xsec tensors (GENIE-only response-matrix recipe; unchanged math)
+            # ---- xsec tensors (response-matrix recipe; includes integrated single-bin)
             if skip_xsec_slugs is not None and slug in skip_xsec_slugs:
                 continue
             xsec_blk = blob_root.setdefault(XSEC_ACC_KEY, {})
@@ -550,7 +783,10 @@ def covariance_bundle_univ_events(
     save_fig: bool = False,
     save_fig_dir: Optional[str] = None,
 ) -> Dict[str, np.ndarray]:
-    ret = get_covariance_matrix(univ_events, cv_events)
+    ret = sanitize_matrix_pack(
+        get_covariance_matrix(univ_events, cv_events),
+        context="%s/%s" % (var_config.var_save_name, cov_tag),
+    )
     if save_fig and save_fig_dir:
         os.makedirs(save_fig_dir, exist_ok=True)
         sk = _syst_plot_key(syst_name)
@@ -588,13 +824,48 @@ def get_systematics(
     *,
     xsec_unit: float = 0.0,
 ):
-    """Legacy helper — delegates to :func:`utils.get_univ_rates` for ``rate`` and ``xsec``."""
+    """Legacy helper — rate via :func:`utils.get_univ_rates`; xsec via response accumulators."""
     matrices: Dict[str, Any] = {}
     validate_genie_dataframes({"evt": mc_evt_df, "mcnu": mc_nu_df}, context="get_systematics: ")
     n_univ = normalize_and_infer_n_univ(mc_evt_df, mc_nu_df, syst_name)
-    for cov_type in ["xsec", "rate"]:
-        univ_events, cv_events = get_univ_rates(
-            cov_type=cov_type,
+
+    univ_rate, cv_rate = get_univ_rates(
+        cov_type="rate",
+        syst_type=syst_type,
+        evtdf=mc_evt_df,
+        nudf=mc_nu_df,
+        var_config=var_config,
+        syst_name=syst_name,
+        n_univ=n_univ,
+        xsec_unit=xsec_unit,
+        plot=False,
+    )
+    matrices["rate"] = covariance_bundle_univ_events(
+        univ_rate,
+        cv_rate,
+        syst_name,
+        var_config,
+        "rate",
+        plot=plot,
+        save_fig=save_fig,
+        save_fig_dir=save_fig_dir,
+    )
+
+    if var_config.var_save_name == INTEGRATED_VAR_SAVE_NAME:
+        matrices["xsec"] = xsec_pack_from_accumulators(
+            mc_evt_df,
+            mc_nu_df,
+            var_config,
+            syst_name,
+            n_univ,
+            xsec_unit=xsec_unit,
+            plot=plot,
+            save_fig=save_fig,
+            save_fig_dir=save_fig_dir,
+        )
+    else:
+        univ_xsec, cv_xsec = get_univ_rates(
+            cov_type="xsec",
             syst_type=syst_type,
             evtdf=mc_evt_df,
             nudf=mc_nu_df,
@@ -604,17 +875,16 @@ def get_systematics(
             xsec_unit=xsec_unit,
             plot=False,
         )
-        ret = covariance_bundle_univ_events(
-            univ_events,
-            cv_events,
+        matrices["xsec"] = covariance_bundle_univ_events(
+            univ_xsec,
+            cv_xsec,
             syst_name,
             var_config,
-            cov_type,
+            "xsec",
             plot=plot,
             save_fig=save_fig,
             save_fig_dir=save_fig_dir,
         )
-        matrices[cov_type] = ret
     return matrices
 
 

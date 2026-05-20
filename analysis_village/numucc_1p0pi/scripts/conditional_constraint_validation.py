@@ -583,18 +583,429 @@ def chi2_and_pull(
     return chi2, pval, ndof, pull
 
 
+def _order_eigh_modes(
+    lam: np.ndarray,
+    q: np.ndarray,
+    order: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reorder ``eigh`` output. Use ``descending`` so mode 0 is largest-λ (often norm.-like)."""
+    if order == "ascending":
+        return lam, q
+    if order == "descending":
+        idx = np.argsort(lam)[::-1]
+        return lam[idx], q[:, idx]
+    raise ValueError("order must be 'ascending' or 'descending', got %r" % order)
+
+
 def eigh_decomposition_tensions(
     sigma_XX_c: np.ndarray,
     delta_X: np.ndarray,
+    *,
+    order: str = "ascending",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Eigenvalues (ascending), Q columns = eigenvectors, epsilon_i in uncorrelated basis."""
+    """Principal-axis tensions: ``epsilon_i = (Q^T delta)_i / sqrt(lambda_i)``.
+
+    ``np.linalg.eigh`` returns ascending ``lambda``; for plots of normalization-like
+    structure use ``order='descending'`` so index 0 is the largest-variance mode.
+    """
     lam, q = np.linalg.eigh(_symmetrize(sigma_XX_c))
-    # eigh returns ascending order; use all modes with lambda > 0 for tension
+    lam, q = _order_eigh_modes(lam, q, order)
+    delta_X = np.asarray(delta_X, dtype=float).reshape(-1)
     delta_prime = q.T @ delta_X
     eps = np.zeros_like(lam)
     mask = lam > 1e-18
     eps[mask] = delta_prime[mask] / np.sqrt(lam[mask])
     return lam, q, eps
+
+
+def draw_stacked_cov_separators(
+    ax,
+    block_sizes: list[int],
+    *,
+    major_after_blocks: tuple[int, ...] = (),
+) -> None:
+    """White grid lines between stacked covariance blocks (major = thick solid)."""
+    cur = 0
+    for bi, size in enumerate(block_sizes):
+        cur += size
+        if bi >= len(block_sizes) - 1:
+            break
+        is_major = (bi + 1) in major_after_blocks
+        kw = {"color": "w", "linewidth": 1.4 if is_major else 0.7}
+        if not is_major:
+            kw["linestyle"] = "--"
+        ax.axhline(cur - 0.5, **kw)
+        ax.axvline(cur - 0.5, **kw)
+
+
+def annotate_stacked_cov_blocks(
+    ax,
+    block_sizes: list[int],
+    block_labels: list[str],
+    *,
+    fontsize: float = 9.0,
+) -> None:
+    """Place variable names at the center of each block along both axes."""
+    if len(block_sizes) != len(block_labels):
+        raise ValueError("block_sizes and block_labels length mismatch")
+    n = int(sum(block_sizes))
+    cur = 0
+    for size, label in zip(block_sizes, block_labels):
+        mid = cur + 0.5 * (size - 1)
+        ax.text(
+            mid,
+            n + 0.6,
+            label,
+            ha="center",
+            va="bottom",
+            fontsize=fontsize,
+            clip_on=False,
+        )
+        ax.text(
+            -0.6,
+            mid,
+            label,
+            ha="right",
+            va="center",
+            rotation=90,
+            fontsize=fontsize,
+            clip_on=False,
+        )
+        cur += size
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_ylim(-0.5, n - 0.5)
+
+
+def proton_chi2_breakdown(
+    n_X: np.ndarray,
+    mu_X: np.ndarray,
+    mu_X_c: np.ndarray,
+    sigma_XX: np.ndarray,
+    sigma_XX_c: np.ndarray,
+    pinv_rcond: float | None = None,
+) -> dict[str, float | int]:
+    """Compare full-matrix χ² (used in summaries) with diagonal-only approximations."""
+    n_X = np.asarray(n_X, dtype=float).reshape(-1)
+    delta_pre = n_X - np.asarray(mu_X, dtype=float).reshape(-1)
+    delta_post = n_X - np.asarray(mu_X_c, dtype=float).reshape(-1)
+    ndof = int(len(n_X))
+
+    chi2_pre, _, r_pre_full = data_mc_chi2_ndof(
+        n_X, mu_X, sigma_XX, pinv_rcond=pinv_rcond, include_data_stat=True
+    )
+    chi2_post, _, r_post_full = data_mc_chi2_ndof(
+        n_X, mu_X_c, sigma_XX_c, pinv_rcond=pinv_rcond, include_data_stat=True
+    )
+
+    sig_pre = sigma_with_data_stat(sigma_XX, n_X)
+    sig_post = sigma_with_data_stat(sigma_XX_c, n_X)
+    s_pre = np.sqrt(np.maximum(np.diag(sig_pre), 1e-30))
+    s_post = np.sqrt(np.maximum(np.diag(sig_post), 1e-30))
+    s_pre_mc = np.sqrt(np.maximum(np.diag(sigma_XX), 1e-30))
+    s_post_mc = np.sqrt(np.maximum(np.diag(sigma_XX_c), 1e-30))
+
+    chi2_pre_diag = float(np.sum((delta_pre / s_pre) ** 2))
+    chi2_post_diag = float(np.sum((delta_post / s_post) ** 2))
+    chi2_pre_diag_mc = float(np.sum((delta_pre / s_pre_mc) ** 2))
+    chi2_post_diag_mc = float(np.sum((delta_post / s_post_mc) ** 2))
+
+    return {
+        "ndof": ndof,
+        "chi2_pre_full": chi2_pre,
+        "chi2_post_full": chi2_post,
+        "chi2_pre_per_ndof_full": r_pre_full,
+        "chi2_post_per_ndof_full": r_post_full,
+        "chi2_pre_diag_with_data_stat": chi2_pre_diag,
+        "chi2_post_diag_with_data_stat": chi2_post_diag,
+        "chi2_pre_per_ndof_diag": chi2_pre_diag / max(ndof, 1),
+        "chi2_post_per_ndof_diag": chi2_post_diag / max(ndof, 1),
+        "chi2_pre_diag_mc_only": chi2_pre_diag_mc,
+        "chi2_post_diag_mc_only": chi2_post_diag_mc,
+        "chi2_pre_per_ndof_diag_mc_only": chi2_pre_diag_mc / max(ndof, 1),
+        "chi2_post_per_ndof_diag_mc_only": chi2_post_diag_mc / max(ndof, 1),
+    }
+
+
+def plot_proton_chi2_diagnostics(
+    var_X,
+    n_X: np.ndarray,
+    mu_X: np.ndarray,
+    mu_X_c: np.ndarray,
+    sigma_XX: np.ndarray,
+    sigma_XX_c: np.ndarray,
+    save_path: Path,
+    pinv_rcond: float | None = None,
+) -> dict[str, float | int]:
+    """Print and save figures explaining proton-channel χ² vs plotted ±1σ bands."""
+    centers = var_X.bin_centers
+    breakdown = proton_chi2_breakdown(
+        n_X, mu_X, mu_X_c, sigma_XX, sigma_XX_c, pinv_rcond=pinv_rcond
+    )
+    ndof = int(breakdown["ndof"])
+
+    sig_pre = sigma_with_data_stat(sigma_XX, n_X)
+    sig_post = sigma_with_data_stat(sigma_XX_c, n_X)
+    s_pre = np.sqrt(np.maximum(np.diag(sig_pre), 1e-30))
+    s_post = np.sqrt(np.maximum(np.diag(sig_post), 1e-30))
+    s_pre_mc = np.sqrt(np.maximum(np.diag(sigma_XX), 1e-30))
+    s_post_mc = np.sqrt(np.maximum(np.diag(sigma_XX_c), 1e-30))
+
+    delta_pre = np.asarray(n_X, dtype=float) - np.asarray(mu_X, dtype=float)
+    delta_post = np.asarray(n_X, dtype=float) - np.asarray(mu_X_c, dtype=float)
+    pull_pre = delta_pre / s_pre
+    pull_post = delta_post / s_post
+
+    print("---- Proton χ² diagnostics (bands vs quoted χ²/ndof) ----")
+    print(
+        "Quoted χ² uses (n−μ)ᵀ (Σ_MC + V_data)⁻¹ (n−μ) with full correlations;"
+        " ±1σ bands use √diag(Σ_MC + V_data) per bin."
+    )
+    for key in (
+        "chi2_pre_per_ndof_full",
+        "chi2_post_per_ndof_full",
+        "chi2_pre_per_ndof_diag",
+        "chi2_post_per_ndof_diag",
+        "chi2_pre_per_ndof_diag_mc_only",
+        "chi2_post_per_ndof_diag_mc_only",
+    ):
+        print(f"  {key}: {breakdown[key]:.3f}")
+    print(f"  ndof: {ndof}")
+
+    fig, axes = plt.subplots(2, 2, figsize=(11.0, 7.2), constrained_layout=True)
+
+    ax0 = axes[0, 0]
+    labels = [
+        "full Σ\n+ data stat",
+        "diag Σ\n+ data stat",
+        "diag Σ\n(MC only)",
+    ]
+    x = np.arange(len(labels))
+    w = 0.35
+    pre_vals = [
+        breakdown["chi2_pre_per_ndof_full"],
+        breakdown["chi2_pre_per_ndof_diag"],
+        breakdown["chi2_pre_per_ndof_diag_mc_only"],
+    ]
+    post_vals = [
+        breakdown["chi2_post_per_ndof_full"],
+        breakdown["chi2_post_per_ndof_diag"],
+        breakdown["chi2_post_per_ndof_diag_mc_only"],
+    ]
+    ax0.bar(x - w / 2, pre_vals, width=w, label="pre (data vs MC)", color="steelblue")
+    ax0.bar(x + w / 2, post_vals, width=w, label="post (data vs MC|Y)", color="darkorange")
+    ax0.set_xticks(x, labels, fontsize=9)
+    ax0.set_ylabel(r"$\chi^2 / N_{\mathrm{dof}}$")
+    ax0.set_title(r"χ²/ndof: full matrix vs diagonal approximations")
+    ax0.legend(fontsize=8)
+    ax0.grid(True, axis="y", alpha=0.3)
+
+    ax1 = axes[0, 1]
+    ax1.axhline(0.0, color="k", linestyle="--", linewidth=0.75)
+    ax1.fill_between(centers, -1.0, 1.0, step="mid", color="0.9", alpha=0.6, linewidth=0.0)
+    ax1.plot(centers, pull_pre, "o-", color="steelblue", markersize=4, label=r"$(n-\mu)/\sigma_{\mathrm{diag}}$ pre")
+    ax1.plot(centers, pull_post, "s-", color="darkorange", markersize=4, label=r"$(n-\mu_c)/\sigma_{\mathrm{diag}}$ post")
+    ax1.set_ylabel("Diagonal pull (χ² metric)")
+    ax1.set_title(r"Per-bin pulls using $\sqrt{\mathrm{diag}(\Sigma+V_{\mathrm{data}})}$")
+    ax1.legend(fontsize=8)
+    ax1.grid(True, alpha=0.25)
+
+    ax2 = axes[1, 0]
+    ax2.plot(centers, s_pre_mc, "o--", color="gray", markersize=3, label=r"$\sqrt{\mathrm{diag}(\Sigma_{XX})}$ MC")
+    ax2.plot(centers, s_pre, "o-", color="steelblue", markersize=4, label=r"$\sqrt{\mathrm{diag}(\Sigma+V_d)}$ pre")
+    ax2.plot(centers, s_post_mc, "s--", color="0.55", markersize=3, label=r"$\sqrt{\mathrm{diag}(\Sigma_{XX|Y})}$ MC")
+    ax2.plot(centers, s_post, "s-", color="darkorange", markersize=4, label=r"$\sqrt{\mathrm{diag}(\Sigma_c+V_d)}$ post")
+    ax2.set_ylabel(r"Per-bin $\sigma$")
+    ax2.set_xlabel(var_X.var_labels[1])
+    ax2.set_title("Band widths: MC-only vs χ² metric")
+    ax2.legend(fontsize=7, ncol=2)
+    ax2.grid(True, alpha=0.25)
+
+    ax3 = axes[1, 1]
+    ax3.axis("off")
+    lines = [
+        r"$\chi^2_{\mathrm{full}}$ pre/post: %.2f / %.2f (ndof=%d)"
+        % (breakdown["chi2_pre_full"], breakdown["chi2_post_full"], ndof),
+        r"$\chi^2_{\mathrm{full}}/\mathrm{ndof}$: %.2f $\to$ %.2f"
+        % (breakdown["chi2_pre_per_ndof_full"], breakdown["chi2_post_per_ndof_full"]),
+        r"$\sum_i [(n-\mu_i)/\sigma_i]^2$ (diag, +$V_d$): %.2f $\to$ %.2f / ndof"
+        % (breakdown["chi2_pre_per_ndof_diag"], breakdown["chi2_post_per_ndof_diag"]),
+        r"Same, MC-only $\sigma_i$: %.2f $\to$ %.2f / ndof"
+        % (
+            breakdown["chi2_pre_per_ndof_diag_mc_only"],
+            breakdown["chi2_post_per_ndof_diag_mc_only"],
+        ),
+        "",
+        "Full-matrix χ² < diagonal sum when bins are anticorrelated;",
+        "bands ignore off-diagonal ρ so eyeball can disagree with χ²/ndof.",
+    ]
+    ax3.text(0.02, 0.98, "\n".join(lines), va="top", ha="left", fontsize=10, family="monospace")
+
+    fig.savefig(save_path, bbox_inches="tight", dpi=200)
+    plt.close(fig)
+    return breakdown
+
+
+def plot_proton_principal_tensions_pre_post(
+    var_X,
+    n_X: np.ndarray,
+    mu_X: np.ndarray,
+    mu_X_c: np.ndarray,
+    sigma_XX: np.ndarray,
+    sigma_XX_c: np.ndarray,
+    save_path: Path,
+    *,
+    show: bool = False,
+) -> None:
+    """Principal-component tensions $\\epsilon_i$ pre vs post (descending $\\lambda$; mode 0 ≈ norm.)."""
+    centers = np.asarray(var_X.bin_centers, dtype=float)
+    n_X = np.asarray(n_X, dtype=float).reshape(-1)
+    mu_X = np.asarray(mu_X, dtype=float).reshape(-1)
+    mu_X_c = np.asarray(mu_X_c, dtype=float).reshape(-1)
+    delta_pre = n_X - mu_X
+    delta_post = n_X - mu_X_c
+
+    lam_pre, q_pre, eps_pre = eigh_decomposition_tensions(
+        sigma_XX, delta_pre, order="descending"
+    )
+    lam_post, q_post, eps_post = eigh_decomposition_tensions(
+        sigma_XX_c, delta_post, order="descending"
+    )
+    modes = np.arange(len(eps_pre))
+
+    print(
+        "---- Principal tensions (descending λ; mode 0 = largest variance) ----\n"
+        "  Per-bin (n-μ)/√diag(Σ) is NOT shown: with correlated bins those are not independent\n"
+        "  pulls and can look O(10σ) while the full χ²/ndof stays O(1–3).\n"
+        "  ε_i = (Q^T(n-μ))_i / √λ_i are the meaningful standardized residuals.\n"
+        "  pre  ε_0 = %.3f  |  post ε_0 = %.3f  (mode-0, norm.-like)\n"
+        "  Σμ pre = %.2f  post = %.2f  (total MC normalization)\n"
+        % (eps_pre[0], eps_post[0], mu_X.sum(), mu_X_c.sum())
+    )
+
+    fig, axes = plt.subplots(
+        2,
+        1,
+        figsize=(9.2, 7.0),
+        gridspec_kw={"height_ratios": [1.15, 1.0]},
+    )
+    ax_eps, ax_mu = axes
+
+    ax_eps.axhline(0.0, color="k", linestyle="--", linewidth=0.75)
+    ax_eps.axhline(1.0, color="0.75", linestyle=":", linewidth=0.6)
+    ax_eps.axhline(-1.0, color="0.75", linestyle=":", linewidth=0.6)
+    ax_eps.plot(modes, eps_pre, "o-", color="steelblue", markersize=5, label=r"pre $\epsilon_i$")
+    ax_eps.plot(modes, eps_post, "s-", color="darkorange", markersize=5, label=r"post $\epsilon_i$")
+    ax_eps.set_ylabel(r"$\epsilon_i = \Delta'_i / \sqrt{\lambda_i}$")
+    ax_eps.set_title(
+        r"Principal tensions (mode 0 = largest $\lambda$, usually norm.-like; not per-bin pulls)"
+    )
+    ax_eps.set_xlabel(r"mode $i$ (0 = largest $\lambda$, norm.-like)")
+    ax_eps.legend(fontsize=9, loc="best")
+    ax_eps.grid(True, alpha=0.25)
+    ax_eps2 = ax_eps.twiny()
+    ax_eps2.set_xlim(ax_eps.get_xlim())
+    ax_eps2.set_xticks(modes)
+    ax_eps2.set_xticklabels([f"{np.sqrt(max(l, 0)):.2g}" for l in lam_pre], fontsize=7, rotation=45)
+    ax_eps2.set_xlabel(r"$\sqrt{\lambda_i}$ (pre-constraint)")
+
+    widths = np.diff(np.asarray(var_X.bins, dtype=float))
+    ax_mu.bar(
+        centers - 0.15 * widths,
+        mu_X,
+        width=0.35 * widths,
+        alpha=0.45,
+        color="steelblue",
+        label="MC pre",
+    )
+    ax_mu.bar(
+        centers + 0.15 * widths,
+        mu_X_c,
+        width=0.35 * widths,
+        alpha=0.65,
+        color="darkorange",
+        label=r"MC post ($\mu_{X|Y}$)",
+    )
+    ax_mu.errorbar(
+        centers,
+        n_X,
+        yerr=return_data_stat_err(n_X),
+        fmt="ko",
+        capsize=2,
+        markersize=3,
+        label="Data",
+    )
+    ax_mu.set_ylabel("Events")
+    ax_mu.set_xlabel(var_X.var_labels[1])
+    ax_mu.set_title("Normalization shift: total MC yield and bin spectra")
+    ax_mu.legend(fontsize=8, ncol=2, loc="best")
+    ax_mu.grid(True, alpha=0.25)
+
+    fig.tight_layout()
+    fig.savefig(save_path, bbox_inches="tight", dpi=200)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def plot_reco_eigenmode_matrices(
+    var_X,
+    sigma_XX: np.ndarray,
+    sigma_XX_c: np.ndarray,
+    delta_X_pre: np.ndarray,
+    delta_X_post: np.ndarray,
+    save_path: Path,
+    *,
+    show: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Heatmaps of $Q$ (rows = reco bins, cols = eigenmodes, descending $\\lambda$)."""
+    lam_pre, q_pre, _eps_pre = eigh_decomposition_tensions(
+        sigma_XX, delta_X_pre, order="descending"
+    )
+    lam_post, q_post, _eps_post = eigh_decomposition_tensions(
+        sigma_XX_c, delta_X_post, order="descending"
+    )
+    centers = np.asarray(var_X.bin_centers, dtype=float)
+    n_bins = len(centers)
+
+    vmax = float(max(np.abs(q_pre).max(), np.abs(q_post).max(), 1e-12))
+    fig, axes = plt.subplots(1, 2, figsize=(12.0, 5.2), constrained_layout=True)
+    ims = []
+    for ax, q, lam, title in (
+        (axes[0], q_pre, lam_pre, r"$Q$ pre ($\Sigma_{XX}$)"),
+        (axes[1], q_post, lam_post, r"$Q$ post ($\Sigma_{XX|Y}$)"),
+    ):
+        im = ax.imshow(
+            q,
+            origin="lower",
+            aspect="auto",
+            cmap="RdBu_r",
+            vmin=-vmax,
+            vmax=vmax,
+            interpolation="nearest",
+        )
+        ims.append(im)
+        ax.set_title(title)
+        ax.set_xlabel(r"mode $i$ (descending $\lambda$; $i{=}0$ largest / norm.-like)")
+        if n_bins <= 20:
+            ax.set_yticks(np.arange(n_bins))
+            ax.set_yticklabels([f"{c:.2g}" for c in centers], fontsize=7)
+            ax.set_ylabel(var_X.var_labels[1])
+        else:
+            ax.set_ylabel(f"{var_X.var_labels[1]} bin index")
+        ax2 = ax.twiny()
+        ax2.set_xlim(ax.get_xlim())
+        ax2.set_xticks(np.arange(n_bins))
+        ax2.set_xticklabels([f"{np.sqrt(max(l, 0)):.2g}" for l in lam], fontsize=6, rotation=45)
+        ax2.set_xlabel(r"$\sqrt{\lambda_i}$")
+
+    fig.colorbar(ims[-1], ax=axes, shrink=0.88, pad=0.02, label=r"$Q_{j,i}$ (reco bin $j$, mode $i$)")
+    fig.savefig(save_path, bbox_inches="tight", dpi=200)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+    return lam_pre, q_pre, lam_post, q_post
 
 
 def plot_chi2_ndof_comparison(
@@ -697,19 +1108,28 @@ def _plot_proton_panel(
     if "POT=" in pot_label:
         ylabel = pot_label.split("(POT=")[0].rstrip()
     ax.set_ylabel(ylabel)
-    # χ² lowest, SBND Internal above that, legend upper-right on top (no frames).
+
+    n_tot = float(np.sum(n_X))
+    mu_tot_pre = float(np.sum(mu_X))
+    mu_tot_post = float(np.sum(mu_X_c))
+    rate_ratio_pre = n_tot / max(mu_tot_pre, 1e-12)
+    rate_ratio_post = n_tot / max(mu_tot_post, 1e-12)
+
+    # Summary table (no frame): χ²/ndof and total data/MC rate, pre vs post.
+    _summary_table = (
+        f"{'':16s}  {'pre':>7s}  {'post':>7s}\n"
+        f"{'χ² / N_dof':16s}  {r_pre:7.3f}  {r_post:7.3f}\n"
+        f"{'Data / MC rate':16s}  {rate_ratio_pre:7.3f}  {rate_ratio_post:7.3f}"
+    )
     ax.text(
         0.98,
         0.68,
-        (
-            rf"$\chi^2/\mathrm{{ndof}}={r_pre:.2f}$ (unconstr.)"
-            "\n"
-            rf"$\chi^2/\mathrm{{ndof}}={r_post:.2f}$ (constr.)"
-        ),
+        _summary_table,
         transform=ax.transAxes,
-        fontsize=12,
+        fontsize=11,
         ha="right",
         va="top",
+        family="monospace",
     )
     ax.text(
         0.98,
@@ -776,6 +1196,10 @@ def _plot_proton_panel(
     if chi2_bar_path == save_path:
         chi2_bar_path = save_path.with_name(save_path.stem + "_chi2_ndof" + save_path.suffix)
     plot_chi2_ndof_comparison(r_pre, r_post, chi2_bar_path, ndof=ndof_pre)
+    chi2_diag_path = save_path.with_name(save_path.stem + "_chi2_diagnostics" + save_path.suffix)
+    plot_proton_chi2_diagnostics(
+        var_X, n_X, mu_X, mu_X_c, sigma_XX, sigma_XX_c, chi2_diag_path, pinv_rcond=pinv_rcond
+    )
     return chi2_bar_path
 
 

@@ -12,6 +12,7 @@ systematic **source**):
       GENIE/cov_mat_dict.pkl
       Cosmics/cosmics_syst_dict.npz
       Detector/detector_syst_dict.npz
+      CategorySummary/category_syst_summary.npz   (from ``systematics-summary.ipynb``)
 
 Producer scripts write into these paths; loaders **fail** if any expected file is missing.
 """
@@ -28,6 +29,7 @@ SUB_G4 = "G4"
 SUB_GENIE = "GENIE"
 SUB_COSMICS = "Cosmics"
 SUB_DETECTOR = "Detector"
+SUB_CATEGORY_SUMMARY = "CategorySummary"
 
 FILE_MCSTAT = "mcstat_syst_dict.npz"
 FILE_FLUX = "flux_syst_dict.npz"
@@ -35,6 +37,8 @@ FILE_G4 = "g4_syst_dict.npz"
 FILE_GENIE = "cov_mat_dict.pkl"
 FILE_COSMICS = "cosmics_syst_dict.npz"
 FILE_DETECTOR = "detector_syst_dict.npz"
+FILE_CATEGORY_SUMMARY = "category_syst_summary.npz"
+FILE_CATEGORY_SUMMARY_MANIFEST = "category_syst_summary_manifest.json"
 
 
 def normalized_root(root: str) -> str:
@@ -52,7 +56,21 @@ def syst_disk_paths(root: str) -> dict[str, str]:
         "genie": os.path.join(r, SUB_GENIE, FILE_GENIE),
         "cosmics": os.path.join(r, SUB_COSMICS, FILE_COSMICS),
         "detector": os.path.join(r, SUB_DETECTOR, FILE_DETECTOR),
+        "category_summary": category_summary_npz_path(r),
     }
+
+
+def category_summary_dir(root: str) -> str:
+    return os.path.join(normalized_root(root), SUB_CATEGORY_SUMMARY)
+
+
+def category_summary_npz_path(root: str) -> str:
+    return os.path.join(category_summary_dir(root), FILE_CATEGORY_SUMMARY)
+
+
+def category_summary_manifest_path(npz_path: str) -> str:
+    d = os.path.dirname(os.path.abspath(npz_path))
+    return os.path.join(d, FILE_CATEGORY_SUMMARY_MANIFEST)
 
 
 def category_out_dir(root: str, category: str) -> str:

@@ -4,7 +4,7 @@ from analysis_village.numucc_1p0pi.makedf.makedf import *
 
 DFS = [make_pandora_evtdf_mup_mc_multisim, make_hdrdf]
 ARGS = [
-    dict(wgt_types=["mcstat"], slim=False, multisim_nuniv=100),
+    dict(wgt_types=["mcstat"], slim=False, multisim_nuniv=1000),
     {},
 ]
 NAMES = ["evt", "hdr"]

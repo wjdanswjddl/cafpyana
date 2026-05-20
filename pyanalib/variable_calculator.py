@@ -30,6 +30,8 @@ def get_cc1p0pi_tki(mudf, pdf, P_mu_col, P_p_col):
        - del_alpha: angle between transverse momentum of muon and transverse momentum imbalance
        - del_phi:   angle between transverse momentum of muon and transverse momentum of proton
        - del_Tp:    magnitude of the transverse momentum imbalance
+       - del_Tp_x:  (p̂_ν × p̂_T^μ) · δp⃗_T  with p̂_ν along +z
+       - del_Tp_y:  -p̂_T^μ · δp⃗_T
        - del_p:     magnitude of the 3D imbalance
 
     Notes
@@ -62,11 +64,11 @@ def get_cc1p0pi_tki(mudf, pdf, P_mu_col, P_p_col):
     p_Tp_z = pdf["dir"]["z"] * p_p
     p_Tp = mag2d(p_Tp_x, p_Tp_y)
 
-    del_Tp_x = mu_Tp_x + p_Tp_x
-    del_Tp_y = mu_Tp_y + p_Tp_y
-    del_Tp = mag2d(del_Tp_x, del_Tp_y)
+    _del_Tp_x = mu_Tp_x + p_Tp_x
+    _del_Tp_y = mu_Tp_y + p_Tp_y
+    del_Tp = mag2d(_del_Tp_x, _del_Tp_y)
 
-    del_alpha = np.arccos(-(mu_Tp_x*del_Tp_x + mu_Tp_y*del_Tp_y)/(mu_Tp*del_Tp))
+    del_alpha = np.arccos(-(mu_Tp_x*_del_Tp_x + mu_Tp_y*_del_Tp_y)/(mu_Tp*del_Tp))
     del_phi = np.arccos(-(mu_Tp_x*p_Tp_x + mu_Tp_y*p_Tp_y)/(mu_Tp*p_Tp))
 
     mu_E = mag2d(mu_p, MUON_MASS)
@@ -77,6 +79,10 @@ def get_cc1p0pi_tki(mudf, pdf, P_mu_col, P_p_col):
     e_cal = mu_E - MUON_MASS + p_E - PROTON_MASS + 0.0309 # https://link.springer.com/article/10.1140/epjc/s10052-019-6750-3
     del_Lp = mu_p_z + p_p_z - e_cal
     del_p = mag2d(del_Tp, del_Lp)
+
+    # δp_{T,x} = (p̂_ν × p̂_T^μ) · δp⃗_T,  δp_{T,y} = -p̂_T^μ · δp⃗_T  (p̂_ν = +z)
+    del_Tp_x = -mu_phi_y * _del_Tp_x + mu_phi_x * _del_Tp_y
+    del_Tp_y = -(mu_phi_x * _del_Tp_x + mu_phi_y * _del_Tp_y)
 
     return {
         "del_alpha": del_alpha * 180/np.pi,

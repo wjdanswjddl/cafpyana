@@ -1,17 +1,17 @@
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_all-mc-BNB_cosmics -ngrid 1000
 #
-inputdir=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT
-list="${inputdir}/EField_R00_xrootd.txt"
-python run_df_maker.py \
-    -c configs/numucc_1p0pi/sel_all-mc.py \
-    -l $list \
-    -o sel_all-mc-BNB_cosmics-EField_R00 -ngrid 100
-
-list="${inputdir}/EField_R30_Short_xrootd.txt"
-python run_df_maker.py \
-    -c configs/numucc_1p0pi/sel_all-mc.py \
-    -l $list \
-    -o sel_all-mc-BNB_cosmics-EField_R30_Short -ngrid 100
+#inputdir=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT
+#list="${inputdir}/EField_R00_xrootd.txt"
+#python run_df_maker.py \
+#    -c configs/numucc_1p0pi/sel_all-mc.py \
+#    -l $list \
+#    -o sel_all-mc-BNB_cosmics-EField_R00 -ngrid 100
+#
+#list="${inputdir}/EField_R30_Short_xrootd.txt"
+#python run_df_maker.py \
+#    -c configs/numucc_1p0pi/sel_all-mc.py \
+#    -l $list \
+#    -o sel_all-mc-BNB_cosmics-EField_R30_Short -ngrid 100
 
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/Ar23+/ar23p_respin-xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 1000
 # python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-wgts-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list -o sel_2prong-mc-BNB_cosmics -ngrid 2000
@@ -91,3 +91,14 @@ python run_df_maker.py \
 
 
 
+list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/old/MCP2025_GiBUU_flatcaf_xrootd.list"
+python run_df_maker.py \
+    -c configs/numucc_1p0pi/sel_all-mc.py \
+    -l $list \
+    -o sel_all-mc-GiBUU -ngrid 100
+
+list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/old/MCP2025_GiBUU_flatcaf_xrootd.list"
+python run_df_maker.py \
+    -c configs/numucc_1p0pi/sel_mup.py \
+    -l $list \
+    -o sel_mup-mc-GiBUU -ngrid 100

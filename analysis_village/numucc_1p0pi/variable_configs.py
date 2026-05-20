@@ -4,6 +4,17 @@ import inspect
 # ===== References
 # MicroBooNE tki bins: https://arxiv.org/abs/2301.03700
 
+# Constant axis for the single-bin ``integrated`` measurement (all events in one bin).
+# Matches wiremod/sce cov production (``np.full(..., 500.)``), not the ``iscc`` placeholder columns.
+INTEGRATED_HIST_DUMMY = 500.0
+
+INTEGRATED_VAR_SAVE_NAME = "integrated"
+
+
+def is_integrated_var_config(var_config) -> bool:
+    return getattr(var_config, "var_save_name", None) == INTEGRATED_VAR_SAVE_NAME
+
+
 class VariableConfig:
     """
     A configurable class for setting up unfolding variable configurations.
@@ -185,7 +196,7 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\delta p_{T, y}}$ (GeV/c)", 
             r"$\mathrm{\delta p_{T, y}^{reco.}}$ (GeV/c)", 
             r"$\mathrm{\delta p_{T, y}^{true}}$ (GeV/c)"],
-            bins=np.array([-0.7, -0.55, -0.45, -0.35, -0.25, -0.15, -0.05, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.7]),
+            bins=np.array([-0.9, -0.7, -0.55, -0.45, -0.35, -0.25, -0.15, -0.05, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55]),
             var_evt_reco_col=('del_Tp_y', '', '', '', '', '', ''),
             # var_evt_truth_col=('mc_del_Tp_y', '', '', '', '', '', ''),
             var_evt_truth_col=('mc', 'del_Tp_y', '', '', '', '', ''),

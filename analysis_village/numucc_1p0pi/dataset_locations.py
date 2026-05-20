@@ -76,10 +76,10 @@ PLOTS_BASE = Path(
 EVENT_SELECTION_GLOBS: Dict[str, str] = {
     # "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*df"),
     #"mc": str(SPRING_GEN1_ROOT / "2026_05_11_183347__sel_all-mc-BNB_cosmics-EField_R00/*df"),
-    "mc": str(SPRING_GEN1_ROOT / "2026_05_11_183505__sel_all-mc-BNB_cosmics-EField_R30_Short/*df"),
-    "data": str(SPRING_GEN1_ROOT / "2026_05_11_040429__sel_all-data-Gen1/*df"),
-    "intime": str(SPRING_GEN1_ROOT / "2026_05_11_040132__sel_all-mc-Intime/*df"),
-    "offbeam": str(SPRING_GEN1_ROOT / "2026_05_11_035756__sel_all-data-OffBeamLight/*df"),
+    "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*.df"),
+    "data": str(SPRING_GEN1_ROOT / "2026_05_16_230859__sel_all-data-1e20/*.df"),
+    "intime": str(SPRING_GEN1_ROOT / "2026_05_11_040132__sel_all-mc-Intime/*.df"),
+    "offbeam": str(SPRING_GEN1_ROOT / "2026_05_11_035756__sel_all-data-OffBeamLight/*.df"),
     "dirt": str(SPRING_GEN1_ROOT / "2026_05_11_040638__sel_all-mc-dirt/*df"),
 }
 
@@ -111,7 +111,7 @@ SELECTED_EVENTS_GLOBS: Dict[str, str] = {
 # ``final``: tight-selection-style bundles; ``sel_all``: loose + wgts.
 # -----------------------------------------------------------------------------
 MULTISIM_SYST_GLOBS_FINAL: Dict[str, str] = {
-    "MCstat": str(SPRING_GEN1_ROOT / "2026_05_11_084007__sel_mup-wgts_mcstat/merged_perTPC/*.df"),
+    "MCstat": str(SPRING_GEN1_ROOT / "2026_05_18_145611__sel_mup-wgts_mcstat/merged_perTPC/*.df"),
     "Flux": str(SPRING_GEN1_ROOT / "2026_05_11_155745__sel_mup-wgts_flux/merged_perTPC/*.df"),
     # "Flux": str(SPRING_GEN1_ROOT_EAF / "2026_05_11_155745__sel_mup-wgts_flux/*.df"),
     "G4": str(SPRING_GEN1_ROOT / "2026_05_11_031351__sel_mup-wgts_g4/merged_perTPC/*.df"),

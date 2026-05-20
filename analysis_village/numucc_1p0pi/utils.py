@@ -186,9 +186,16 @@ def get_syst_unc(
             continue
         syst = _load_disk_frac_cov(key)
         syst_name = _SYST_UNC_DISK_LABELS[key]
+        if key == "cosmics":
+            from analysis_village.numucc_1p0pi.syst_cosmics_common import (
+                flat_uncorrelated_cov_frac,
+            )
+
+            syst = flat_uncorrelated_cov_frac(syst)
         syst_uncert = np.sqrt(np.diag(syst))
         if key == "cosmics":
-            syst_uncert = np.max(syst_uncert) * np.ones(len(var_config.bin_centers))
+            flat_val = float(np.max(syst_uncert)) if len(syst_uncert) else 0.0
+            syst_uncert = flat_val * np.ones(len(var_config.bin_centers))
         frac_uncert_total += syst_uncert ** 2
         frac_cov_matrix_total += syst
         if plot:
@@ -313,9 +320,16 @@ def generate_tags(end_tag=""):
     return tags
 
 
-def get_clipped_evts(df, var_col, bins, verbose=False):
+def get_clipped_evts(df, var_col, bins, verbose=False, var_save_name=None):
     # VariableConfig tuples are often padded to evt depth (e.g. 7); mcnu HDF may be 4-level.
-    if isinstance(var_col, tuple) and isinstance(df.columns, pd.MultiIndex):
+    from analysis_village.numucc_1p0pi.variable_configs import (
+        INTEGRATED_HIST_DUMMY,
+        INTEGRATED_VAR_SAVE_NAME,
+    )
+
+    if var_save_name == INTEGRATED_VAR_SAVE_NAME:
+        var = np.full(len(df), INTEGRATED_HIST_DUMMY, dtype=float)
+    elif isinstance(var_col, tuple) and isinstance(df.columns, pd.MultiIndex):
         var = multicol_get_series(df, var_col)
     else:
         var = df[var_col]
@@ -451,9 +465,15 @@ def get_univ_rates(cov_type="rate",
             else None
         )
 
-        # ---- uncertainty on the signal rate ----
-        # only consider effect on the response matrix for the signal channel
-        if cov_type == "xsec" and syst_type == "GENIE":
+        # ---- signal channel ----
+        # Integrated total cross section: use the rate path (selected yield), not
+        # eff × N_gen^CV (which cancels normalization-like weights).
+        use_xsec_response = (
+            cov_type == "xsec"
+            and syst_type == "GENIE"
+            and var_config.var_save_name != "integrated"
+        )
+        if use_xsec_response:
             # smearing matrix
             # handle case where there's a single bin, in which case there's no smearing
             if len(bins) == 2:
@@ -479,10 +499,12 @@ def get_univ_rates(cov_type="rate",
             signal_univ = response_univ @ ret["nevts_allmc"] # note that we multiply the CV signal rate!
             # signal_univ = signal_cv
 
-        elif cov_type == "rate":
-            signal_univ, _ = np.histogram(ret["var_sel_reco"], 
-                                          weights=ret["wgt_sel_reco"]*w_evt_univ,
-                                          bins=bins)
+        elif cov_type in ("rate", "xsec"):
+            signal_univ, _ = np.histogram(
+                ret["var_sel_reco"],
+                weights=ret["wgt_sel_reco"] * w_evt_univ,
+                bins=bins,
+            )
 
         else:
             raise ValueError("Invalid covariance type: {}, choose xsec or rate".format(cov_type))
@@ -494,7 +516,12 @@ def get_univ_rates(cov_type="rate",
         # note: cv background subtraction cancels out with the cv background subtraction for the cv event rate. 
         #       doing it anyways for the plot of universes on background subtracted event rate.
         for this_evtdf in evtdf_div_topo[1:]:
-            var, wgt = get_clipped_evts(this_evtdf, var_config.var_evt_reco_col, bins)
+            var, wgt = get_clipped_evts(
+                this_evtdf,
+                var_config.var_evt_reco_col,
+                bins,
+                var_save_name=var_config.var_save_name,
+            )
             univ_wgt = _genie_weight_series(syst_type, this_evtdf[syst_name], uidx).copy()
             univ_wgt[np.isnan(univ_wgt)] = 1 ## IMPORTANT: make nan univ_wgt to 1. to ignore them
             background_cv, _   = np.histogram(var, bins=bins, weights=wgt)
@@ -3000,15 +3027,24 @@ def signal_hists(evtdf=None,  # df with selected & reco'ed events
 
     # ===== all selected events =====
     # reco'ed
-    var_allsel_reco, wgt_allsel_reco = get_clipped_evts(evtdf, reco_col, bins)
-    var_allsel_truth, wgt_allsel_truth = get_clipped_evts(evtdf, truth_col, bins)
+    _vsn = var_config.var_save_name
+    var_allsel_reco, wgt_allsel_reco = get_clipped_evts(
+        evtdf, reco_col, bins, var_save_name=_vsn
+    )
+    var_allsel_truth, wgt_allsel_truth = get_clipped_evts(
+        evtdf, truth_col, bins, var_save_name=_vsn
+    )
 
     # ===== true signal events =====
     evtdf_signal = evtdf[evtdf.topo_categ == 1]
-    # selected, reco'ed 
-    var_sel_reco, wgt_sel_reco = get_clipped_evts(evtdf_signal, reco_col, bins)
+    # selected, reco'ed
+    var_sel_reco, wgt_sel_reco = get_clipped_evts(
+        evtdf_signal, reco_col, bins, var_save_name=_vsn
+    )
     # selected, truth (for response matrix)
-    var_sel_truth, wgt_sel_truth = get_clipped_evts(evtdf_signal, truth_col, bins)
+    var_sel_truth, wgt_sel_truth = get_clipped_evts(
+        evtdf_signal, truth_col, bins, var_save_name=_vsn
+    )
 
     nevts_allsel_truth, _ = np.histogram(var_allsel_truth, weights=wgt_allsel_truth, bins=bins)
     nevts_allsel_reco, _  = np.histogram(var_allsel_reco,  weights=wgt_allsel_reco,  bins=bins)
@@ -3018,13 +3054,17 @@ def signal_hists(evtdf=None,  # df with selected & reco'ed events
     if nudf is not None:
         # all MC, truth (for efficiency vector)
         nudf_signal = nudf[nudf.topo_categ == 1]
-        var_allmc, wgt_allmc = get_clipped_evts(nudf_signal, nu_col, bins)
+        var_allmc, wgt_allmc = get_clipped_evts(
+            nudf_signal, nu_col, bins, var_save_name=_vsn
+        )
         nevts_allmc, _ = np.histogram(var_allmc, weights=wgt_allmc, bins=bins)
         if mode == "unfold":
             # don't consider containment
 
             nudf_signal = signal_cut(nudf)
-            var_allmc, wgt_allmc = get_clipped_evts(nudf_signal, nu_col, bins)
+            var_allmc, wgt_allmc = get_clipped_evts(
+                nudf_signal, nu_col, bins, var_save_name=_vsn
+            )
             nevts_allmc, _ = np.histogram(var_allmc, weights=wgt_allmc, bins=bins)
     else:
         var_allmc = None
