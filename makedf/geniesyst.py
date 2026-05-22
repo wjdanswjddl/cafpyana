@@ -308,6 +308,11 @@ gen1_systematics = [
     # FSI
     "GENIEReWeight_SBN_v1_multisim_FSI_pi_VariationResponse",
     "GENIEReWeight_SBN_v1_multisim_FSI_N_VariationResponse",
+    'GENIEReWeight_SBN_v1_multisigma_MFP_N',
+    'GENIEReWeight_SBN_v1_multisigma_FrCEx_N',
+    'GENIEReWeight_SBN_v1_multisigma_FrInel_N',
+    'GENIEReWeight_SBN_v1_multisigma_FrAbs_N',
+    'GENIEReWeight_SBN_v1_multisigma_FrPiProd_N',
 
     # NCEL
     'GENIEReWeight_SBN_v1_multisigma_MaNCEL',
@@ -348,11 +353,11 @@ gen1_systematics = [
     'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrInel_pi',
     'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrAbs_pi',
     'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrPiProd_pi',
-    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_MFP_N',
-    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrCEx_N',
-    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrInel_N',
-    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrAbs_N',
-    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrPiProd_N',
+    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_MFP_N',
+    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrCEx_N',
+    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrInel_N',
+    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrAbs_N',
+    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrPiProd_N',
 
     'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin0',
     'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin1',
@@ -381,11 +386,8 @@ GENIE_KNOB_GROUPS = {
 def geniesyst(f, nuind, multisim_nuniv=100, slim=False, systematics=None):
     if systematics is None:
         systematics = regen_systematics
-
     geniewgtdf = getsyst.getsyst(f, systematics, nuind, multisim_nuniv=multisim_nuniv, slim=slim, slimname="GENIE")
-
     if slim:  # keep only the multiplied "GENIE.univ_" columns
         genie_cols = [c for c in geniewgtdf.columns if c[0] == "GENIE"]
         geniewgtdf = geniewgtdf[genie_cols]
-        
     return geniewgtdf

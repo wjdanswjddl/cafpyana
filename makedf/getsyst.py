@@ -114,10 +114,12 @@ def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="sli
 
         else:
             raise Exception("Cannot decode systematic uncertainty: %s" % s)
-
+        
         for syst in this_systs:
+            # print("HI3", syst)
             systs.append(syst)
 
+    # print("HI")
     if slim:
         s_idx = systs_slim.index.get_indexer(nuidx)
         systs_slim.loc[s_idx < 0, :] = 1.
