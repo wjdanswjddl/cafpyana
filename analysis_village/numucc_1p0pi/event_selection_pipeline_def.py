@@ -252,7 +252,7 @@ def build_pipeline() -> List[Stage]:
         cut=None,
         plots=[],
         save_for_efficiency=True,
-        save_for_breakdown=False,  # the notebook skips this stage in the bar plot
+        save_for_breakdown=True,  # stage counts (summary bar plot still skips this stage)
     ))
 
     # ------------------------------------------------------------------
@@ -264,7 +264,7 @@ def build_pipeline() -> List[Stage]:
         cut=_apply_to_evt(cut_clear_cosmic),
         plots=[],
         save_for_efficiency=True,
-        save_for_breakdown=False,
+        save_for_breakdown=True,
     ))
 
     # ------------------------------------------------------------------
@@ -378,12 +378,17 @@ def build_pipeline() -> List[Stage]:
     def _vtxdist_cut_and_attach_pid_cols(state, sample):
         if state.get("evt") is not None:
             state["evt"] = cut_2prong_vtxdist(state["evt"], VTXDIST_TH)
-        # Now compute chi2 averages and MCS-range diff on the surviving trk_df
-        state = _refresh_tracks_and_attach_ntrks(state, sample)
-        if state.get("trk") is not None and len(state["trk"]) > 0:
+        # Re-match tracks to surviving slices, attach chi2/MCS on trk, merge once onto evt.
+        # Do not call _refresh_tracks_and_attach_ntrks first — a second get_trk_info on evt
+        # that already has trk1/trk2 suffixes columns to trk1_x and breaks .trk1 access.
+        if state.get("evt") is None or state.get("trk") is None:
+            return state
+        trk = get_valid_trks(state["trk"])
+        trk = match_trkdf_to_slcdf(trk, state["evt"])
+        state["trk"] = trk
+        if len(trk) > 0:
             state["trk"] = _attach_chi2_avgs(state["trk"])
             state["trk"] = _attach_mcs_range_diff(state["trk"])
-            # rebuild trk1/trk2 view on evt_df with new columns visible
             state["evt"] = get_trk_info(state["evt"], state["trk"], SAVE_NTRKS)
         return state
 
@@ -448,6 +453,7 @@ def build_pipeline() -> List[Stage]:
     def _muX_cut(state, sample):
         if state.get("evt") is None:
             return state
+        # trk1/trk2 (+ chi2 averages) must already be on evt from nu_score + vtxdist stages.
         df = get_mu_p_candidate(
             state["evt"],
             mu_chi2mu_th=MU_CHI2MU_TH, mu_chi2p_th=MU_CHI2P_TH, mu_len_th=MU_LEN_TH, qual_th=QUAL_TH,

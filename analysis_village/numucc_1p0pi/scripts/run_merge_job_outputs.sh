@@ -4,7 +4,9 @@ basedir="/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/"
 #python merge_grid_job_dfs.py --df-dir $basedir/2026_05_17_172736__sel_mup-mc-BNB_cosmics-2xSCE --filename sel_mup --fv perTPC & \
 #python merge_grid_job_dfs.py --df-dir $basedir/2026_05_17_184445__sel_mup-mc-BNB_cosmics-CV --filename sel_mup --fv perTPC
 #
-python merge_grid_job_dfs.py --df-dir $basedir/2026_05_18_145611__sel_mup-wgts_mcstat --filename sel_mup --fv perTPC
+python merge_grid_job_dfs.py --df-dir $basedir/2026_05_11_024530__sel_mup-wgts_genie_CCQE --filename sel_mup --fv perTPC &
+python merge_grid_job_dfs.py --df-dir $basedir/2026_05_18_104112__sel_mup-mc-GiBUU --filename sel_mup --fv perTPC
+#python merge_grid_job_dfs.py --df-dir $basedir/2026_05_18_104003__sel_all-mc-GiBUU --filename sel_mup --fv perTPC
 
 #python merge_grid_job_dfs.py --df-dir $basedir/2026_05_17_165611__sel_mup-mc-WireModXTXW --filename sel_mup --fv perTPC & \
 #python merge_grid_job_dfs.py --df-dir $basedir/2026_05_17_170153__sel_mup-mc-WireModYZ --filename sel_mup --fv perTPC

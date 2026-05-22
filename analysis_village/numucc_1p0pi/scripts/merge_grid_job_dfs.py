@@ -652,7 +652,7 @@ def main() -> int:
             flush=True,
         )
 
-    out_dir = path.join(df_dir, "merged" + "_" + args.fv)
+    out_dir = path.join(df_dir, args.fv)
     os.makedirs(out_dir, exist_ok=True)
 
     stem = args.output_stem or path.basename(df_dir.rstrip(path.sep))

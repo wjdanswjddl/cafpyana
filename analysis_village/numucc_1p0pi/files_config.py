@@ -371,10 +371,26 @@ def get_ana_dfs(option="", syst_tag="", systs_mc_df_tag="", systs_chunk_tags=Non
         dirt_mcnu_df = dirt_dfs['mcnu']
 
         ## -- Data
-        data_file = path.join(file_dir, "data", "BNB", "old", "_Fixed_all.df")
-        data_dfs = load_dfs(data_file, 
-                            ['evt', 'trk', 'hdr', 'bnbpot'], 
-                            n_max_concat=n_max_concat)
+        # data_file = path.join(file_dir, "data", "BNB", "old", "_Fixed_all.df")
+        # data_file = "/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_09/data/BNB/sel_all-data-1e20.df"
+        # data_dfs = load_dfs(data_file, 
+        #                     ['evt', 'trk', 'hdr', 'bnbpot'], 
+        #                     n_max_concat=n_max_concat)
+        data_dfs = load_and_concat_mc_dfs(
+            file_dir="/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_16_230859__sel_all-data-1e20/merged",
+            chunk_tags=[
+                *[
+                    f"2026_05_16_230859__sel_all-data-1e20_merged_{i:04d}"
+                    for i in range(16)
+                ]
+            ],
+            df_tag="",
+            keys2load=['evt', 'trk', 'hdr', 'bnbpot'],
+            n_max_concat=n_max_concat,
+            sub_dir="",
+            sample_dir=""
+        )
+
         data_evt_df = data_dfs['evt']
         data_trk_df = data_dfs['trk']
         data_hdr_df = data_dfs['hdr']

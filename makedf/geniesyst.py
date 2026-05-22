@@ -256,6 +256,115 @@ other_genie_systematics = [
 'GENIEReWeight_SBN_v1_multisigma_EtaNCEL',
 ]
 
+gen1_systematics = [
+    "GENIEReWeight_SBN_v1_multisigma_VecFFCCQEshape",
+    'GENIEReWeight_SBN_v1_multisim_RPA_CCQE',
+    'GENIEReWeight_SBN_v1_multisim_CoulombCCQE',
+
+    # MEC
+    'GENIEReWeight_SBN_v1_multisim_NormCCMEC',
+    'GENIEReWeight_SBN_v1_multisim_NormNCMEC',
+    "GENIEReWeight_SBN_v1_multisigma_DecayAngMEC",
+
+    # RES
+    'GENIEReWeight_SBN_v1_multisim_RDecBR1gamma',
+    'GENIEReWeight_SBN_v1_multisim_RDecBR1eta',
+    "GENIEReWeight_SBN_v1_multisigma_Theta_Delta2Npi",
+    "GENIEReWeight_SBN_v1_multisigma_ThetaDelta2NRad",
+
+    "GENIEReWeight_SBN_v1_multisigma_MaCCRES",
+    "GENIEReWeight_SBN_v1_multisigma_MaNCRES",
+    "GENIEReWeight_SBN_v1_multisigma_MvCCRES",
+    "GENIEReWeight_SBN_v1_multisigma_MvNCRES",
+
+    # Non-Res
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvpCC1pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvpCC2pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvpNC1pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvpNC2pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvnCC1pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvnCC2pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvnNC1pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvnNC2pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvbarpCC1pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvbarpCC2pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvbarpNC1pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvbarpNC2pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvbarnCC1pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvbarnCC2pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvbarnNC1pi',
+    'GENIEReWeight_SBN_v1_multisim_NonRESBGvbarnNC2pi',
+
+    # DIS
+    'GENIEReWeight_SBN_v1_multisigma_AhtBY',
+    'GENIEReWeight_SBN_v1_multisigma_BhtBY',
+    'GENIEReWeight_SBN_v1_multisigma_CV1uBY',
+    'GENIEReWeight_SBN_v1_multisigma_CV2uBY',
+
+    # COH
+    "GENIEReWeight_SBN_v1_multisigma_NormCCCOH", # Handled by re-tuning
+    "GENIEReWeight_SBN_v1_multisigma_NormNCCOH",
+
+    # FSI
+    "GENIEReWeight_SBN_v1_multisim_FSI_pi_VariationResponse",
+    "GENIEReWeight_SBN_v1_multisim_FSI_N_VariationResponse",
+
+    # NCEL
+    'GENIEReWeight_SBN_v1_multisigma_MaNCEL',
+    'GENIEReWeight_SBN_v1_multisigma_EtaNCEL',
+
+    # AR23
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_D_ZExp_b1',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_D_ZExp_b2',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_D_ZExp_b3',
+    'ZExpPCAWeighter_SBNNuSyst_multisigma_D_ZExp_b4',
+
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin1',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin2',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin3',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin4',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_SF_q0bin5',
+
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin1',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin2',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin3',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin4',
+    'CCQETemplateReweight_SBNNuSyst_multisigma_CRPA_q0bin5',
+
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_0',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_1',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_2',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_3',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_4',
+    'QEInterference_SBNNuSyst_multisigma_INT_QEIntf_dial_5',
+
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_VecFFCCQEshape',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_CoulombCCQE',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_NormCCMEC',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_NormNCMEC',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_DecayAngMEC',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_MFP_pi',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrCEx_pi',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrInel_pi',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrAbs_pi',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrPiProd_pi',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_MFP_N',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrCEx_N',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrInel_N',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrAbs_N',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrPiProd_N',
+
+    'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin0',
+    'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin1',
+    'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin2',
+    'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin3',
+    'MECq0q3InterpWeighting_SuSAv2ToMartini_q0binned_MECResponse_q0bin0',
+    'MECq0q3InterpWeighting_SuSAv2ToMartini_q0binned_MECResponse_q0bin1',
+    'MECq0q3InterpWeighting_SuSAv2ToMartini_q0binned_MECResponse_q0bin2',
+    'MECq0q3InterpWeighting_SuSAv2ToMartini_q0binned_MECResponse_q0bin3'
+]
+
+
 # Registry for grouped GENIE knob lists (used by numucc configs / build_genie_knobgroup_config).
 GENIE_KNOB_GROUPS = {
     "Ar23p": ar23p_genie_systematics,

@@ -102,6 +102,16 @@ def make_pandora_evtdf_mup_wgts(f, sel_level="mup", include_weights=True, multis
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
+def make_pandora_evtdf_mup_genieslimwgts(f, sel_level="mup", include_weights=True, genie_multisim_nuniv=200, wgt_types=["genie"], slim=True, 
+                        genie_systematics=geniesyst.gen1_systematics,
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True, **trkArgs):
+    df = make_pandora_evtdf(f, sel_level=sel_level, include_weights=include_weights, genie_multisim_nuniv=genie_multisim_nuniv, wgt_types=wgt_types, slim=slim, 
+                            genie_systematics=genie_systematics, trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
+    return df
+
+def make_mcnudf_genieslimwgts(f, multisim_nuniv=100, genie_multisim_nuniv=100, genie_systematics=geniesyst.gen1_systematics, slim=True):
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=multisim_nuniv, genie_multisim_nuniv=genie_multisim_nuniv, wgt_types=["genie"], slim=slim, genie_systematics=genie_systematics)
+
 
 def make_pandora_evtdf_mup_mc_multisim(
     f,

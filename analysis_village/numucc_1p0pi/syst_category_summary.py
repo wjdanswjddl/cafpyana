@@ -28,13 +28,27 @@ from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional, Seque
 
 import numpy as np
 
-from analysis_village.numucc_1p0pi.syst_disk_layout import (
-    SYST_DISK_ENV,
-    category_summary_dir,
-    category_summary_manifest_path,
-    category_summary_npz_path,
-    normalized_root,
-)
+from pyanalib.covariance import corr_from_fraccov, cov_from_fraccov
+
+from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV, normalized_root
+
+# Local path helpers (mirror ``syst_disk_layout``; kept here so a stale cached
+# ``syst_disk_layout`` in a long-lived notebook kernel cannot break import).
+_SUB_CATEGORY_SUMMARY = "CategorySummary"
+_FILE_CATEGORY_SUMMARY = "category_syst_summary.npz"
+_FILE_CATEGORY_SUMMARY_MANIFEST = "category_syst_summary_manifest.json"
+
+
+def category_summary_npz_path(root: str) -> str:
+    return os.path.join(
+        normalized_root(root), _SUB_CATEGORY_SUMMARY, _FILE_CATEGORY_SUMMARY
+    )
+
+
+def category_summary_manifest_path(npz_path: str) -> str:
+    d = os.path.dirname(os.path.abspath(npz_path))
+    return os.path.join(d, _FILE_CATEGORY_SUMMARY_MANIFEST)
+
 
 SCHEMA = "numucc_category_syst_summary_v1"
 
@@ -76,6 +90,8 @@ _RATE_TOTAL_CATEGORIES = (
     CAT_DETECTOR,
     CAT_COSMICS,
     CAT_GENIE_RATE,
+    CAT_POT,
+    CAT_NTARGETS,
 )
 _XSEC_TOTAL_CATEGORIES = (
     CAT_FLUX,
@@ -84,6 +100,8 @@ _XSEC_TOTAL_CATEGORIES = (
     CAT_DETECTOR,
     CAT_COSMICS,
     CAT_GENIE_XSEC,
+    CAT_POT,
+    CAT_NTARGETS,
 )
 
 
@@ -171,6 +189,81 @@ def genie_knob_covs(gd: Optional[Mapping]) -> Optional[Dict[str, Any]]:
     }
 
 
+def _detector_subsystem_total_cov_frac(
+    det_npz: Any, var_name: str
+) -> Optional[np.ndarray]:
+    """Combined detector fractional covariance from one ``detector_syst_dict.npz``."""
+    if det_npz is None:
+        return None
+    z = dict(det_npz)
+    total = None
+    combined = z.get("detector")
+    if combined is not None:
+        comb_item = combined.item() if hasattr(combined, "item") else combined
+        if isinstance(comb_item, dict) and var_name in comb_item:
+            total = comb_item[var_name]["cov_frac"]
+    dbw = z.get("detector_by_wiremod")
+    if dbw is not None:
+        cell = dbw.item() if hasattr(dbw, "item") else dbw
+        if isinstance(cell, dict) and var_name in cell:
+            per_var = cell[var_name]
+            parts = [
+                pack["cov_frac"]
+                for pack in per_var.values()
+                if isinstance(pack, dict) and "cov_frac" in pack
+            ]
+            if parts:
+                subtotal = sum_cov_frac_matrices(parts)
+                if total is None:
+                    total = subtotal
+            if total is not None:
+                return np.asarray(total, dtype=np.float64)
+    out = {}
+    for k in sorted(z.keys()):
+        if not k.startswith("detector-"):
+            continue
+        tag = k[len("detector-") :]
+        item = z[k].item() if hasattr(z[k], "item") else z[k]
+        if var_name not in item:
+            continue
+        out[tag] = item[var_name]["cov_frac"]
+    if total is None and out:
+        total = sum_cov_frac_matrices(out.values())
+    if total is None:
+        return None
+    return np.asarray(total, dtype=np.float64)
+
+
+def detector_total_cov_frac(
+    var_name: str,
+    *,
+    wiremod_npz: Any = None,
+    sce_npz: Any = None,
+    detector_npz: Any = None,
+) -> Optional[np.ndarray]:
+    """WireMod + SCE combined detector total (matches ``systematics-summary.ipynb``)."""
+    totals = []
+    for det_npz in (wiremod_npz, sce_npz):
+        cov = _detector_subsystem_total_cov_frac(det_npz, var_name)
+        if cov is not None:
+            totals.append(cov)
+    if totals:
+        out = sum_cov_frac_matrices(totals)
+        return None if out is None else np.asarray(out, dtype=np.float64)
+    return _detector_subsystem_total_cov_frac(detector_npz, var_name)
+
+
+def mcstat_cov_frac(mcstat_npz: Any, var_name: str) -> Optional[np.ndarray]:
+    if mcstat_npz is None or var_name not in mcstat_npz:
+        return None
+    cell = mcstat_npz[var_name].item()
+    if isinstance(cell, dict) and "MCstat" in cell:
+        pay = cell["MCstat"]
+        if isinstance(pay, dict) and pay.get("cov_frac") is not None:
+            return np.asarray(pay["cov_frac"], dtype=np.float64)
+    return None
+
+
 def genie_category_cov_frac(genie_pack: Optional[Mapping], kind: str) -> Optional[np.ndarray]:
     if genie_pack is None:
         return None
@@ -194,14 +287,24 @@ def _flat_cov_frac(nbins: int, frac_unc_pct_val: float) -> np.ndarray:
     return np.diag(np.full(nbins, u * u, dtype=np.float64))
 
 
-def _category_block(cov_frac: np.ndarray, var_config: Any) -> Dict[str, np.ndarray]:
+def _category_block(
+    cov_frac: np.ndarray,
+    var_config: Any,
+    *,
+    nominal_mc: Optional[np.ndarray] = None,
+) -> Dict[str, np.ndarray]:
     cov_frac = np.asarray(cov_frac, dtype=np.float64)
     w = frac_weights_for_plot(cov_frac, var_config)
-    return {
+    block: Dict[str, np.ndarray] = {
         "cov_frac": cov_frac,
+        "corr": np.asarray(corr_from_fraccov(cov_frac), dtype=np.float64),
         "frac_unc_pct": w,
         "integrated_frac_variance": np.array(integrated_rate_frac_variance(cov_frac)),
     }
+    if nominal_mc is not None:
+        mc = np.asarray(nominal_mc, dtype=np.float64)
+        block["cov"] = np.asarray(cov_from_fraccov(cov_frac, mc), dtype=np.float64)
+    return block
 
 
 def build_category_cov_frac(
@@ -211,6 +314,8 @@ def build_category_cov_frac(
     g4_npz: Any,
     cosmics_npz: Any,
     detector_npz: Any = None,
+    wiremod_npz: Any = None,
+    sce_npz: Any = None,
     mcstat_npz: Any = None,
     genie_blob: Optional[Mapping] = None,
 ) -> Dict[str, np.ndarray]:
@@ -219,14 +324,14 @@ def build_category_cov_frac(
         CAT_FLUX: np.asarray(flux_npz[vsn].item()["flux"]["cov_frac"], dtype=np.float64),
         CAT_G4: np.asarray(g4_npz[vsn].item()["G4"]["cov_frac"], dtype=np.float64),
     }
-    if mcstat_npz is not None and vsn in mcstat_npz:
-        covs[CAT_MCSTAT] = np.asarray(
-            mcstat_npz[vsn].item()["MCstat"]["cov_frac"], dtype=np.float64
-        )
-    if detector_npz is not None:
-        det_item = dict(detector_npz)["detector"].item()
-        if vsn in det_item:
-            covs[CAT_DETECTOR] = np.asarray(det_item[vsn]["cov_frac"], dtype=np.float64)
+    mc = mcstat_cov_frac(mcstat_npz, vsn)
+    if mc is not None:
+        covs[CAT_MCSTAT] = mc
+    det = detector_total_cov_frac(
+        vsn, wiremod_npz=wiremod_npz, sce_npz=sce_npz, detector_npz=detector_npz
+    )
+    if det is not None:
+        covs[CAT_DETECTOR] = det
     cc = cosmics_selected_rate_cov_frac(cosmics_npz, vsn)
     if cc is not None:
         covs[CAT_COSMICS] = cc
@@ -248,9 +353,12 @@ def build_variable_pack(
     g4_npz: Any,
     cosmics_npz: Any,
     detector_npz: Any = None,
+    wiremod_npz: Any = None,
+    sce_npz: Any = None,
     mcstat_npz: Any = None,
     genie_blob: Optional[Mapping] = None,
     include_flat: bool = True,
+    nominal_mc: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     """Full export payload for one ``VariableConfig``."""
     vsn = var_config.var_save_name
@@ -261,6 +369,8 @@ def build_variable_pack(
         g4_npz=g4_npz,
         cosmics_npz=cosmics_npz,
         detector_npz=detector_npz,
+        wiremod_npz=wiremod_npz,
+        sce_npz=sce_npz,
         mcstat_npz=mcstat_npz,
         genie_blob=genie_blob,
     )
@@ -269,7 +379,8 @@ def build_variable_pack(
         covs[CAT_NTARGETS] = _flat_cov_frac(nbins, NTARGETS_FRAC_UNC_PCT)
 
     categories: Dict[str, Dict[str, np.ndarray]] = {
-        k: _category_block(c, var_config) for k, c in covs.items()
+        k: _category_block(c, var_config, nominal_mc=nominal_mc)
+        for k, c in covs.items()
     }
 
     def _total_block(keys: Sequence[str]) -> Dict[str, np.ndarray]:
@@ -278,7 +389,7 @@ def build_variable_pack(
             return {}
         total = sum_cov_frac_matrices(parts)
         assert total is not None
-        blk = _category_block(total, var_config)
+        blk = _category_block(total, var_config, nominal_mc=nominal_mc)
         blk["category_keys"] = np.array(list(keys), dtype=object)
         return blk
 
@@ -307,15 +418,19 @@ def export_category_syst_summary(
     g4_npz: Any,
     cosmics_npz: Any,
     detector_npz: Any = None,
+    wiremod_npz: Any = None,
+    sce_npz: Any = None,
     mcstat_npz: Any = None,
     genie_blob: Optional[Mapping] = None,
     syst_disk_root: Optional[str] = None,
     include_flat: bool = True,
+    nominal_mc_by_var: Optional[Mapping[str, np.ndarray]] = None,
 ) -> Dict[str, Any]:
     """Write ``category_syst_summary.npz`` and companion manifest JSON."""
     out_npz = os.path.abspath(out_npz)
     os.makedirs(os.path.dirname(out_npz), exist_ok=True)
     manifest_path = category_summary_manifest_path(out_npz)
+    nominal_mc_by_var = nominal_mc_by_var or {}
 
     by_var: Dict[str, Any] = {}
     skipped: list[str] = []
@@ -328,9 +443,12 @@ def export_category_syst_summary(
                 g4_npz=g4_npz,
                 cosmics_npz=cosmics_npz,
                 detector_npz=detector_npz,
+                wiremod_npz=wiremod_npz,
+                sce_npz=sce_npz,
                 mcstat_npz=mcstat_npz,
                 genie_blob=genie_blob,
                 include_flat=include_flat,
+                nominal_mc=nominal_mc_by_var.get(vsn),
             )
         except Exception as ex:
             skipped.append(f"{vsn}: {ex}")
@@ -347,9 +465,12 @@ def export_category_syst_summary(
         "total_keys": list(TOTAL_KEYS),
         "cosmics_kind": "selected_rate",
         "flat_frac_unc_pct": {"pot": POT_FRAC_UNC_PCT, "ntargets": NTARGETS_FRAC_UNC_PCT},
+        "matrix_keys_per_category": ["cov_frac", "corr", "cov", "frac_unc_pct"],
         "usage": {
             "load": "load_category_syst_summary(npz_path) or load_category_syst_summary(syst_disk_root=...)",
             "cov_frac": "category_cov_frac(summary, var_save_name, category_key)",
+            "corr": "pack['categories'][key]['corr']",
+            "cov": "pack['categories'][key]['cov'] (when nominal MC supplied at export)",
             "frac_unc_pct": "category_frac_unc_pct(summary, var_save_name, category_key)",
             "total": "total_frac_unc_pct(summary, var_save_name, kind='xsec'|'rate')",
         },

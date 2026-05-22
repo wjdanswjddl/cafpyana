@@ -628,6 +628,100 @@ def combine_component_cov_fracs(
     return total
 
 
+def default_fsi_knob_other() -> str:
+    """First pion FSI knob in the ``Other`` GENIE group (SBN v1 reweights)."""
+    from makedf.geniesyst import other_genie_systematics
+
+    for knob in other_genie_systematics:
+        if knob.endswith("_pi") and "MFP" in knob:
+            return knob
+    for knob in other_genie_systematics:
+        if knob.endswith("_pi"):
+            return knob
+    return other_genie_systematics[0]
+
+
+def integrated_xsec_knob_probe_data(
+    acc: Mapping[str, np.ndarray],
+    mc_evt_df: pd.DataFrame,
+    mc_nu_df: pd.DataFrame,
+    var_config: VariableConfig,
+    syst_name: SystName,
+    *,
+    xsec_unit: float = 1.0,
+    bkgd_subtract: bool = True,
+) -> Dict[str, Any]:
+    """Per-universe arrays for integrated xsec knob investigation plots.
+
+    Returns CV + multisim pulls for truth-generated signal rate, background-subtracted
+    selected rate (rate path), background, signal-only xsec path, efficiency, full xsec,
+    and truth→reco smearing / response matrices.
+    """
+    n_univ = int(acc["reco_vs_true"].shape[0])
+    nb = int(np.asarray(acc["nevts_allmc"]).shape[0])
+    scale = float(xsec_unit)
+
+    univ_sel_rate, cv_sel_rate = get_univ_rates(
+        cov_type="rate",
+        syst_type="GENIE",
+        evtdf=mc_evt_df,
+        nudf=mc_nu_df,
+        var_config=var_config,
+        syst_name=syst_name,
+        n_univ=n_univ,
+        bkgd_subtract=bkgd_subtract,
+    )
+    univ_sel_rate = np.asarray(univ_sel_rate, dtype=np.float64)
+    cv_sel_rate = np.asarray(cv_sel_rate, dtype=np.float64)
+
+    truth_gen = np.asarray(acc["signal_allmc"], dtype=np.float64)
+    eff_cv, reco_cv, bg_cv = _xsec_cv_tensors(acc)
+    eff_univ = np.asarray(acc["signal_sel_truth"], dtype=np.float64) / np.asarray(
+        acc["signal_allmc"], dtype=np.float64
+    )
+    bg_univ = np.asarray(acc["bg_univ"], dtype=np.float64)
+
+    signal_xsec = xsec_component_univ_events(acc, xsec_unit, "signal")
+    full_xsec = finalize_xsec_univ_events(acc, xsec_unit=xsec_unit)
+    cv_xsec = finalize_cv_sel_reco_xsec(acc, xsec_unit, bkgd_subtract=bkgd_subtract)
+
+    reco_stack = np.asarray(acc["reco_vs_true"], dtype=np.float64)
+    response_cv = get_response_matrix(reco_cv, eff_cv)
+    response_univ = np.stack(
+        [
+            get_response_matrix(
+                reco_stack[u] if nb > 1 else np.array([[1.0]]),
+                eff_univ[u],
+            )
+            for u in range(n_univ)
+        ],
+        axis=0,
+    )
+
+    return {
+        "knob": syst_name[1],
+        "var": var_config.var_save_name,
+        "n_univ": n_univ,
+        "n_bins": nb,
+        "nevts_allmc": np.asarray(acc["nevts_allmc"], dtype=np.float64).copy(),
+        "truth_gen_rate": {"cv": truth_gen[0].copy(), "univ": truth_gen.copy()},
+        "sel_rate": {"cv": cv_sel_rate.copy(), "univ": univ_sel_rate.copy()},
+        "background": {"cv": bg_cv.copy(), "univ": bg_univ.copy()},
+        "signal_xsec": {
+            "cv": signal_xsec[0].copy(),
+            "univ": signal_xsec.copy(),
+        },
+        "efficiency": {"cv": eff_cv.copy(), "univ": eff_univ.copy()},
+        "integrated_xsec": {"cv": cv_xsec.copy(), "univ": full_xsec.copy()},
+        "smearing": {
+            "reco_vs_true_cv": reco_cv.copy(),
+            "reco_vs_true_univ": reco_stack.copy(),
+            "response_cv": response_cv.copy(),
+            "response_univ": response_univ.copy(),
+        },
+    }
+
+
 def print_xsec_component_table(
     diagnostics: Sequence[Mapping[str, Any]],
     *,

@@ -93,8 +93,8 @@ def mc_univ_weight_matrix(df: pd.DataFrame, syst_tag: str, max_univ: int = 512) 
         if key is None:
             break
         w = np.asarray(df.loc[:, key], dtype=float).reshape(-1)
-        w = np.nan_to_num(w, nan=1.0, posinf=5.0, neginf=0.0)
-        w = np.clip(w, 0.0, 5.0)
+        w = np.nan_to_num(w, nan=1.0, posinf=10.0, neginf=0.0)
+        w = np.clip(w, 0.0, 10.0)
         rows.append(w)
     if not rows:
         return None
@@ -469,6 +469,7 @@ class BarBreakdown:
     intime_count: float = 0.0
     offbeam_count: float = 0.0
     dirt_count: float = 0.0
+    data_count: float = 0.0
 
     @classmethod
     def empty(cls, breakdown_type: str) -> "BarBreakdown":
@@ -503,12 +504,33 @@ class BarBreakdown:
         weights = df["pot_weight"] if "pot_weight" in df.columns else np.ones(len(df))
         self.dirt_count += float(np.asarray(weights, dtype=float).sum())
 
+    def fill_data(self, df: pd.DataFrame):
+        if df is None or len(df) == 0:
+            return
+        weights = df["pot_weight"] if "pot_weight" in df.columns else np.ones(len(df))
+        self.data_count += float(np.asarray(weights, dtype=float).sum())
+
+    def total_count(self, sample: str) -> float:
+        """POT-weighted slice count at this stage (sum of ``pot_weight``)."""
+        if sample == "mc":
+            return float(np.sum(self.mc_counts))
+        if sample == "intime":
+            return self.intime_count
+        if sample == "offbeam":
+            return self.offbeam_count
+        if sample == "dirt":
+            return self.dirt_count
+        if sample == "data":
+            return self.data_count
+        raise ValueError(f"unknown sample: {sample!r}")
+
     def __iadd__(self, other: "BarBreakdown"):
         assert self.breakdown_type == other.breakdown_type
         self.mc_counts += other.mc_counts
         self.intime_count += other.intime_count
         self.offbeam_count += other.offbeam_count
         self.dirt_count += other.dirt_count
+        self.data_count += other.data_count
         return self
 
 
@@ -758,6 +780,9 @@ class ChunkRunner:
         elif self.sample == "dirt":
             for bt in ("topology", "genie"):
                 self.bar[stage_key][bt].fill_dirt(evt)
+        elif self.sample == "data":
+            for bt in ("topology", "genie"):
+                self.bar[stage_key][bt].fill_data(evt)
 
     def _fill_efficiency(self, stage_key: str, state: Dict[str, pd.DataFrame]):
         if self.sample != "mc":
@@ -966,6 +991,7 @@ def merge_samples(samples: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
                         intime_count=bb.intime_count,
                         offbeam_count=bb.offbeam_count,
                         dirt_count=bb.dirt_count,
+                        data_count=bb.data_count,
                     )
 
     merged_eff: Dict[str, Dict[str, EfficiencyAccumulator]] = {}
@@ -1050,7 +1076,7 @@ def sanitize_merged_histdata_finite(merged: Dict[str, Any]) -> Tuple[int, int]:
                     bb.mc_counts, nan=0.0, posinf=0.0, neginf=0.0
                 )
                 bar_dirty = True
-            for fld in ("intime_count", "offbeam_count", "dirt_count"):
+            for fld in ("intime_count", "offbeam_count", "dirt_count", "data_count"):
                 v = getattr(bb, fld)
                 if not np.isfinite(v):
                     setattr(bb, fld, 0.0)
@@ -1076,7 +1102,7 @@ class ExposureTotals:
 def apply_global_exposure_scales(
     merged: Dict[str, Any],
     totals: ExposureTotals,
-    f_offbeam_coincident: float = 0.08,
+    f_offbeam_coincident: float = 0.075,
 ) -> Dict[str, float]:
     """Scale histograms / breakdown / MC efficiency after summing intrinsic-weight chunks.
 

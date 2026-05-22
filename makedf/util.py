@@ -86,6 +86,17 @@ def InFV(df, inzback=10, inx=10, iny=10, inzfront=10, incathode=5, det="ICARUS")
         xmax_tpc2 = 190.
         return (df.x > xmin_tpc2) & (df.x < xmax_tpc2)
 
+    elif det == "SBND_Gen1":
+        xmin = 10.
+        xmax = 190.
+        zmin = 10.
+        zmax = 450.
+        ymax_highz = 100.
+        pass_xz = (np.abs(df.x) > xmin) &(np.abs(df.x) < xmax) & (df.z > zmin) & (df.z < zmax)
+        pass_y = ((df.z < 250) & (np.abs(df.y) < 190.)) | ((df.z > 250) & (df.y > -190.) & (df.y < ymax_highz))
+        return pass_xz & pass_y
+
+
     else:
         raise NameError("DETECTOR not valid, should be SBND or ICARUS")
 

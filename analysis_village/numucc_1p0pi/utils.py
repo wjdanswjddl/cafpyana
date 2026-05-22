@@ -18,7 +18,14 @@ from analysis_village.unfolding.wienersvd import *
 from analysis_village.numucc_1p0pi.categories import *
 from analysis_village.numucc_1p0pi.constants import *
 from analysis_village.numucc_1p0pi.selection_framework import multicol_get_series
-from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV, syst_disk_paths
+from analysis_village.numucc_1p0pi.syst_disk_layout import (
+    FILE_GENIE,
+    SUB_GENIE,
+    SYST_DISK_ENV,
+    category_out_dir,
+    category_summary_npz_path,
+    syst_disk_paths,
+)
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -246,6 +253,241 @@ def get_syst_unc(
     return syst, frac_cov_matrix_total
 
 
+_CATEGORY_SYST_SUMMARY_CACHE = {}
+_DEFAULT_SYST_DISK_ROOT = "/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final"
+
+
+def resolve_category_syst_summary_path(
+    category_syst_summary_path=None,
+    syst_disk_root=None,
+):
+    """Path to ``CategorySummary/category_syst_summary.npz`` from export cell."""
+    if category_syst_summary_path:
+        return os.path.abspath(os.path.expanduser(category_syst_summary_path))
+    root = syst_disk_root or os.environ.get(SYST_DISK_ENV) or _DEFAULT_SYST_DISK_ROOT
+    return category_summary_npz_path(root)
+
+
+def load_overlay_syst_cov_frac(
+    var_config,
+    *,
+    syst_kind="xsec",
+    syst_disk_root=None,
+    category_syst_summary_path=None,
+):
+    """Fractional covariance for overlay bands (default: summed category summary)."""
+    from analysis_village.numucc_1p0pi.syst_category_summary import (
+        load_category_syst_summary,
+        total_cov_frac,
+    )
+
+    path = resolve_category_syst_summary_path(
+        category_syst_summary_path, syst_disk_root
+    )
+    vsn = var_config.var_save_name
+    cache_key = (path, vsn, syst_kind)
+    if cache_key in _CATEGORY_SYST_SUMMARY_CACHE:
+        return _CATEGORY_SYST_SUMMARY_CACHE[cache_key]
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            "Category syst summary not found: %s (run systematics-summary export cell)"
+            % path
+        )
+    summary = load_category_syst_summary(path)
+    cov = total_cov_frac(summary, vsn, kind=syst_kind)
+    _CATEGORY_SYST_SUMMARY_CACHE[cache_key] = cov
+    return cov
+
+
+def get_category_summary_syst_unc(
+    var_config,
+    *,
+    syst_kind="rate",
+    syst_disk_root=None,
+    category_syst_summary_path=None,
+):
+    """Fractional diagonal uncertainty and covariance from ``category_syst_summary.npz``.
+
+    *syst_kind* ``\"rate\"`` uses ``total_rate`` (GENIE rate); ``\"xsec\"`` uses ``total_xsec``.
+    """
+    cov = load_overlay_syst_cov_frac(
+        var_config,
+        syst_kind=syst_kind,
+        syst_disk_root=syst_disk_root,
+        category_syst_summary_path=category_syst_summary_path,
+    )
+    unc = np.sqrt(np.diag(cov))
+    return unc, cov
+
+
+GENIE_SB_BKGD_RATE_KEY = "genie_bkgd_rate"
+_GENIE_SB_COV_MAT_CACHE: dict = {}
+
+
+def resolve_genie_sb_cov_mat_pkl(genie_sb_cov_mat_pkl=None):
+    """Path to ``systematics-genie-SB`` ``GENIE/cov_mat_dict.pkl`` (``genie_bkgd_rate``)."""
+    if genie_sb_cov_mat_pkl:
+        return os.path.abspath(os.path.expanduser(genie_sb_cov_mat_pkl))
+    from analysis_village.numucc_1p0pi.files_config import save_fig_base_dir
+
+    sb_root = os.path.join(save_fig_base_dir, "systematics-notebook-genie-SB-integrated")
+    return os.path.join(category_out_dir(sb_root, SUB_GENIE), FILE_GENIE)
+
+
+def load_genie_sb_bkgd_rate_cov_frac(var_config, genie_sb_cov_mat_pkl=None):
+    """Fractional covariance on background topology rate from ``systematics-genie-SB.ipynb``."""
+    pkl_path = resolve_genie_sb_cov_mat_pkl(genie_sb_cov_mat_pkl)
+    vsn = var_config.var_save_name
+    cache_key = (pkl_path, vsn, GENIE_SB_BKGD_RATE_KEY)
+    if cache_key in _GENIE_SB_COV_MAT_CACHE:
+        return _GENIE_SB_COV_MAT_CACHE[cache_key]
+    if not os.path.isfile(pkl_path):
+        raise FileNotFoundError(
+            "GENIE SB cov_mat_dict not found: %s (run systematics-genie-SB.ipynb)" % pkl_path
+        )
+    with open(pkl_path, "rb") as f:
+        cov_mat_dict = pickle.load(f)
+    if vsn not in cov_mat_dict:
+        raise KeyError(
+            "Variable %r not in %s (keys sample: %s)"
+            % (vsn, pkl_path, ", ".join(sorted(cov_mat_dict.keys())[:8]))
+        )
+    row = cov_mat_dict[vsn]
+    if GENIE_SB_BKGD_RATE_KEY not in row:
+        raise KeyError(
+            "%r missing in %s for %r (have: %s)"
+            % (
+                GENIE_SB_BKGD_RATE_KEY,
+                pkl_path,
+                vsn,
+                ", ".join(sorted(row.keys())[:12]),
+            )
+        )
+    cov = np.asarray(row[GENIE_SB_BKGD_RATE_KEY], dtype=np.float64)
+    _GENIE_SB_COV_MAT_CACHE[cache_key] = cov
+    return cov
+
+
+def _overlay_signal_mc_hist(mc_df, var_config, signal_truth_fv="per_tpc"):
+    """Per-bin MC signal (CC 1p0pi in FV) counts for background subtraction."""
+    vardf, _ = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
+    cuts = get_topo_category(mc_df, ret_cuts=True, signal_truth_fv=signal_truth_fv)
+    cut_signal = cuts[-1]
+    v_sig = vardf[cut_signal]
+    w_sig = mc_df.loc[cut_signal, "pot_weight"]
+    hist_sig, _ = np.histogram(v_sig, weights=w_sig, bins=var_config.bins)
+    return np.asarray(hist_sig, dtype=float)
+
+
+def _overlay_bkgd_syst_sigma(total_mc_bkgd, bkgd_frac_cov):
+    """Per-bin 1σ GENIE background-rate uncertainty (absolute event units)."""
+    total_mc_bkgd = np.asarray(total_mc_bkgd, dtype=float)
+    frac_diag = np.maximum(np.diag(np.asarray(bkgd_frac_cov, dtype=float)), 0.0)
+    with np.errstate(invalid="ignore"):
+        return np.sqrt(frac_diag) * total_mc_bkgd
+
+
+def _overlay_draw_bkgd_syst_band(
+    ax,
+    bin_centers,
+    bins,
+    total_mc,
+    bkgd_syst_err,
+    *,
+    edgecolor="darkorange",
+    hatch="+++",
+    label="Bkgd. GENIE unc.",
+    zorder=9,
+):
+    bkgd_syst_err = np.asarray(bkgd_syst_err, dtype=float)
+    ax.bar(
+        bin_centers,
+        2 * bkgd_syst_err,
+        width=np.diff(bins),
+        bottom=np.asarray(total_mc, dtype=float) - bkgd_syst_err,
+        facecolor="none",
+        hatch=hatch,
+        linewidth=0.0,
+        edgecolor=edgecolor,
+        label=label,
+        zorder=zorder,
+    )
+
+
+def _overlay_add_poisson_mc_stat_to_band(syst_explicit, load_syst_from_summary):
+    """``category_syst_summary`` totals already include MC stat.; skip Poisson MC stat on the band."""
+    return not (load_syst_from_summary and not syst_explicit)
+
+
+def _overlay_syst_sigma(total_mc, mc_stat_err, syst_frac_cov, *, add_poisson_mc_stat):
+    """Per-bin 1σ systematic uncertainty for hatched MC bands (absolute event units)."""
+    total_mc = np.asarray(total_mc, dtype=float)
+    syst_err_frac = np.sqrt(np.maximum(np.diag(np.asarray(syst_frac_cov, dtype=float)), 0.0))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        syst_sigma = syst_err_frac * total_mc
+        if add_poisson_mc_stat:
+            mc_stat_err_frac = np.where(total_mc != 0, np.asarray(mc_stat_err, dtype=float) / total_mc, 0.0)
+            syst_sigma = np.sqrt(syst_sigma ** 2 + (mc_stat_err_frac * total_mc) ** 2)
+    return syst_sigma
+
+
+def _overlay_chi2_valid_bins(total_data, total_mc):
+    """Bins with MC or data content (skip empty bins in χ²)."""
+    total_data = np.asarray(total_data, dtype=float)
+    total_mc = np.asarray(total_mc, dtype=float)
+    return (total_mc > 0) | (total_data > 0)
+
+
+def _overlay_compute_chi2(total_data, total_mc, syst_frac_cov, data_eylow, data_eyhigh):
+    """χ² using diagonal errors consistent with hatched syst. band + data error bars."""
+    total_data = np.asarray(total_data, dtype=float)
+    total_mc = np.asarray(total_mc, dtype=float)
+    valid = _overlay_chi2_valid_bins(total_data, total_mc)
+    if not np.any(valid):
+        return None, None, None, None
+
+    data_stat_cov = np.diag((0.5 * (np.asarray(data_eylow, dtype=float) + np.asarray(data_eyhigh, dtype=float))) ** 2)
+    syst_cov = cov_from_fraccov(np.asarray(syst_frac_cov, dtype=float), total_mc)
+    combined_cov = syst_cov + data_stat_cov
+
+    d = total_data[valid]
+    m = total_mc[valid]
+    c = combined_cov[np.ix_(valid, valid)]
+    ndof = int(np.sum(valid))
+
+    chi2_total, p_val = get_chi2(d, m, c)
+    chi2_reduced, _ = get_chi2_avg(d, m, c)
+    chi2_pull = np.full_like(total_data, np.nan, dtype=float)
+    chi2_pull[valid] = (d - m) / np.sqrt(np.maximum(np.diag(c), 1e-10))
+    return chi2_total, chi2_reduced, p_val, ndof, chi2_pull
+
+
+def _resolve_overlay_syst_cov_frac(
+    var_config,
+    syst,
+    *,
+    syst_kind="xsec",
+    syst_disk_root=None,
+    category_syst_summary_path=None,
+    load_syst_from_summary=True,
+):
+    """Use explicit *syst* or load from ``category_syst_summary.npz`` when enabled."""
+    if syst is not None:
+        return np.asarray(syst, dtype=np.float64)
+    if not load_syst_from_summary or var_config is None:
+        return None
+    try:
+        return load_overlay_syst_cov_frac(
+            var_config,
+            syst_kind=syst_kind,
+            syst_disk_root=syst_disk_root,
+            category_syst_summary_path=category_syst_summary_path,
+        )
+    except Exception as ex:
+        print("overlay_hists: could not load category_syst_summary (%s)" % ex)
+        return None
+
+
 def get_frac_unc(mc_evt_df=None, intime_evt_df=None, offbeam_evt_df=None, var_config=None):
 
     # nu mc unc
@@ -320,6 +562,34 @@ def generate_tags(end_tag=""):
     return tags
 
 
+def _as_1d_float_array(values, name="values"):
+    """Coerce event-level values to a 1D float ndarray (handles duplicate-column DataFrames)."""
+    if isinstance(values, pd.DataFrame):
+        if values.shape[1] == 1:
+            values = values.iloc[:, 0]
+        else:
+            raise ValueError(
+                "%s matched %d columns; expected a single event-level series"
+                % (name, values.shape[1])
+            )
+    arr = np.ravel(np.asarray(values, dtype=float))
+    return arr
+
+
+def _var_weights_for_cut(var, weights, cut):
+    """Return aligned 1D reco-variable and POT-weight arrays for one boolean category mask."""
+    mask = np.asarray(cut, dtype=bool)
+    v = _as_1d_float_array(var, name="variable")
+    w = _as_1d_float_array(weights, name="pot_weight")
+    n = len(mask)
+    if len(v) != n or len(w) != n:
+        raise ValueError(
+            "Event array length mismatch: variable=%d pot_weight=%d mask=%d"
+            % (len(v), len(w), n)
+        )
+    return v[mask], w[mask]
+
+
 def get_clipped_evts(df, var_col, bins, verbose=False, var_save_name=None):
     # VariableConfig tuples are often padded to evt depth (e.g. 7); mcnu HDF may be 4-level.
     from analysis_village.numucc_1p0pi.variable_configs import (
@@ -333,7 +603,7 @@ def get_clipped_evts(df, var_col, bins, verbose=False, var_save_name=None):
         var = multicol_get_series(df, var_col)
     else:
         var = df[var_col]
-    var = np.asarray(var, dtype=float)
+    var = _as_1d_float_array(var, name=str(var_col))
     var = np.clip(var, bins[0], bins[-1] - EPSILON)
 
     if 'pot_weight' in df.columns:
@@ -342,7 +612,7 @@ def get_clipped_evts(df, var_col, bins, verbose=False, var_save_name=None):
         if verbose:
             print("No pot_weight column found, return 1 as pot scale (expected for data)")
         weights = np.ones_like(var)
-    weights = np.asarray(weights, dtype=float)
+    weights = _as_1d_float_array(weights, name="pot_weight")
     # One NaN weight makes numpy.histogram return NaN in all bins.
     weights = np.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0)
     return var, weights
@@ -619,11 +889,16 @@ def add_approval_text(approval, textloc_x, textloc_y, textloc_ha, fontsize=20):
 def add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y, textloc_ha, label=""):
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
     prefix = f"{label} " if label else ""
-    ax.text(textloc_x, textloc_y, 
-            f"{prefix}$\chi^2$/ndof = {chi2_val:.1f}/{ndof}", # (p-value = {p_val:.2f})",
-            transform=ax.transAxes, 
-            ha=textloc_ha, va='top',
-            fontsize=12, color='black')
+    ax.text(
+        textloc_x,
+        textloc_y,
+        f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)}",
+        transform=ax.transAxes,
+        ha=textloc_ha,
+        va="top",
+        fontsize=12,
+        color="black",
+    )
 
 def add_genie_version_text(textloc_x, textloc_y, textloc_ha):
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
@@ -1218,6 +1493,14 @@ def overlay_hists_from_histdata(histdata,
                                 ratio=False,
                                 density=False,
                                 syst=None,
+                                syst_kind="xsec",
+                                syst_disk_root=None,
+                                category_syst_summary_path=None,
+                                load_syst_from_summary=True,
+                                show_bkgd_syst_band=False,
+                                bkgd_syst_frac_cov=None,
+                                genie_sb_cov_mat_pkl=None,
+                                bkgd_syst_band_color="darkorange",
                                 syst_decomp=False,  # False -> hatched band (``selected_events.ipynb`` style)
                                 textchi2=False,
                                 vline=None,
@@ -1302,11 +1585,7 @@ def overlay_hists_from_histdata(histdata,
         var_categ = [bin_centers] * len(each_mc_hist_data)
         weights_categ = [h.copy() for h in each_mc_hist_data]
 
-        if breakdown_type == "topology":
-            # signal is the LAST element in cuts ordering
-            total_mc_bkgd = total_mc - each_mc_hist_data[-1]
-        else:
-            total_mc_bkgd = None
+        total_mc_bkgd = None
     else:
         each_mc_hist_data = None
         each_mc_hist_err2 = None
@@ -1386,8 +1665,12 @@ def overlay_hists_from_histdata(histdata,
         density_factor = (data_area / mc_area) if mc_area > 0 else 1.0
         weights_categ = [np.asarray(w) * density_factor for w in weights_categ]
         total_mc = total_mc * density_factor
-        if total_mc_bkgd is not None:
-            total_mc_bkgd = total_mc_bkgd * density_factor
+
+    if plot_mc_stack and histdata.has_mc and total_mc is not None:
+        hist_signal = np.asarray(each_mc_hist_data[-1], dtype=float)
+        if density:
+            hist_signal = hist_signal * density_factor
+        total_mc_bkgd = np.asarray(total_mc, dtype=float) - hist_signal
 
     # the order from get_*_category is reversed from labels/colors (which are signal-first)
     colors, labels = colors[::-1], labels[::-1]
@@ -1482,28 +1765,57 @@ def overlay_hists_from_histdata(histdata,
                 breakdown_fractions = [0.0] * len(layer_integrals)
 
     chi2_val = None
+    chi2_reduced = None
     p_val = None
     ndof = None
     chi2_pull = None
     syst_err = syst_err_norm = syst_err_mixed = syst_err_shape = None
+    bkgd_syst_err = None
+
+    syst_explicit = syst is not None
+    syst = _resolve_overlay_syst_cov_frac(
+        var_config,
+        syst,
+        syst_kind=syst_kind,
+        syst_disk_root=syst_disk_root,
+        category_syst_summary_path=category_syst_summary_path,
+        load_syst_from_summary=load_syst_from_summary,
+    )
 
     if syst is not None and total_mc is not None:
+        add_poisson_mc_stat = _overlay_add_poisson_mc_stat_to_band(
+            syst_explicit, load_syst_from_summary
+        )
         cov_norm, cov_mixed, cov_shape = Matrix_Decomp(total_mc, syst * (total_mc**2))
         syst_err_norm = np.sqrt(np.abs(np.diag(cov_norm)))
         syst_err_mixed = np.sqrt(np.abs(np.diag(cov_mixed)))
         syst_err_shape = np.sqrt(np.abs(np.diag(cov_shape)))
 
-        with np.errstate(divide='ignore', invalid='ignore'):
-            mc_stat_err_frac = np.where(total_mc != 0, mc_stat_err / total_mc, 0.0)
-        syst_err_frac = np.sqrt(np.diag(syst))
-        syst_err_combined_frac = np.sqrt(mc_stat_err_frac**2 + syst_err_frac**2)
-        syst_err = syst_err_combined_frac * total_mc
+        syst_err = _overlay_syst_sigma(
+            total_mc, mc_stat_err, syst, add_poisson_mc_stat=add_poisson_mc_stat
+        )
 
         if syst_decomp == False:
             ax.bar(bin_centers, 2 * syst_err, width=np.diff(bins),
                    bottom=total_mc - syst_err,
                    facecolor='none', hatch='xxx', linewidth=0.0,
                    edgecolor='dimgray', label='Syst. Unc.', zorder=8)
+            if show_bkgd_syst_band and total_mc_bkgd is not None:
+                bkgd_frac = bkgd_syst_frac_cov
+                if bkgd_frac is None:
+                    bkgd_frac = load_genie_sb_bkgd_rate_cov_frac(
+                        var_config, genie_sb_cov_mat_pkl
+                    )
+                bkgd_syst_err = _overlay_bkgd_syst_sigma(total_mc_bkgd, bkgd_frac)
+                _overlay_draw_bkgd_syst_band(
+                    ax,
+                    bin_centers,
+                    bins,
+                    total_mc,
+                    bkgd_syst_err,
+                    edgecolor=bkgd_syst_band_color,
+                    label="Bkgd. GENIE unc.",
+                )
         else:
             ax.bar(bin_centers, 2*syst_err_shape, width=np.diff(bins),
                    bottom=total_mc - syst_err_shape,
@@ -1519,12 +1831,9 @@ def overlay_hists_from_histdata(histdata,
                    linewidth=0.0, label='Syst. Unc. (Norm)')
 
         if histdata.has_data:
-            data_stat_cov = np.diag((0.5*(data_eyhigh + data_eylow))**2)
-            syst_cov = cov_from_fraccov(syst, total_mc)
-            combined_cov = syst_cov + data_stat_cov
-            chi2_val, p_val = get_chi2(total_data, total_mc, combined_cov)
-            ndof = n_bins
-            chi2_pull = (total_data - total_mc) / np.sqrt(np.maximum(np.diag(combined_cov), 1e-10))
+            chi2_val, chi2_reduced, p_val, ndof, chi2_pull = _overlay_compute_chi2(
+                total_data, total_mc, syst, data_eylow, data_eyhigh
+            )
 
     # Data points (draw on top of MC stack)
     if histdata.has_data:
@@ -1545,6 +1854,22 @@ def overlay_hists_from_histdata(histdata,
                          bottom=mc_content_ratio - mc_stat_err_ratio,
                          facecolor='none', edgecolor='dimgray', hatch='xxx',
                          linewidth=0.0, label='Syst. Unc.', zorder=8)
+                if bkgd_syst_err is not None:
+                    bkgd_err_ratio = np.where(
+                        total_mc != 0, bkgd_syst_err / total_mc, 0.0
+                    )
+                    bkgd_err_ratio = np.nan_to_num(bkgd_err_ratio, nan=0.0)
+                    ax_r.bar(
+                        bin_centers,
+                        2 * bkgd_err_ratio,
+                        width=np.diff(bins),
+                        bottom=mc_content_ratio - bkgd_err_ratio,
+                        facecolor="none",
+                        edgecolor=bkgd_syst_band_color,
+                        hatch="+++",
+                        linewidth=0.0,
+                        label="Bkgd. GENIE unc.",
+                    )
             else:
                 mc_content_ratio = np.ones_like(total_mc)
                 with np.errstate(divide='ignore', invalid='ignore'):
@@ -1585,8 +1910,7 @@ def overlay_hists_from_histdata(histdata,
         try:
             data_handle_index = labels_orig.index('Data')
             ordered_handles.append(handles[data_handle_index])
-            # ordered_labels.append('Observed ({:.0f})'.format(sum_data))
-            ordered_labels.append('Observed') # ({:.0f})'.format(sum_data))
+            ordered_labels.append('Observed ({:.0f})'.format(sum_data))
         except ValueError:
             pass
 
@@ -1716,7 +2040,7 @@ def overlay_hists_from_histdata(histdata,
     textloc_y = textloc[1]
 
     if textchi2 and chi2_val is not None:
-        add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y+0.08, textloc_ha)
+        add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y + 0.08, textloc_ha)
 
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
     if breakdown_type != "pdg":
@@ -1757,7 +2081,15 @@ def overlay_hists(breakdown_type="topology",
                   ax_ylim_ratio=1.5,
                   ratio = False,
                   density = False,
-                  syst = None, # fractional cov matrix
+                  syst = None, # fractional cov matrix; None -> category_syst_summary.npz
+                  syst_kind="xsec",
+                  syst_disk_root=None,
+                  category_syst_summary_path=None,
+                  load_syst_from_summary=True,
+                  show_bkgd_syst_band=False,
+                  bkgd_syst_frac_cov=None,
+                  genie_sb_cov_mat_pkl=None,
+                  bkgd_syst_band_color="darkorange",
                   syst_decomp = False,
                   textchi2 = False,
                   vline = None,
@@ -1784,6 +2116,14 @@ def overlay_hists(breakdown_type="topology",
             ratio=ratio,
             density=density,
             syst=syst,
+            syst_kind=syst_kind,
+            syst_disk_root=syst_disk_root,
+            category_syst_summary_path=category_syst_summary_path,
+            load_syst_from_summary=load_syst_from_summary,
+            show_bkgd_syst_band=show_bkgd_syst_band,
+            bkgd_syst_frac_cov=bkgd_syst_frac_cov,
+            genie_sb_cov_mat_pkl=genie_sb_cov_mat_pkl,
+            bkgd_syst_band_color=bkgd_syst_band_color,
             syst_decomp=syst_decomp,
             textchi2=textchi2,
             vline=vline,
@@ -1823,7 +2163,7 @@ def overlay_hists(breakdown_type="topology",
 
         #     mc_df = pd.concat([mc_df, dirt_df])
         
-        vardf, _        = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
+        vardf, wgtdf    = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
 
         # breakdown MC events into truth categories
         if breakdown_type == "pdg":
@@ -1854,8 +2194,12 @@ def overlay_hists(breakdown_type="topology",
                 hatches[i] = '////'
         else:
             raise ValueError("Invalid breakdown_type: %s, please choose between [topology, genie, or genie_sb]" % breakdown_type)
-        var_categ = [vardf[i] for i in cuts]
-        weights_categ = [list(mc_df.loc[cuts[i], 'pot_weight']) for i in range(len(cuts))] 
+        var_categ = []
+        weights_categ = []
+        for cut in cuts:
+            v, w = _var_weights_for_cut(vardf, wgtdf, cut)
+            var_categ.append(v)
+            weights_categ.append(w)
 
         # MC stat err
         each_mc_hist_data = []
@@ -1868,34 +2212,31 @@ def overlay_hists(breakdown_type="topology",
         total_mc = np.sum(each_mc_hist_data, axis=0)
         total_mc_err2 = np.sum(each_mc_hist_err2, axis=0)
         mc_stat_err = np.sqrt(total_mc_err2)
-
-        # if topology breakdown, add background CV
-        if breakdown_type == "topology":
-            total_mc_bkgd = total_mc - each_mc_hist_data[-1]
-        else:
-            total_mc_bkgd = None
+        total_mc_bkgd = None
 
     else:
         vardf = None
         var_categ = None
         total_mc = None
+        total_mc_bkgd = None
         print("No MC data provided")
 
  
     # Intime cosmics
     if intime_df is not None:
-        vardf_intime, _ = get_clipped_evts(intime_df, var_config.var_evt_reco_col, var_config.bins)
-        total_intime, _ = np.histogram(vardf_intime, bins=var_config.bins, weights=intime_df.pot_weight)
-        # var_categ = [vardf_intime] + var_categ
-        # weights_categ = [list(intime_df.pot_weight)] + weights_categ
-        # colors = colors + ["silver"]
-        # labels = labels + ["In-time\nCosmic"]
-
-        # add to the cosmic item in existing list (ndarray + possible Series -> single ndarray)
-        var_categ[0] = np.concatenate(
-            [np.asarray(vardf_intime, dtype=float), np.asarray(var_categ[0], dtype=float)]
+        vardf_intime, wgtdf_intime = get_clipped_evts(
+            intime_df, var_config.var_evt_reco_col, var_config.bins
         )
-        weights_categ[0] = list(intime_df.pot_weight) + list(weights_categ[0])
+        total_intime, _ = np.histogram(
+            vardf_intime, bins=var_config.bins, weights=wgtdf_intime
+        )
+        # add to the cosmic item in existing list
+        var_categ[0] = np.concatenate(
+            [_as_1d_float_array(vardf_intime), _as_1d_float_array(var_categ[0])]
+        )
+        weights_categ[0] = np.concatenate(
+            [_as_1d_float_array(wgtdf_intime), _as_1d_float_array(weights_categ[0])]
+        )
         
         total_mc = total_mc + total_intime
 
@@ -1942,6 +2283,7 @@ def overlay_hists(breakdown_type="topology",
 
 
 
+    density_factor = 1.0
     # if density is True, area normalize to the data
     if mc_df is not None and data_df is not None and density == True:
         mc_area = np.sum(total_mc)
@@ -1959,6 +2301,11 @@ def overlay_hists(breakdown_type="topology",
 
         weights_categ = [np.array(w) * density_factor for w in weights_categ]
 
+    if mc_df is not None and total_mc is not None:
+        hist_signal = _overlay_signal_mc_hist(mc_df, var_config, signal_truth_fv=signal_truth_fv)
+        if density:
+            hist_signal = hist_signal * density_factor
+        total_mc_bkgd = np.asarray(total_mc, dtype=float) - hist_signal
 
     # the order of cuts from get_*_category is reversed from the order of labels and colors
     colors, labels = colors[::-1], labels[::-1]
@@ -2027,9 +2374,21 @@ def overlay_hists(breakdown_type="topology",
                 bottom += hist_vals
 
     chi2_val = None
+    chi2_reduced = None
     p_val = None
     ndof = None
     chi2_pull = None
+    bkgd_syst_err = None
+
+    syst_explicit = syst is not None
+    syst = _resolve_overlay_syst_cov_frac(
+        var_config,
+        syst,
+        syst_kind=syst_kind,
+        syst_disk_root=syst_disk_root,
+        category_syst_summary_path=category_syst_summary_path,
+        load_syst_from_summary=load_syst_from_summary,
+    )
 
     if syst is not None: # list of syst uncertainties 
 
@@ -2037,16 +2396,19 @@ def overlay_hists(breakdown_type="topology",
         # syst_diff = total_data - total_mc
         # syst_diff_cov = np.cov(np.array([total_data, total_mc]).T)
 
+        add_poisson_mc_stat = _overlay_add_poisson_mc_stat_to_band(
+            syst_explicit, load_syst_from_summary
+        )
+
         # decompose into shape and norm components
         cov_norm, cov_mixed, cov_shape = Matrix_Decomp(total_mc, syst * (total_mc**2))
         syst_err_norm = np.sqrt(np.abs(np.diag(cov_norm)))
         syst_err_mixed = np.sqrt(np.abs(np.diag(cov_mixed)))
         syst_err_shape = np.sqrt(np.abs(np.diag(cov_shape)))
 
-        mc_stat_err_frac = mc_stat_err / total_mc
-        syst_err_frac = np.sqrt(np.diag(syst))
-        syst_err = np.sqrt(mc_stat_err_frac**2 + syst_err_frac**2) # fractional error
-        syst_err = syst_err * total_mc
+        syst_err = _overlay_syst_sigma(
+            total_mc, mc_stat_err, syst, add_poisson_mc_stat=add_poisson_mc_stat
+        )
 
         if syst_decomp == False:
             ax.bar(
@@ -2059,6 +2421,23 @@ def overlay_hists(breakdown_type="topology",
                 linewidth=0.0,
                 edgecolor='dimgray',            # outline color of the hatching
                 label='Syst. Unc.'
+            )
+
+        if show_bkgd_syst_band and total_mc_bkgd is not None:
+            bkgd_frac = bkgd_syst_frac_cov
+            if bkgd_frac is None:
+                bkgd_frac = load_genie_sb_bkgd_rate_cov_frac(
+                    var_config, genie_sb_cov_mat_pkl
+                )
+            bkgd_syst_err = _overlay_bkgd_syst_sigma(total_mc_bkgd, bkgd_frac)
+            _overlay_draw_bkgd_syst_band(
+                ax,
+                var_config.bin_centers,
+                var_config.bins,
+                total_mc,
+                bkgd_syst_err,
+                edgecolor=bkgd_syst_band_color,
+                label="Bkgd. GENIE unc.",
             )
 
         if syst_decomp == True:
@@ -2104,12 +2483,9 @@ def overlay_hists(breakdown_type="topology",
 
 
         if data_df is not None:
-            data_stat_cov = np.diag( (0.5*(data_eyhigh + data_eylow)) ** 2 )  # absolute units
-            syst_cov = cov_from_fraccov(syst, total_mc)                        # frac syst -> absolute
-            combined_cov = syst_cov + data_stat_cov
-            chi2_val, p_val = get_chi2(total_data, total_mc, combined_cov)
-            ndof = len(var_config.bins) - 1
-            chi2_pull = (total_data - total_mc) / np.sqrt(np.maximum(np.diag(combined_cov), 1e-10))
+            chi2_val, chi2_reduced, p_val, ndof, chi2_pull = _overlay_compute_chi2(
+                total_data, total_mc, syst, data_eylow, data_eyhigh
+            )
  
     else:
         print("no syst provided")
@@ -2142,6 +2518,23 @@ def overlay_hists(breakdown_type="topology",
                     linewidth=0.0,
                     label='Syst. Unc.'
                 )
+                if bkgd_syst_err is not None:
+                    mc_content_ratio = np.ones_like(total_mc)
+                    bkgd_err_ratio = np.where(
+                        total_mc != 0, bkgd_syst_err / total_mc, 0.0
+                    )
+                    bkgd_err_ratio = np.nan_to_num(bkgd_err_ratio, nan=0.0)
+                    ax_r.bar(
+                        var_config.bin_centers,
+                        2 * bkgd_err_ratio,
+                        width=np.diff(var_config.bins),
+                        bottom=mc_content_ratio - bkgd_err_ratio,
+                        facecolor="none",
+                        edgecolor=bkgd_syst_band_color,
+                        hatch="+++",
+                        linewidth=0.0,
+                        label="Bkgd. GENIE unc.",
+                    )
 
             if syst_decomp == True:
                 mc_content_ratio = total_mc / total_mc # dummy
@@ -2215,8 +2608,7 @@ def overlay_hists(breakdown_type="topology",
         data_handle_index = labels_orig.index('Data')
         data_handle = handles[data_handle_index]
         ordered_handles.extend([data_handle])
-        data_text = 'Observed' # ({:.0f})'.format(sum_data)
-        # data_text = 'Observed'
+        data_text = 'Observed ({:.0f})'.format(sum_data)
         ordered_labels.extend([data_text])
 
     if mc_df is not None:
@@ -2367,8 +2759,8 @@ def overlay_hists(breakdown_type="topology",
     textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
     textloc_y = textloc[1]
 
-    if textchi2 and syst is not None:
-        add_chi2_text(chi2_val, p_val, len(var_config.bins)-1, textloc_x, textloc_y+0.08, textloc_ha)
+    if textchi2 and chi2_val is not None:
+        add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y + 0.08, textloc_ha)
 
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
 
@@ -2725,7 +3117,7 @@ def plot_unfolded_result(unfold,
             tot_err = np.sqrt(Data_stat**2 + Unfold_uncert_stat_shape_perwidth**2)
         Data_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=tot_err, fmt='o', color='black', capsize=3)
         handles = [bar_handle, Data_handle]
-        labels = ['SBND Development Data', 'Measured Signal']
+        labels = ["SBND Development Data", "Measured Signal"]
         UnfoldCov_syst = cov_from_fraccov(UnfoldCov_syst_frac, Unfolded_perwidth)
 
         UnfoldCov_syst = UnfoldCov_syst + Data_stat_cov
@@ -2733,8 +3125,16 @@ def plot_unfolded_result(unfold,
 
     # divide measured & model by bin width
     measured_perwidth = measured / bin_widths
-    if data == False:
-        reco_handle, = plt.step(bins, np.append(measured_perwidth, measured_perwidth[-1]), where='post', label='Measured Signal (Input)')
+    reco_handle = None
+    if not data:
+        # Measured Signal (Input) — restore when you want the folded fake-data / Asimov input on the plot:
+        # reco_handle, = plt.step(
+        #     bins,
+        #     np.append(measured_perwidth, measured_perwidth[-1]),
+        #     where="post",
+        #     label="Measured Signal (Input)",
+        # )
+        pass
 
     # --- get chi2 values for each model to compare
     if len(chi2_list) == 0:
@@ -2784,8 +3184,12 @@ def plot_unfolded_result(unfold,
 
     # legend
     if closure_test:
-        handles = [bar_handle, reco_handle] + model_handles
-        labels = ['Unfolded Asimov Data', 'Measured Signal'] + model_labels
+        if reco_handle is not None:
+            handles = [bar_handle, reco_handle] + model_handles
+            labels = ["Unfolded Asimov Data", "Measured Signal"] + model_labels
+        else:
+            handles = [bar_handle] + model_handles
+            labels = ["Unfolded Asimov Data"] + model_labels
     elif data:
         if len(var_config.bins) == 2:
             handles = [bar_handle] + model_handles
@@ -2794,8 +3198,24 @@ def plot_unfolded_result(unfold,
             handles = [bar_handle, norm_handle] + model_handles
             labels = ['Data (Shape Syst. Unc. + Stat. Unc.)', 'Norm. Syst. Unc.'] + model_labels
     else:
-        handles = [bar_handle, norm_handle, reco_handle] + model_handles
-        labels = ['SBND Development Data', 'Norm. Syst. Unc.', 'Measured Signal'] + model_labels
+        if len(var_config.bins) == 2:
+            if reco_handle is not None:
+                handles = [bar_handle, reco_handle] + model_handles
+                labels = ["Fake Data", "Measured Signal (Input)"] + model_labels
+            else:
+                handles = [bar_handle] + model_handles
+                labels = ["Fake Data"] + model_labels
+        else:
+            if reco_handle is not None:
+                handles = [bar_handle, norm_handle, reco_handle] + model_handles
+                labels = [
+                    "Fake Data",
+                    "Norm. Syst. Unc.",
+                    "Measured Signal (Input)",
+                ] + model_labels
+            else:
+                handles = [bar_handle, norm_handle] + model_handles
+                labels = ["Fake Data", "Norm. Syst. Unc."] + model_labels
     plt.legend(handles, labels, 
                loc='upper left', fontsize=12, frameon=False, ncol=1, bbox_to_anchor=(0.02, 0.98))
 
@@ -3190,7 +3610,8 @@ def plot_heatmap(matrix,
                  plot=True,
                  cmap="bwr",
                  save_fig=False, 
-                 save_name=None):
+                 save_name=None,
+                 leave_open=False):
 
     nbins = len(bins)
     assert nbins-1 == matrix.shape[0] == matrix.shape[1]
@@ -3223,7 +3644,8 @@ def plot_heatmap(matrix,
 
         formatter = mpl.ticker.FuncFormatter(lambda x, _: f"{x/10**exponent:.2f}")
         cbar = plt.colorbar(shrink=0.7)
-        cbar.set_label(f"{plot_labels[2]} [10$^{{{exponent}}}$]", fontsize=16)
+        # cbar.set_label(f"{plot_labels[2]} [10$^{{{exponent}}}$]", fontsize=16)
+        cbar.set_label(f"[10$^{{{exponent}}}$]", fontsize=16)
         cbar.ax.yaxis.set_major_formatter(formatter)
     else:
         plt.colorbar(shrink=0.7, label=plot_labels[2])
@@ -3245,7 +3667,7 @@ def plot_heatmap(matrix,
     plt.yticks(y_tick_positions, y_labels)
     plt.xlabel(plot_labels[0], fontsize=20)
     plt.ylabel(plot_labels[1], fontsize=20)
-    # plt.title(plot_labels[2], fontsize=20)
+    plt.title(plot_labels[2], fontsize=20)
 
     if verbose:
         n_diag = np.sum(np.diag(matrix))
@@ -3261,9 +3683,9 @@ def plot_heatmap(matrix,
     if save_fig:
         plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
 
-    if plot == True:
+    if plot:
         plt.show()
-    else:
+    elif not leave_open:
         plt.close()
 
 

@@ -5,12 +5,12 @@ sys.path.append('../../')
 from makedf.util import *
 
 
-DETECTOR = "SBND_nohighyz"
+DETECTOR = "SBND_Gen1"
 # DETECTOR = "SBND"
 
 # Cathode inset (cm) for per-TPC x-fiducial; matches reco helpers in
 # ``scripts/selected_events.py`` / ``selected_events_cumulative.py``.
-PER_TPC_INCATHODE_CM = 5
+PER_TPC_INCATHODE_CM = 10
 
 # ==== definitions for event categories ===-
 

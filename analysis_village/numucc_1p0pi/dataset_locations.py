@@ -70,17 +70,18 @@ PLOTS_BASE = Path(
 )
 
 # -----------------------------------------------------------------------------
-# Event selection chunked driver (same logical samples as the old bash arrays)
+# DFs with all slices, for event selection chunked driver
+# run_event_selection_chunked.sh
 # Keys: mc, data, intime, offbeam, dirt
 # -----------------------------------------------------------------------------
 EVENT_SELECTION_GLOBS: Dict[str, str] = {
     # "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*df"),
     #"mc": str(SPRING_GEN1_ROOT / "2026_05_11_183347__sel_all-mc-BNB_cosmics-EField_R00/*df"),
-    "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*.df"),
-    "data": str(SPRING_GEN1_ROOT / "2026_05_16_230859__sel_all-data-1e20/*.df"),
-    "intime": str(SPRING_GEN1_ROOT / "2026_05_11_040132__sel_all-mc-Intime/*.df"),
-    "offbeam": str(SPRING_GEN1_ROOT / "2026_05_11_035756__sel_all-data-OffBeamLight/*.df"),
-    "dirt": str(SPRING_GEN1_ROOT / "2026_05_11_040638__sel_all-mc-dirt/*df"),
+    "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/merged/*.df"),
+    "data": str(SPRING_GEN1_ROOT / "2026_05_16_230859__sel_all-data-1e20/merged/*.df"),
+    "intime": str(SPRING_GEN1_ROOT / "2026_05_11_040132__sel_all-mc-Intime/merged/*.df"),
+    "offbeam": str(SPRING_GEN1_ROOT / "2026_05_11_035756__sel_all-data-OffBeamLight/merged/*.df"),
+    "dirt": str(SPRING_GEN1_ROOT / "2026_05_11_040638__sel_all-mc-dirt/merged/*.df"),
 }
 
 # -----------------------------------------------------------------------------

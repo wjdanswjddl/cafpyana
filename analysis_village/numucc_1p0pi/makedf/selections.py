@@ -4,6 +4,7 @@ from pyanalib.variable_calculator import *
 from pyanalib.pandas_helpers import *
 from makedf.constants import *
 from makedf.util import *
+from analysis_village.numucc_1p0pi.categories import PER_TPC_INCATHODE_CM
 
 
 # ==== events selection cuts ====
@@ -44,7 +45,61 @@ def cut_good_trks(trkdf):
          (trkdf.pfp.pfochar.vtxdist < 100) #&\
     return trkdf[mask]
 
+
+def _dedupe_event_level_index(trk_df: pd.DataFrame, n_event_levels: int) -> pd.DataFrame:
+    """Drop duplicate slice keys before merging tracks onto ``evt``.
+
+    ``groupby(...).nth(i)`` can return multiple rows per slice when track ordering
+    ties; ``multicol_merge(..., validate='one_to_one')`` then raises and ``trk1`` /
+    ``trk2`` never get attached.
+    """
+    if trk_df is None or len(trk_df) == 0:
+        return trk_df
+    if trk_df.index.duplicated().any():
+        return trk_df[~trk_df.index.duplicated(keep="first")]
+    return trk_df
+
+
+def _is_merged_trk_block_name(name) -> bool:
+    """True for per-slice track blocks added by :func:`get_trk_info` (incl. merge suffixes)."""
+    s = str(name)
+    if s in ("mu", "p"):
+        return True
+    if s.startswith("nocut_trk") or (s.startswith("trk") and len(s) > 3 and s[3].isdigit()):
+        return True
+    return False
+
+
+def evt_has_trk1_trk2(evtdf: pd.DataFrame) -> bool:
+    """True when per-slice ``trk1`` / ``trk2`` column blocks are present on ``evt``."""
+    if evtdf is None or len(evtdf) == 0:
+        return False
+    try:
+        top = evtdf.columns.get_level_values(0).unique()
+    except Exception:
+        return False
+    return ("trk1" in top) and ("trk2" in top)
+
+
+def _drop_merged_trk_blocks(evtdf: pd.DataFrame) -> pd.DataFrame:
+    """Remove prior ``trk*`` / ``nocut_trk*`` / ``mu`` / ``p`` blocks before re-merging tracks.
+
+    Re-running :func:`get_trk_info` without this leaves duplicate top-level names; pandas
+    then suffixes columns (``trk1_x``) and ``evt.trk1`` attribute access breaks.
+    """
+    if evtdf is None or len(evtdf.columns) == 0:
+        return evtdf
+    if not isinstance(evtdf.columns, pd.MultiIndex):
+        return evtdf
+    lev0 = evtdf.columns.get_level_values(0)
+    keep = ~pd.Index(lev0).map(_is_merged_trk_block_name)
+    if keep.all():
+        return evtdf
+    return evtdf.loc[:, keep]
+
+
 def get_trk_info(evtdf, trkdf, save_ntrks=3):
+    evtdf = _drop_merged_trk_blocks(evtdf)
     nlevels = len(trkdf.index.names)
     ntrks = trkdf.pfp.id.groupby(level=list(range(nlevels-1))).count()
     ntrks.reindex(evtdf.index, fill_value=0)
@@ -58,14 +113,17 @@ def get_trk_info(evtdf, trkdf, save_ntrks=3):
     trks_sorted = trkdf.sort_values(by=('pfp','trk','len'), ascending=False)
     good_trks_sorted = good_trks.sort_values(by=('pfp','trk','len'), ascending=False)
     # get 'ntrks' longest tracks
+    evt_levels = nlevels - 1
     for i in range(save_ntrks):
-        trk_i = good_trks_sorted.groupby(level=list(range(nlevels-1))).nth(i)
+        trk_i = good_trks_sorted.groupby(level=list(range(evt_levels))).nth(i)
         trk_i.columns = pd.MultiIndex.from_tuples([tuple(["nocut_trk" + str(i+1)] + list(c)) for c in trk_i.columns])
-        evtdf = multicol_merge(evtdf, trk_i.droplevel(-1), left_index=True, right_index=True, how="left", validate="one_to_one")
+        trk_i = _dedupe_event_level_index(trk_i.droplevel(-1), evt_levels)
+        evtdf = multicol_merge(evtdf, trk_i, left_index=True, right_index=True, how="left", validate="one_to_one")
 
-        good_trk_i = good_trks_sorted.groupby(level=list(range(nlevels-1))).nth(i)
+        good_trk_i = good_trks_sorted.groupby(level=list(range(evt_levels))).nth(i)
         good_trk_i.columns = pd.MultiIndex.from_tuples([tuple(["trk" + str(i+1)] + list(c)) for c in good_trk_i.columns])
-        evtdf = multicol_merge(evtdf, good_trk_i.droplevel(-1), left_index=True, right_index=True, how="left", validate="one_to_one")
+        good_trk_i = _dedupe_event_level_index(good_trk_i.droplevel(-1), evt_levels)
+        evtdf = multicol_merge(evtdf, good_trk_i, left_index=True, right_index=True, how="left", validate="one_to_one")
 
     return evtdf
 
@@ -75,8 +133,19 @@ def cut_2prong(df):
     return df[(df.n_good_trks == 2)]
 
 def cut_2prong_contained(df, det="SBND"):
-    return df[InFV(df.trk1.pfp.trk.start, det=det) & InFV(df.trk1.pfp.trk.end, det=det) \
-        & InFV(df.trk2.pfp.trk.start, det=det) & InFV(df.trk2.pfp.trk.end, det=det)]
+    if det == "SBND_Gen1":
+        in_TPC1_cut = InFV(df.slc.vertex, det="SBND_TPC1", incathode=PER_TPC_INCATHODE_CM) \
+                & InFV(df.trk1.pfp.trk.end, det="SBND_TPC1", incathode=PER_TPC_INCATHODE_CM) \
+                & InFV(df.trk2.pfp.trk.end, det="SBND_TPC1", incathode=PER_TPC_INCATHODE_CM)
+        in_TPC2_cut = InFV(df.slc.vertex, det="SBND_TPC2", incathode=PER_TPC_INCATHODE_CM) \
+                & InFV(df.trk1.pfp.trk.end, det="SBND_TPC2", incathode=PER_TPC_INCATHODE_CM) \
+                & InFV(df.trk2.pfp.trk.end, det="SBND_TPC2", incathode=PER_TPC_INCATHODE_CM)
+        perTPC_cut = in_TPC1_cut | in_TPC2_cut
+        return df[perTPC_cut]
+
+    else:
+        return df[InFV(df.trk1.pfp.trk.start, det=det) & InFV(df.trk1.pfp.trk.end, det=det) \
+            & InFV(df.trk2.pfp.trk.start, det=det) & InFV(df.trk2.pfp.trk.end, det=det)]
 
 def cut_2prong_trackscore(df, trackscore_th=0.5):
     return df[(df.trk1.pfp.trackScore > trackscore_th) & (df.trk2.pfp.trackScore > trackscore_th)]
@@ -90,6 +159,11 @@ def get_mu_p_candidate(df,
 
     nlevels = len(df.index.names)
 
+    if not evt_has_trk1_trk2(df):
+        raise KeyError(
+            "evt is missing trk1/trk2 columns required for mu/p PID — "
+            "call get_trk_info(evt, trk) after matching tracks to the current slice table"
+        )
     trks = pd.concat([df.trk1, df.trk2])
 
     chimu_avg = avg_chi2(trks, f"chi2_muon{score_tag}")
