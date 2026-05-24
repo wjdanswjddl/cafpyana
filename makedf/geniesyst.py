@@ -387,6 +387,8 @@ def geniesyst(f, nuind, multisim_nuniv=100, slim=False, systematics=None):
     if systematics is None:
         systematics = regen_systematics
     geniewgtdf = getsyst.getsyst(f, systematics, nuind, multisim_nuniv=multisim_nuniv, slim=slim, slimname="GENIE")
+    # cap at 10
+    geniewgtdf = geniewgtdf.clip(lower=0, upper=10)
     if slim:  # keep only the multiplied "GENIE.univ_" columns
         genie_cols = [c for c in geniewgtdf.columns if c[0] == "GENIE"]
         geniewgtdf = geniewgtdf[genie_cols]
