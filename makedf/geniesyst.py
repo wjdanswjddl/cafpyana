@@ -383,13 +383,51 @@ GENIE_KNOB_GROUPS = {
 }
 
 
+def per_knob_names_in_mc_weights(mc_evt_df) -> tuple:
+    """Knob names with ±σ / morph leaves under ``mc`` (excludes bundled ``GENIE``)."""
+    cols = mc_evt_df.columns
+    if not isinstance(cols, pd.MultiIndex) or cols.nlevels < 3:
+        return ()
+    try:
+        mc = mc_evt_df.mc
+    except (AttributeError, KeyError):
+        return ()
+    knobs = []
+    for knob in mc.columns.get_level_values(0).unique():
+        if knob in (None, "", "GENIE"):
+            continue
+        leaves = {
+            str(c[0]) if isinstance(c, tuple) else str(c) for c in mc[knob].columns
+        }
+        if leaves & {"ps1", "ms1", "morph"} or any(x.startswith("univ_") for x in leaves):
+            knobs.append(knob)
+    return tuple(sorted(knobs))
+
+
+def _slim_genie_weight_columns(columns):
+    """Bundled multisim product ``(GENIE, univ_*)`` plus per-knob ±σ / morph leaves.
+
+    Multisigma and morph knobs are **not** folded into ``GENIE.univ_*`` (no pseudo-random
+    multisim throws). True multisim knobs (CAF type 0) are the only ones multiplied there.
+    """
+    keep = []
+    for c in columns:
+        if not isinstance(c, tuple) or len(c) < 2:
+            continue
+        top, leaf = c[0], str(c[1])
+        if top == "GENIE":
+            keep.append(c)
+        elif not leaf.startswith("univ_"):
+            keep.append(c)
+    return keep
+
+
 def geniesyst(f, nuind, multisim_nuniv=100, slim=False, systematics=None):
     if systematics is None:
         systematics = regen_systematics
     geniewgtdf = getsyst.getsyst(f, systematics, nuind, multisim_nuniv=multisim_nuniv, slim=slim, slimname="GENIE")
     # cap at 10
     geniewgtdf = geniewgtdf.clip(lower=0, upper=10)
-    if slim:  # keep only the multiplied "GENIE.univ_" columns
-        genie_cols = [c for c in geniewgtdf.columns if c[0] == "GENIE"]
-        geniewgtdf = geniewgtdf[genie_cols]
+    if slim:
+        geniewgtdf = geniewgtdf[_slim_genie_weight_columns(geniewgtdf.columns)]
     return geniewgtdf

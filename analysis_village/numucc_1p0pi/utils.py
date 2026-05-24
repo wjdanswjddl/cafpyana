@@ -87,6 +87,7 @@ def get_syst_unc(
     syst_disk_root=None,
     syst_components=None,
     genie_cov_frac_key: str = "genie",
+    skip_missing_vars: bool = False,
 ):
     """Load fractional covariance blocks from the syst-disk tree and combine into total covariance.
 
@@ -107,6 +108,11 @@ def get_syst_unc(
         Which matrix to read from ``GENIE/cov_mat_dict.pkl`` for the ``genie`` disk component:
         ``"genie"`` (response / **xsec** path) or ``"genie_rate"`` (**rate** reweight path), matching
         :mod:`syst_genie_aggregate`. Default ``"genie"`` preserves legacy behavior.
+    skip_missing_vars
+        If ``True``, omit disk-backed components whose files lack ``var_config.var_save_name``,
+        whose covariance shape does not match ``var_config`` bins, or that otherwise fail to
+        combine for this variable, instead of raising. Useful for overlay plots when only a
+        subset of variables has been produced on the syst disk.
     """
     if syst_components is None:
         active = frozenset(SYST_UNC_ALL_KEYS)
@@ -188,25 +194,48 @@ def get_syst_unc(
     frac_uncert_total = np.zeros(len(var_config.bin_centers))
     frac_cov_matrix_total = np.zeros((len(var_config.bin_centers), len(var_config.bin_centers)))
 
+    n_bins = len(var_config.bin_centers)
     for key in SYST_UNC_DISK_KEYS:
         if key not in active:
             continue
-        syst = _load_disk_frac_cov(key)
         syst_name = _SYST_UNC_DISK_LABELS[key]
-        if key == "cosmics":
-            from analysis_village.numucc_1p0pi.syst_cosmics_common import (
-                flat_uncorrelated_cov_frac,
-            )
+        try:
+            syst = _load_disk_frac_cov(key)
+            if key == "cosmics":
+                from analysis_village.numucc_1p0pi.syst_cosmics_common import (
+                    flat_uncorrelated_cov_frac,
+                )
 
-            syst = flat_uncorrelated_cov_frac(syst)
-        syst_uncert = np.sqrt(np.diag(syst))
-        if key == "cosmics":
-            flat_val = float(np.max(syst_uncert)) if len(syst_uncert) else 0.0
-            syst_uncert = flat_val * np.ones(len(var_config.bin_centers))
-        frac_uncert_total += syst_uncert ** 2
-        frac_cov_matrix_total += syst
-        if plot:
-            plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert,   histtype="step", linewidth=2, label=syst_name)
+                syst = flat_uncorrelated_cov_frac(syst)
+            syst_uncert = np.sqrt(np.diag(syst))
+            if key == "cosmics":
+                flat_val = float(np.max(syst_uncert)) if len(syst_uncert) else 0.0
+                syst_uncert = flat_val * np.ones(n_bins)
+            if syst.shape != (n_bins, n_bins):
+                raise ValueError(
+                    "cov_frac shape %s does not match %d bins for %r"
+                    % (syst.shape, n_bins, var_config.var_save_name)
+                )
+            frac_uncert_total += syst_uncert ** 2
+            frac_cov_matrix_total += syst
+            if plot:
+                plt.hist(
+                    var_config.bin_centers,
+                    bins=var_config.bins,
+                    weights=syst_uncert,
+                    histtype="step",
+                    linewidth=2,
+                    label=syst_name,
+                )
+        except (KeyError, ValueError) as ex:
+            if not skip_missing_vars:
+                raise
+            print(
+                "[get_syst_unc] skip %s for %r: %s"
+                % (syst_name, var_config.var_save_name, ex),
+                flush=True,
+            )
+            continue
 
     if "pot" in active:
         syst_name = "POT"
@@ -284,7 +313,10 @@ def load_overlay_syst_cov_frac(
     path = resolve_category_syst_summary_path(
         category_syst_summary_path, syst_disk_root
     )
-    vsn = var_config.var_save_name
+    vsn = (
+        getattr(var_config, "category_syst_var_save_name", None)
+        or var_config.var_save_name
+    )
     cache_key = (path, vsn, syst_kind)
     if cache_key in _CATEGORY_SYST_SUMMARY_CACHE:
         return _CATEGORY_SYST_SUMMARY_CACHE[cache_key]
@@ -640,10 +672,11 @@ def _multicol_first_nonempty_leaf(col) -> str:
 
 
 def genie_univ_weight_series(weight_block: pd.DataFrame, uidx: int) -> pd.Series:
-    """GENIE weights from ``getsyst``: multisim ``univ_*``, unisim ``morph``, multisigma ``ps1``.
+    """Per-knob GENIE weights: multisim ``univ_*``, or unisim leaves aliased to ``univ_*``.
 
-    See :mod:`makedf.getsyst` — type-3 morph uses ``morph``; multisigma uses ``ps*`` / ``ms*``.
-    For covariance we treat one universe: unisim → ``morph``, multisigma → ``ps1`` (matches slim-mode).
+    Slim HDF stores multisigma/morph as ``ps*`` / ``ms*`` / ``morph`` under each knob name
+    (not in bundled ``mc.GENIE``). Use :func:`get_systematics_genie.normalize_and_infer_n_univ`
+    before calling :func:`get_univ_rates` on those blocks.
     """
     want = "univ_%d" % uidx
     cols = weight_block.columns
@@ -687,6 +720,7 @@ def get_univ_rates(cov_type="rate",
                     syst_name="", 
                     n_univ=100, 
                     bkgd_subtract=True,
+                    return_bkgd=False,
                     xsec_unit=0,
                     plot=False,
                     verbose=False):
@@ -726,6 +760,9 @@ def get_univ_rates(cov_type="rate",
     univ_effs   = []
     univ_smears = []
 
+    univ_events_bkgd = np.zeros((n_univ, len(bins)-1))
+    cv_events_bkgd = np.zeros((len(bins)-1))
+
     for uidx in tqdm(range(n_univ), desc="Getting universes", disable=not verbose):
         univ_col = f"univ_{uidx}"
         w_evt_univ = _genie_weight_series(syst_type, evtdf_signal[syst_name], uidx)
@@ -741,7 +778,7 @@ def get_univ_rates(cov_type="rate",
         use_xsec_response = (
             cov_type == "xsec"
             and syst_type == "GENIE"
-            and var_config.var_save_name != "integrated"
+            # and var_config.var_save_name != "integrated"
         )
         if use_xsec_response:
             # smearing matrix
@@ -756,15 +793,24 @@ def get_univ_rates(cov_type="rate",
             univ_smears.append(reco_vs_true)
 
             # efficiency
-            signal_allmc_univ, _ = np.histogram(ret["var_allmc"],
-                                               weights=ret["wgt_allmc"]*w_nu_univ,
+            var = ret["var_allmc"]
+            weights = ret["wgt_allmc"]*w_nu_univ
+            weights[np.isnan(weights)] = 1
+            # TODO
+            weights = np.clip(weights, 0, 10)
+            signal_allmc_univ, _ = np.histogram(var,
+                                               weights=weights,
                                                bins=bins)
+
+            weights = ret["wgt_sel_truth"]*w_evt_univ
+            weights[np.isnan(weights)] = 1
             signal_sel_univ, _ = np.histogram(ret["var_sel_truth"],
                                                weights=ret["wgt_sel_truth"]*w_evt_univ,
                                                bins=bins)
             eff = signal_sel_univ / signal_allmc_univ
             univ_effs.append(eff)
 
+            # print(signal_allmc_univ)
             response_univ = get_response_matrix(reco_vs_true, eff)
             signal_univ = response_univ @ ret["nevts_allmc"] # note that we multiply the CV signal rate!
             # signal_univ = signal_cv
@@ -796,6 +842,10 @@ def get_univ_rates(cov_type="rate",
             univ_wgt[np.isnan(univ_wgt)] = 1 ## IMPORTANT: make nan univ_wgt to 1. to ignore them
             background_cv, _   = np.histogram(var, bins=bins, weights=wgt)
             background_univ, _ = np.histogram(var, bins=bins, weights=wgt*univ_wgt)
+            univ_events_bkgd[uidx] += background_univ
+            # only add background cv for the first universe
+            if uidx == 0:
+                cv_events_bkgd += background_cv
 
             if bkgd_subtract:
                 signal_univ += (background_univ - background_cv)
@@ -814,7 +864,16 @@ def get_univ_rates(cov_type="rate",
         cv_events = ret["nevts_allsel_reco"]
         cv_events *= scale_factor 
 
-    return univ_events, cv_events
+    if return_bkgd:
+        # sum over all background categories
+        univ_events_bkgd = np.array(univ_events_bkgd) #.sum(axis=0)
+        # univ_events_bkgd *= scale_factor
+        cv_events_bkgd = np.array(cv_events_bkgd) #.sum(axis=0)
+        # cv_events_bkgd *= scale_factor
+        return univ_events, cv_events, univ_events_bkgd, cv_events_bkgd
+
+    else:
+        return univ_events, cv_events
 
 
 # Previous version (same math; only the docstring below was added later):
@@ -3741,25 +3800,25 @@ def print_sbnd_octant_vertex_ranges(x0, y0, z0):
     Matches the convention in ``selected_events`` octant labeling: split planes at
     ``x0``, ``y0``, ``z0``; E/W from ``x``, N/S from ``z``, Top/Bottom from ``y``.
     SBND: **East** is ``x < x0``; **West** is ``x >= x0``.
-    **North** is ``z < z0``; **South** is ``z >= z0``.
+    **South** is ``z < z0``; **North** is ``z > z0`` (``z >= z0`` at the split plane).
     **Top** is ``y >= y0``; **Bottom** is ``y < y0``.
     """
     xf, yf, zf = float(x0), float(y0), float(z0)
     xs, ys, zs = "{:.6g}".format(xf), "{:.6g}".format(yf), "{:.6g}".format(zf)
     print("\n=== SBND octants vs reco vertex [cm]; planes x={}, y={}, z={} ===".format(xs, ys, zs))
     print("  E/W (TPC sides):  E if x < {} (negative x),    W if x >= {}".format(xs, xs))
-    print("  N/S:              N if z < {} (lower z),    S if z >= {}".format(zs, zs))
+    print("  N/S:              S if z < {} (lower z),    N if z >= {}".format(zs, zs))
     print("  Top / Bottom:     Bottom if y < {},    Top if y >= {}".format(ys, ys))
-    # x: E → x < x0 ; W → x >= x0.  z: N → z < z0 ; S → z >= z0.
+    # x: E → x < x0 ; W → x >= x0.  z: S → z < z0 ; N → z >= z0.
     rows = [
-        ("W-S-Bottom", "[{}, +inf)".format(xs), "[{}, +inf)".format(zs), "(-inf, {})".format(ys)),
-        ("W-S-Top", "[{}, +inf)".format(xs), "[{}, +inf)".format(zs), "[{}, +inf)".format(ys)),
-        ("W-N-Bottom", "[{}, +inf)".format(xs), "(-inf, {})".format(zs), "(-inf, {})".format(ys)),
-        ("W-N-Top", "[{}, +inf)".format(xs), "(-inf, {})".format(zs), "[{}, +inf)".format(ys)),
-        ("E-S-Bottom", "(-inf, {})".format(xs), "[{}, +inf)".format(zs), "(-inf, {})".format(ys)),
-        ("E-S-Top", "(-inf, {})".format(xs), "[{}, +inf)".format(zs), "[{}, +inf)".format(ys)),
-        ("E-N-Bottom", "(-inf, {})".format(xs), "(-inf, {})".format(zs), "(-inf, {})".format(ys)),
-        ("E-N-Top", "(-inf, {})".format(xs), "(-inf, {})".format(zs), "[{}, +inf)".format(ys)),
+        ("W-S-Bottom", "[{}, +inf)".format(xs), "(-inf, {})".format(zs), "(-inf, {})".format(ys)),
+        ("W-S-Top", "[{}, +inf)".format(xs), "(-inf, {})".format(zs), "[{}, +inf)".format(ys)),
+        ("W-N-Bottom", "[{}, +inf)".format(xs), "[{}, +inf)".format(zs), "(-inf, {})".format(ys)),
+        ("W-N-Top", "[{}, +inf)".format(xs), "[{}, +inf)".format(zs), "[{}, +inf)".format(ys)),
+        ("E-S-Bottom", "(-inf, {})".format(xs), "(-inf, {})".format(zs), "(-inf, {})".format(ys)),
+        ("E-S-Top", "(-inf, {})".format(xs), "(-inf, {})".format(zs), "[{}, +inf)".format(ys)),
+        ("E-N-Bottom", "(-inf, {})".format(xs), "[{}, +inf)".format(zs), "(-inf, {})".format(ys)),
+        ("E-N-Top", "(-inf, {})".format(xs), "[{}, +inf)".format(zs), "[{}, +inf)".format(ys)),
     ]
     hdr = "{:14}  {:^26}  {:^26}  {:^26}".format("octant", "x range", "z range", "y range")
     print("\n" + hdr)
@@ -3767,7 +3826,7 @@ def print_sbnd_octant_vertex_ranges(x0, y0, z0):
     for name, xr, zr, yr in rows:
         print("{:14}  {:^26}  {:^26}  {:^26}".format(name, xr, zr, yr))
     print(
-        "\nBoundary vertices: x=x0 uses >= toward West; z=z0 uses >= toward South; y=y0 uses >= toward Top.\n"
+        "\nBoundary vertices: x=x0 uses >= toward West; z=z0 uses >= toward North; y=y0 uses >= toward Top.\n"
     )
 
 

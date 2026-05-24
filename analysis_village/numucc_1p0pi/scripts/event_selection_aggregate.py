@@ -248,8 +248,13 @@ def render_overlay_plots(
 
         # Notebook parity: precomputed fractional covariances on disk (GENIE / flux / …).
         if kwargs.get("syst") is None and syst_disk_root is not None:
-            _, cov_disk = get_syst_unc(ps.var_config, syst_disk_root=syst_disk_root)
-            kwargs["syst"] = cov_disk
+            _, cov_disk = get_syst_unc(
+                ps.var_config,
+                syst_disk_root=syst_disk_root,
+                skip_missing_vars=True,
+            )
+            if np.any(cov_disk):
+                kwargs["syst"] = cov_disk
 
         if kwargs.get("syst") is None:
             vars_missing_syst.append(ps.var_config.var_save_name)
@@ -381,7 +386,11 @@ def render_efficiency_plots(merged: dict, save_fig_dir: str, pot_str: str,
 
     for var_save_name in sorted(vars_seen):
         var_config = var_lookup.get(var_save_name)
+
         if var_config is None:
+            continue
+
+        if var_config.var_save_name == "muon-dir_phi":
             continue
 
         # Denominator: generated signal on ``mcnu`` × ``var_nu_col`` (filled only on the

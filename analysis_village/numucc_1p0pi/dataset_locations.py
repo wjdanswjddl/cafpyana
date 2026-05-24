@@ -117,6 +117,9 @@ MULTISIM_SYST_GLOBS_FINAL: Dict[str, str] = {
     # "Flux": str(SPRING_GEN1_ROOT_EAF / "2026_05_11_155745__sel_mup-wgts_flux/*.df"),
     "G4": str(SPRING_GEN1_ROOT / "2026_05_11_031351__sel_mup-wgts_g4/merged_perTPC/*.df"),
     # "G4": str(SPRING_GEN1_ROOT_EAF / "2026_05_11_031351__sel_mup-wgts_g4/*.df"),
+    # "GENIE": str(SPRING_GEN1_ROOT / "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_23_103124__sel_mup-wgts_genie_slim/*df"),
+    # "GENIE": str(SPRING_GEN1_ROOT / "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_11_024530__sel_mup-wgts_genie_CCQE/*df"),
+    "GENIE": str(SPRING_GEN1_ROOT / f"2026_05_23_235202__sel_mup-wgts_genie_slim/perTPC/*.df"),
 }
 MULTISIM_SYST_GLOBS_SEL_ALL: Dict[str, str] = {
     # "MCstat": str(SPRING_GEN1_ROOT / "2026_05_11_084007__sel_mup-wgts_mcstat/*.df"),

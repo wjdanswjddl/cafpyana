@@ -47,6 +47,75 @@ def _coerce_hdf_frame_for_concat(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _ntuple_level(df: pd.DataFrame) -> Optional[int]:
+    """Index of the ``__ntuple`` level, or 0 for unnamed MultiIndex; ``None`` if not MultiIndex."""
+    if not isinstance(df.index, pd.MultiIndex):
+        return None
+    names = df.index.names
+    if names and "__ntuple" in names:
+        return names.index("__ntuple")
+    return 0
+
+
+def _ntuple_values(df: pd.DataFrame) -> np.ndarray:
+    """Per-row ``__ntuple`` scalars (for union/remap), regardless of index representation."""
+    if isinstance(df.index, pd.MultiIndex):
+        lvl = _ntuple_level(df)
+        return np.asarray(df.index.get_level_values(lvl)).reshape(-1)
+    if df.index.name == "__ntuple":
+        return np.asarray(df.index).reshape(-1)
+    if len(df) and isinstance(df.index[0], tuple):
+        return np.fromiter((t[0] for t in df.index), dtype=np.int64, count=len(df))
+    return np.asarray(df.index).reshape(-1)
+
+
+def _unique_ntuple_values_across_keys(
+    mc_dfs: dict[str, pd.DataFrame], keys2load: Sequence[str]
+) -> np.ndarray:
+    """Distinct ``__ntuple`` ids across all loaded keys in one HDF file."""
+    parts: List[np.ndarray] = []
+    for k in keys2load:
+        df = mc_dfs.get(k)
+        if df is None or len(df) == 0:
+            continue
+        parts.append(_ntuple_values(df))
+    if not parts:
+        return np.array([], dtype=np.int64)
+    return np.sort(np.unique(np.concatenate(parts)))
+
+
+def _remap_ntuple_index(df: pd.DataFrame, ntuple_remap: dict) -> None:
+    """Rewrite ``__ntuple`` in-place (MultiIndex, named index, or tuple plain Index)."""
+    if isinstance(df.index, pd.MultiIndex):
+        names = list(df.index.names) if df.index.names is not None else []
+        idx_loc = _ntuple_level(df)
+        new_tuples = []
+        for tup in df.index:
+            tup = list(tup)
+            old = tup[idx_loc]
+            if old not in ntuple_remap:
+                raise KeyError(
+                    f"ntuple {old!r} missing from remap; known ntuples: {sorted(ntuple_remap)}"
+                )
+            tup[idx_loc] = ntuple_remap[old]
+            new_tuples.append(tuple(tup))
+        df.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
+    elif df.index.name == "__ntuple":
+        df.index = df.index.map(ntuple_remap)
+    elif len(df) and isinstance(df.index[0], tuple):
+        new_tuples = []
+        for tup in df.index:
+            tup = list(tup)
+            old = tup[0]
+            if old not in ntuple_remap:
+                raise KeyError(
+                    f"ntuple {old!r} missing from remap; known ntuples: {sorted(ntuple_remap)}"
+                )
+            tup[0] = ntuple_remap[old]
+            new_tuples.append(tuple(tup))
+        df.index = pd.Index(new_tuples)
+
+
 def _concat_hdf_frames(frames: Sequence[pd.DataFrame], *, label: str = "") -> pd.DataFrame:
     if not frames:
         suffix = f" ({label})" if label else ""
@@ -113,48 +182,15 @@ def dfs_from_dir(
             print(f"Error loading file {mc_file}: {e}")
             continue
 
-        def _ntuple_level(df):
-            if isinstance(df.index, pd.MultiIndex):
-                names = df.index.names
-                if "__ntuple" in names:
-                    return names.index("__ntuple")
-                return 0
-            return None
-
-        all_ntuples = set()
-        for df_key in keys2load:
-            df = mc_dfs[df_key]
-            lvl = _ntuple_level(df)
-            if lvl is not None:
-                all_ntuples.update(df.index.get_level_values(lvl).unique())
-            else:
-                all_ntuples.update(df.index.unique())
-
+        unique_ntuples = _unique_ntuple_values_across_keys(mc_dfs, keys2load)
         ntuple_remap = {
-            old: np.int64(ntuple_offset + i) for i, old in enumerate(sorted(all_ntuples))
+            old: np.int64(ntuple_offset + i) for i, old in enumerate(unique_ntuples)
         }
         n_unique = np.int64(len(ntuple_remap))
 
         for df_key in keys2load:
             df = mc_dfs[df_key]
-            if isinstance(df.index, pd.MultiIndex):
-                names = df.index.names
-                idx_loc = _ntuple_level(df)
-                new_tuples = []
-                for tup in df.index:
-                    tup = list(tup)
-                    old = tup[idx_loc]
-                    if old not in ntuple_remap:
-                        raise KeyError(
-                            f"ntuple {old!r} missing from remap while loading {df_key} "
-                            f"from {mc_file}; known ntuples: {sorted(ntuple_remap)}"
-                        )
-                    tup[idx_loc] = ntuple_remap[old]
-                    new_tuples.append(tuple(tup))
-                df.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
-            elif df.index.name == "__ntuple":
-                df.index = df.index.map(ntuple_remap)
-
+            _remap_ntuple_index(df, ntuple_remap)
             df_lists[df_key].append(df)
 
         ntuple_offset += n_unique

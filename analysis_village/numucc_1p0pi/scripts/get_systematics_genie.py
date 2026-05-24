@@ -247,11 +247,10 @@ def _replace_first_nonempty_segment(col: Tuple, value: str) -> Tuple:
     return tuple(parts)
 
 
-def _ensure_univ0_from_leaf(df: pd.DataFrame, syst_key: Tuple[str, ...], src_leaf: str) -> None:
-    """
-    For non-multisim knobs, alias one leaf (e.g. 'ps1' or 'morph') into a synthetic 'univ_0'
-    column under the same systematic block so downstream code can treat it like multisim.
-    """
+def _ensure_univ_from_leaf(
+    df: pd.DataFrame, syst_key: Tuple[str, ...], src_leaf: str, dst_leaf: str
+) -> None:
+    """Alias a unisim leaf (``ps1``, ``ms1``, ``morph``) into ``univ_*`` for multisim-style loops."""
     block = df.loc[:, syst_key]
     src_rest = None
     for c in block.columns:
@@ -259,10 +258,9 @@ def _ensure_univ0_from_leaf(df: pd.DataFrame, syst_key: Tuple[str, ...], src_lea
             src_rest = c if isinstance(c, tuple) else (c,)
             break
     if src_rest is None:
-        # Nothing to do; caller will raise a clearer error.
         return
 
-    dst_rest = _replace_first_nonempty_segment(tuple(src_rest), "univ_0")
+    dst_rest = _replace_first_nonempty_segment(tuple(src_rest), dst_leaf)
     full_src = tuple(syst_key) + tuple(src_rest)
     full_dst = tuple(syst_key) + tuple(dst_rest)
 
@@ -273,12 +271,11 @@ def _ensure_univ0_from_leaf(df: pd.DataFrame, syst_key: Tuple[str, ...], src_lea
 
 def normalize_and_infer_n_univ(mc_evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame, syst_name: SystName) -> int:
     """
-    Detect whether a knob is multisim vs multisigma vs unisim and normalize to a common
-    interface: multisim keeps 'univ_*', while multisigma/unisim get a synthetic 'univ_0'.
+    Detect multisim vs multisigma vs morph unisim and map ±σ leaves to ``univ_*``.
 
-    Rules (per user request):
-    - multisigma: use 'ps1' as the one-universe unisim
-    - unisim: use 'morph' as the one-universe unisim
+    - **Multisim** (CAF type 0): existing ``univ_*`` columns.
+    - **Multisigma**: ``ps1`` → ``univ_0``, ``ms1`` → ``univ_1`` when both exist; else ``ps1`` only.
+    - **Morph unisim**: ``morph`` → ``univ_0``.
     """
     key = tuple(syst_name)
     block_cols = mc_evt_df.loc[:, key].columns
@@ -287,13 +284,18 @@ def normalize_and_infer_n_univ(mc_evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame, 
         return n
 
     leaves = set(_iter_leaf_strings(block_cols))
+    if "ps1" in leaves and "ms1" in leaves:
+        for src, dst in (("ps1", "univ_0"), ("ms1", "univ_1")):
+            _ensure_univ_from_leaf(mc_evt_df, key, src, dst)
+            _ensure_univ_from_leaf(mc_nu_df, key, src, dst)
+        return 2
     if "ps1" in leaves:
-        _ensure_univ0_from_leaf(mc_evt_df, key, "ps1")
-        _ensure_univ0_from_leaf(mc_nu_df, key, "ps1")
+        _ensure_univ_from_leaf(mc_evt_df, key, "ps1", "univ_0")
+        _ensure_univ_from_leaf(mc_nu_df, key, "ps1", "univ_0")
         return 1
     if "morph" in leaves:
-        _ensure_univ0_from_leaf(mc_evt_df, key, "morph")
-        _ensure_univ0_from_leaf(mc_nu_df, key, "morph")
+        _ensure_univ_from_leaf(mc_evt_df, key, "morph", "univ_0")
+        _ensure_univ_from_leaf(mc_nu_df, key, "morph", "univ_0")
         return 1
 
     raise ValueError(

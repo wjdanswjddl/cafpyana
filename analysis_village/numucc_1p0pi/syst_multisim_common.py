@@ -12,10 +12,12 @@ from analysis_village.numucc_1p0pi.syst_disk_layout import (
     FILE_COSMICS,
     FILE_FLUX,
     FILE_G4,
+    FILE_GENIE,
     FILE_MCSTAT,
     SUB_COSMICS,
     SUB_FLUX,
     SUB_G4,
+    SUB_GENIE,
     SUB_MCSTAT,
     normalized_root,
 )
@@ -71,6 +73,25 @@ def drop_bad_g4_weights(mc_evt_df, max_wgt=1e3, n_univ=100):
     df = mc_evt_df
     try:
         col = df.mc.G4
+    except (AttributeError, KeyError):
+        return df
+    bad_mask = pd.Series(False, index=df.index)
+    for i in range(n_univ):
+        try:
+            var = col["univ_{}".format(i)]
+        except (KeyError, TypeError):
+            return df
+        bad_mask = bad_mask | (var > max_wgt)
+    if not bad_mask.any():
+        return df
+    return df.loc[~bad_mask]
+
+
+def drop_bad_genie_weights(mc_evt_df, max_wgt=1e3, n_univ=100):
+    """Drop evt rows with any bundled ``mc.GENIE`` universe weight above ``max_wgt`` (no-op if missing)."""
+    df = mc_evt_df
+    try:
+        col = df.mc.GENIE
     except (AttributeError, KeyError):
         return df
     bad_mask = pd.Series(False, index=df.index)
@@ -257,7 +278,7 @@ def build_var_configs(var_set: str):
     return merged
 
 
-NEUTRINO_SYST_ORDER = ("MCstat", "Flux", "G4")
+NEUTRINO_SYST_ORDER = ("MCstat", "Flux", "G4", "GENIE")
 
 
 def parse_neutrino_syst_type_csv(spec: str | None) -> tuple[str, ...]:
@@ -274,12 +295,14 @@ def parse_neutrino_syst_type_csv(spec: str | None) -> tuple[str, ...]:
         u = token.upper().replace("-", "_")
         if u in ("MCSTAT", "MC_STAT", "MC"):
             norm.append("MCstat")
+        elif u == "GENIE":
+            norm.append("GENIE")
         elif u == "FLUX":
             norm.append("Flux")
         elif u == "G4":
             norm.append("G4")
         else:
-            raise ValueError("unknown neutrino systematic %r (expected MCstat, Flux, G4)" % (token,))
+            raise ValueError("unknown neutrino systematic %r (expected MCstat, GENIE, Flux, G4)" % (token,))
     if len(norm) != len(set(norm)):
         raise ValueError("duplicate systematic in %r" % (spec,))
     ordered = tuple(sn for sn in NEUTRINO_SYST_ORDER if sn in norm)
@@ -291,7 +314,7 @@ def parse_neutrino_syst_type_csv(spec: str | None) -> tuple[str, ...]:
 # Default for ``syst_multisim_chunk.py`` / ``run_syst_multisim_chunked.sh`` when no subset is
 # given: Flux + G4 only. MCstat uses separate wgtdf/globs — opt in via ``--syst-names MCstat``
 # or ``MULTISIM_SYST_TYPES=MCstat,...``.
-DEFAULT_MULTISIM_CHUNK_SYST_NAMES = ("Flux", "G4")
+DEFAULT_MULTISIM_CHUNK_SYST_NAMES = ("Flux", "G4", "GENIE")
 
 
 def syst_key_for_name(sname: str):
@@ -301,13 +324,13 @@ def syst_key_for_name(sname: str):
     ``make_mcnudf`` weight block — including **MCstat** from ``makedf.mcstat.mcstatsyst`` —
     so live columns look like ``("mc", "MCstat", "univ_i", …)``, same pattern as Flux/G4.
     """
-    return ("mc", sname) if sname in ("MCstat", "Flux", "G4") else sname
+    return ("mc", sname) if sname in ("MCstat", "Flux", "G4", "GENIE") else sname
 
 
 def legacy_npz_wrap(inner_key: str, ret_by_var: dict, by_knob_by_var: dict | None = None):
     """Layout expected by ``selected_events.get_syst_unc`` / ``utils.get_syst_unc``.
 
-    For Flux/G4 **knob** mode, pass ``by_knob_by_var`` as ``var_save_name -> {knob: pack}`` where
+    For Flux/G4/GENIE **knob** mode, pass ``by_knob_by_var`` as ``var_save_name -> {knob: pack}`` where
     each ``pack`` is ``{cov, cov_frac, corr}`` from :func:`pyanalib.covariance.get_covariance_matrix`.
     Each variable's object dict then also contains ``"{inner_key}_by_knob"`` (e.g. ``flux_by_knob``,
     ``G4_by_knob``) so downstream can plot per-knob breakdowns while the primary ``inner_key``
@@ -326,12 +349,13 @@ def legacy_npz_wrap(inner_key: str, ret_by_var: dict, by_knob_by_var: dict | Non
 
 
 def save_neutrino_multisim_npzs(syst_dict: dict, syst_disk_root: str) -> None:
-    """Write MCstat / Flux / G4 NPZs under ``<syst_disk_root>/<MCstat|Flux|G4>/``."""
+    """Write MCstat / Flux / G4 / GENIE NPZs under ``<syst_disk_root>/<MCstat|Flux|G4|GENIE>/``."""
     root = normalized_root(syst_disk_root)
     spec = (
         ("MCstat", SUB_MCSTAT, FILE_MCSTAT, "MCstat"),
         ("Flux", SUB_FLUX, FILE_FLUX, "flux"),
         ("G4", SUB_G4, FILE_G4, "G4"),
+        ("GENIE", SUB_GENIE, FILE_GENIE, "GENIE"),
     )
     for dict_key, subdir, fname, inner_key in spec:
         block = syst_dict.get(dict_key)

@@ -339,7 +339,7 @@ intime_evt_df_inTPC2 = intime_evt_df[inTPC2_cut(intime_evt_df)]
 # Inspect Distributions in Detector Quadrants and Octants
 #   - SBND volume octants: TPC E/W (x), N/S (z), top/bottom (y)
 #     E/W: negative x → East (x < x0); positive x → West (x >= x0)
-#     N/S: lower z → North (z < z0); higher z → South (z >= z0)
+#     N/S: lower z → South (z < z0); higher z → North (z >= z0)
 # ============================================================
 
 def _weighted_counts(series, weights):
@@ -359,7 +359,7 @@ def _add_sbnd_octant_labels(df, x0, y0, z0):
     z = df.slc.vertex.z.astype(float)
 
     ew = np.where(x < x0, "E", "W")  # SBND: negative x is East
-    ns = np.where(z < z0, "N", "S")  # SBND: lower z is North
+    ns = np.where(z < z0, "S", "N")  # SBND: lower z is South
     tb = np.where(y >= y0, "Top", "Bottom")
     octant = np.char.add(np.char.add(np.char.add(ew, "-"), np.char.add(ns, "-")), tb)
 

@@ -11,6 +11,8 @@ INTEGRATED_HIST_DUMMY = 500.0
 INTEGRATED_VAR_SAVE_NAME = "integrated"
 
 
+
+
 def is_integrated_var_config(var_config) -> bool:
     return getattr(var_config, "var_save_name", None) == INTEGRATED_VAR_SAVE_NAME
 
@@ -21,7 +23,18 @@ class VariableConfig:
     Choose a configuration using one of the provided class methods,
     or instantiate directly with custom parameters.
     """
-    def __init__(self, var_save_name, var_plot_name, var_labels, bins, var_evt_reco_col, var_evt_truth_col, var_nu_col, xsec_label):
+    def __init__(
+        self,
+        var_save_name,
+        var_plot_name,
+        var_labels,
+        bins,
+        var_evt_reco_col,
+        var_evt_truth_col,
+        var_nu_col,
+        xsec_label,
+        category_syst_var_save_name=None,
+    ):
         self.var_save_name = var_save_name
         self.var_plot_name = var_plot_name
         self.var_labels = var_labels
@@ -31,6 +44,8 @@ class VariableConfig:
         self.var_evt_truth_col = var_evt_truth_col
         self.var_nu_col = var_nu_col
         self.xsec_label = xsec_label
+        # Optional: load category-summary syst for a different variable (same bin count).
+        self.category_syst_var_save_name = category_syst_var_save_name
 
 
     # ==== variables for xsec measurement ====
@@ -355,11 +370,12 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\phi_\mu}$ (deg)", 
             r"$\mathrm{\phi_\mu^{reco.}}$ (deg)", 
             r"$\mathrm{\phi_\mu^{true}}$ (deg)"],
-            bins=np.linspace(-180, 180, 26),
+            bins=np.linspace(-180, 180, 21),
             var_evt_reco_col=('mu', 'pfp', 'trk', 'phi', '', '', ''),
             var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'phi', ''),
             var_nu_col=('mc', 'mu', 'phi', '', '', '', ''),
-            xsec_label=r"$\frac{d\sigma}{d\phi_{\\mu}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$"
+            xsec_label=r"$\frac{d\sigma}{d\phi_{\\mu}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$",
+            category_syst_var_save_name="muon-dir_x",
         )
 
     @classmethod
@@ -870,3 +886,34 @@ class VariableConfig:
             else:
                 print(f"  {name:20}")
         return config_methods
+
+
+var_configs_measurement = [
+                VariableConfig.all_events(),
+                VariableConfig.muon_momentum(),
+                VariableConfig.muon_direction(),
+                VariableConfig.proton_momentum(),
+                VariableConfig.proton_direction(),
+                VariableConfig.tki_del_alpha(),
+                VariableConfig.tki_del_phi(),
+                VariableConfig.tki_del_Tp(),
+                VariableConfig.tki_del_p(),
+                VariableConfig.tki_del_Tp_x(),
+                VariableConfig.tki_del_Tp_y(),
+                ]
+
+var_configs_extra_finalstate = [
+                VariableConfig.muon_direction_x(),
+                VariableConfig.muon_direction_y(),
+                VariableConfig.muon_direction_phi(),
+                VariableConfig.proton_direction_x(),
+                VariableConfig.proton_direction_y(),
+                VariableConfig.proton_direction_phi(),
+                VariableConfig.opening_angle(),
+                ]
+
+var_configs_extra_slc = [
+                VariableConfig.vertex_x(),
+                VariableConfig.vertex_y(),
+                VariableConfig.vertex_z(),
+                ]
