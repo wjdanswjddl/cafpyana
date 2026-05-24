@@ -257,7 +257,7 @@ other_genie_systematics = [
 ]
 
 gen1_systematics = [
-    # "GENIEReWeight_SBN_v1_multisigma_VecFFCCQEshape",
+    "GENIEReWeight_SBN_v1_multisigma_VecFFCCQEshape",
     'GENIEReWeight_SBN_v1_multisim_RPA_CCQE',
     'GENIEReWeight_SBN_v1_multisim_CoulombCCQE',
 
