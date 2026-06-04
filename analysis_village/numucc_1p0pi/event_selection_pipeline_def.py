@@ -34,7 +34,7 @@ from analysis_village.numucc_1p0pi.makedf.selections import (
     cut_clear_cosmic, cut_vertex_in_fv, cut_nu_score, cut_2prong, cut_2prong_contained,
     cut_2prong_trackscore, cut_2prong_vtxdist, cut_has_mu, cut_has_p,
     cut_mu_kinematics, cut_p_kinematics, get_mu_p_candidate, get_valid_trks,
-    get_trk_info,
+    get_trk_info, evt_has_trk1_trk2,
     NU_SCORE_TH, TRACKSCORE_TH, VTXDIST_TH, SAVE_NTRKS,
     MU_CHI2MU_TH, MU_CHI2P_TH, MU_LEN_TH, QUAL_TH, P_CHI2P_TH, P_LEN_TH,
     MU_PLO_TH, MU_PHI_TH, P_PLO_TH, P_PHI_TH,
@@ -451,11 +451,24 @@ def build_pipeline() -> List[Stage]:
     # Stage 8: get mu/p candidates and apply muX cut + mu kinematics
     # ------------------------------------------------------------------
     def _muX_cut(state, sample):
-        if state.get("evt") is None:
+        evt = state.get("evt")
+        if evt is None or len(evt) == 0:
             return state
-        # trk1/trk2 (+ chi2 averages) must already be on evt from nu_score + vtxdist stages.
+        if not evt_has_trk1_trk2(evt) and state.get("trk") is not None:
+            trk = get_valid_trks(state["trk"])
+            trk = match_trkdf_to_slcdf(trk, evt)
+            if len(trk) > 0:
+                trk = _attach_chi2_avgs(trk)
+                trk = _attach_mcs_range_diff(trk)
+                state["evt"] = get_trk_info(evt, trk, SAVE_NTRKS)
+                evt = state["evt"]
+        if not evt_has_trk1_trk2(evt):
+            raise KeyError(
+                "evt is missing trk1/trk2 at 2prong-muX — "
+                "get_trk_info did not attach track blocks (check trk–evt matching on this shard)"
+            )
         df = get_mu_p_candidate(
-            state["evt"],
+            evt,
             mu_chi2mu_th=MU_CHI2MU_TH, mu_chi2p_th=MU_CHI2P_TH, mu_len_th=MU_LEN_TH, qual_th=QUAL_TH,
             p_chi2mu_th=-1, p_chi2p_th=P_CHI2P_TH, p_len_th=P_LEN_TH,
         )
@@ -477,9 +490,10 @@ def build_pipeline() -> List[Stage]:
     # Stage 9: mup cut + p kinematics  (= final selection)
     # ------------------------------------------------------------------
     def _mup_cut(state, sample):
-        if state.get("evt") is None:
+        evt = state.get("evt")
+        if evt is None or len(evt) == 0:
             return state
-        df = cut_has_p(state["evt"])
+        df = cut_has_p(evt)
         df = cut_p_kinematics(df, p_Plo_th=P_PLO_TH, p_Phi_th=P_PHI_TH)
         df = _add_reco_cc1p0pi_tki_evt(df)
         state["evt"] = df

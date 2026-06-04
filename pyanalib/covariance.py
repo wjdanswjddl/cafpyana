@@ -17,13 +17,12 @@ def cov_from_fraccov(cov_frac, cv_vals):
 
 
 def fraccov_from_cov(cov, cv_vals):
-    cov_frac = np.zeros_like(cov)
-    v = np.asarray(cv_vals, dtype=float)
-    for i in range(cov.shape[0]):
-        for j in range(cov.shape[1]):
-            den = max(abs(v[i] * v[j]), _FRAC_CV_EPS)
-            cov_frac[i, j] = cov[i, j] / den
-    return cov_frac
+    cov = np.asarray(cov, dtype=float)
+    v = np.asarray(cv_vals, dtype=float).reshape(-1)
+    if cov.shape[0] != cov.shape[1] or cov.shape[0] != v.shape[0]:
+        raise ValueError("cov shape %s incompatible with cv_vals length %d" % (cov.shape, v.shape[0]))
+    denom = np.maximum(np.abs(np.outer(v, v)), _FRAC_CV_EPS)
+    return cov / denom
 
 def corr_from_fraccov(cov_frac):
     corr = np.zeros_like(cov_frac)

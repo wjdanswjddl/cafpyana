@@ -34,7 +34,7 @@ def g4_mc_knob_names():
     """Geant4 reinteraction knob names (same list as ``makedf.g4syst.g4_systematics``)."""
     from makedf.g4syst import g4_systematics
 
-    return tuple(str(k) for k in g4_systematics)
+    return tuple(str(k) for k in g4_systematics if "neutron" not in k)
 
 
 def flux_mc_knob_names(group_spec: str = "all") -> tuple[str, ...]:

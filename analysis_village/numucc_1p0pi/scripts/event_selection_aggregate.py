@@ -491,6 +491,7 @@ def render_efficiency_plots(merged: dict, save_fig_dir: str, pot_str: str,
         eff_dict[var_save_name] = {"eff_list": eff_list, "eff_err_list": eff_err_list}
 
     # Integrated purity is identical for every efficiency variable (same event counts).
+    purity_printed = False
     for vs in sorted(vars_seen):
         if vs not in var_lookup:
             continue
@@ -500,9 +501,41 @@ def render_efficiency_plots(merged: dict, save_fig_dir: str, pot_str: str,
         ea_last = eff[last_stage][vs]
         if ea_last.n_at_stage_int <= 0:
             continue
-        purity = ea_last.n_total_signal_int / ea_last.n_at_stage_int * 100.0
-        print(f"[aggregate] final selection purity: {purity:.2f}%", flush=True)
+        purity_w = ea_last.n_total_signal_int / ea_last.n_at_stage_int * 100.0
+        n_raw_denom = getattr(ea_last, "n_at_stage_int_raw", 0.0)
+        purity_raw = (
+            ea_last.n_total_signal_int_raw / n_raw_denom * 100.0
+            if n_raw_denom > 0
+            else 0.0
+        )
+        print(
+            f"[aggregate] final selection purity: {purity_w:.2f}% (weighted)  "
+            f"{purity_raw:.2f}% (raw counts, notebook-style)",
+            flush=True,
+        )
+        purity_printed = True
         break
+
+    if not purity_printed:
+        final_stage = "2prong-mup"
+        bar_final = merged.get("bar", {}).get(final_stage, {}).get("topology")
+        if bar_final is not None:
+            total = float(np.sum(bar_final.mc_counts))
+            if total > 0:
+                signal = float(bar_final.mc_counts[0])  # νμ CC 1p0π (first topology bin)
+                print(
+                    f"[aggregate] final selection purity (from bar topology, no mcnu eff): "
+                    f"{100.0 * signal / total:.2f}%  (signal={signal:.0f} / total={total:.0f})",
+                    flush=True,
+                )
+            else:
+                print("[aggregate] WARN: no MC events at final stage for purity", flush=True)
+        else:
+            print(
+                "[aggregate] WARN: could not compute purity (no mcnu efficiency accumulators "
+                "and no final-stage bar breakdown)",
+                flush=True,
+            )
 
     # Save the eff dict for downstream tools
     out_pkl = path.join(save_fig_dir, "eff_dict.pkl")

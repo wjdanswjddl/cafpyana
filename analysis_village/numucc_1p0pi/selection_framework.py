@@ -562,6 +562,7 @@ class EfficiencyAccumulator:
     n_total_signal_int: float = 0.0  # total integral of signal POT-weighted (evt)
     n_total_signal_int_raw: float = 0.0
     n_at_stage_int: float = 0.0     # total events (any topology) POT-weighted (evt)
+    n_at_stage_int_raw: float = 0.0  # raw event count at stage (notebook parity)
 
     @classmethod
     def empty(cls, var_config) -> "EfficiencyAccumulator":
@@ -624,6 +625,7 @@ class EfficiencyAccumulator:
         sig_w = weights[sm]
         if len(sig_df) == 0:
             self.n_at_stage_int += float(weights.sum())
+            self.n_at_stage_int_raw += float(len(evt_df))
             return
         var_sig, _ = get_clipped_evts(sig_df, truth_col, self.bins)
         h_pot, _ = np.histogram(var_sig, bins=self.bins, weights=sig_w)
@@ -633,6 +635,7 @@ class EfficiencyAccumulator:
         self.n_total_signal_int += float(sig_w.sum())
         self.n_total_signal_int_raw += float(len(sig_df))
         self.n_at_stage_int += float(weights.sum())
+        self.n_at_stage_int_raw += float(len(evt_df))
 
     def scale_pot_components(self, factor: float):
         """Multiply POT-weighted fields after deferred MC POT normalization."""
@@ -654,6 +657,7 @@ class EfficiencyAccumulator:
         self.n_total_signal_int += other.n_total_signal_int
         self.n_total_signal_int_raw += other.n_total_signal_int_raw
         self.n_at_stage_int += other.n_at_stage_int
+        self.n_at_stage_int_raw += other.n_at_stage_int_raw
         return self
 
 
@@ -1017,6 +1021,7 @@ def merge_samples(samples: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
                         n_total_signal_int=ea.n_total_signal_int,
                         n_total_signal_int_raw=ea.n_total_signal_int_raw,
                         n_at_stage_int=ea.n_at_stage_int,
+                        n_at_stage_int_raw=getattr(ea, "n_at_stage_int_raw", 0.0),
                     )
 
     # Assume stage_keys/labels are the same across samples (they should be: same pipeline)

@@ -40,7 +40,7 @@ pdg_labels = [r"$\mu^{\pm}$", r"$p$", r"$\pi^{\pm}$", r"Other"]
 pdg_colors = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
 
 dpi = 300
-fig_ext = ".pdf"
+fig_ext = ".png"
 
 
 def _fail_syst_disk(msg: str) -> None:
@@ -79,218 +79,183 @@ _SYST_UNC_DISK_LABELS = {
 
 
 # ======= util to load systematic uncertainties ======
-# def get_syst_unc(
-#     var_config,
-#     plot=False,
-#     save_fig=False,
-#     save_name=None,
-#     syst_disk_root=None,
-#     syst_components=None,
-#     genie_cov_frac_key: str = "genie",
-#     skip_missing_vars: bool = False,
-# ):
-#     """Load fractional covariance blocks from the syst-disk tree and combine into total covariance.
+def get_syst_unc(
+    var_config,
+    plot=False,
+    save_fig=False,
+    save_name=None,
+    syst_disk_root=None,
+    syst_components=None,
+    genie_cov_frac_key: str = "genie",
+    skip_missing_vars: bool = False,
+):
+    """Load fractional covariance blocks from the syst-disk tree and combine into total covariance.
 
-#     All inputs live under a single root directory (see ``syst_disk_layout``): ``MCstat/``,
-#     ``Flux/``, ``G4/``, ``GENIE/``, ``Cosmics/``, ``Detector/``. If ``syst_disk_root`` is omitted,
-#     ``NUMUCC_SYST_DISK_ROOT`` must be set. **Missing files abort with a loud error** — there are
-#     no alternate search paths or dated campaign fallbacks.
+    All inputs live under a single root directory (see ``syst_disk_layout``): ``MCstat/``,
+    ``Flux/``, ``G4/``, ``GENIE/``, ``Cosmics/``, ``Detector/``. If ``syst_disk_root`` is omitted,
+    ``NUMUCC_SYST_DISK_ROOT`` must be set. **Missing files abort with a loud error** — there are
+    no alternate search paths or dated campaign fallbacks.
 
-#     Parameters
-#     ----------
-#     syst_components
-#         Optional subset of uncertainty sources to include. Each entry is a string, case-insensitive,
-#         chosen from disk-backed keys ``mcstat``, ``flux``, ``g4``, ``genie``, ``cosmics``,
-#         ``detector`` and flat correlated terms ``pot``, ``ntargets``. If ``None`` (default), all
-#         of the above are included (original behavior). Only files needed for the selected disk
-#         keys are required on disk.
-#     genie_cov_frac_key
-#         Which matrix to read from ``GENIE/cov_mat_dict.pkl`` for the ``genie`` disk component:
-#         ``"genie"`` (response / **xsec** path) or ``"genie_rate"`` (**rate** reweight path), matching
-#         :mod:`syst_genie_aggregate`. Default ``"genie"`` preserves legacy behavior.
-#     skip_missing_vars
-#         If ``True``, omit disk-backed components whose files lack ``var_config.var_save_name``,
-#         whose covariance shape does not match ``var_config`` bins, or that otherwise fail to
-#         combine for this variable, instead of raising. Useful for overlay plots when only a
-#         subset of variables has been produced on the syst disk.
-#     """
-#     if syst_components is None:
-#         active = frozenset(SYST_UNC_ALL_KEYS)
-#     else:
-#         active = frozenset(str(x).lower() for x in syst_components)
-#         unknown = active - frozenset(SYST_UNC_ALL_KEYS)
-#         if unknown:
-#             raise ValueError(
-#                 "Invalid syst_components keys: %s. Allowed: %s"
-#                 % (", ".join(sorted(unknown)), ", ".join(SYST_UNC_ALL_KEYS))
-#             )
+    Parameters
+    ----------
+    syst_components
+        Optional subset of uncertainty sources to include. Each entry is a string, case-insensitive,
+        chosen from disk-backed keys ``mcstat``, ``flux``, ``g4``, ``genie``, ``cosmics``,
+        ``detector`` and flat correlated terms ``pot``, ``ntargets``. If ``None`` (default), all
+        of the above are included (original behavior). Only files needed for the selected disk
+        keys are required on disk.
+    genie_cov_frac_key
+        Which matrix to read from ``GENIE/cov_mat_dict.pkl`` for the ``genie`` disk component:
+        ``"genie"`` (response / **xsec** path) or ``"genie_rate"`` (**rate** reweight path), matching
+        :mod:`syst_genie_aggregate`. Default ``"genie"`` preserves legacy behavior.
+    skip_missing_vars
+        If ``True``, omit disk-backed components whose files lack ``var_config.var_save_name``,
+        whose covariance shape does not match ``var_config`` bins, or that otherwise fail to
+        combine for this variable, instead of raising. Useful for overlay plots when only a
+        subset of variables has been produced on the syst disk.
+    """
+    if syst_components is None:
+        active = frozenset(SYST_UNC_ALL_KEYS)
+    else:
+        active = frozenset(str(x).lower() for x in syst_components)
+        unknown = active - frozenset(SYST_UNC_ALL_KEYS)
+        if unknown:
+            raise ValueError(
+                "Invalid syst_components keys: %s. Allowed: %s"
+                % (", ".join(sorted(unknown)), ", ".join(SYST_UNC_ALL_KEYS))
+            )
 
-#     need_disk = any(k in active for k in SYST_UNC_DISK_KEYS)
-#     root = None
-#     paths = None
-#     if need_disk:
-#         root = resolve_syst_disk_root(syst_disk_root)
-#         paths = syst_disk_paths(root)
-#         missing = [
-#             (k, paths[k])
-#             for k in SYST_UNC_DISK_KEYS
-#             if k in active and not os.path.isfile(paths[k])
-#         ]
-#         if missing:
-#             detail = "\n".join("  [%s] %s" % (role, pth) for role, pth in missing)
-#             _fail_syst_disk(
-#                 "Missing systematic covariance file(s). Run the producer pipelines into the "
-#                 "expected locations, then retry:\n%s" % detail
-#             )
+    need_disk = any(k in active for k in SYST_UNC_DISK_KEYS)
+    root = None
+    paths = None
+    if need_disk:
+        root = resolve_syst_disk_root(syst_disk_root)
+        paths = syst_disk_paths(root)
+        missing = [
+            (k, paths[k])
+            for k in SYST_UNC_DISK_KEYS
+            if k in active and not os.path.isfile(paths[k])
+        ]
+        if missing:
+            detail = "\n".join("  [%s] %s" % (role, pth) for role, pth in missing)
+            _fail_syst_disk(
+                "Missing systematic covariance file(s). Run the producer pipelines into the "
+                "expected locations, then retry:\n%s" % detail
+            )
 
-#     def _load_disk_frac_cov(key: str) -> np.ndarray:
-#         assert paths is not None
-#         if key == "mcstat":
-#             blob = np.load(paths["mcstat"], allow_pickle=True)
-#             return dict(blob)[var_config.var_save_name].item()["MCstat"]["cov_frac"]
-#         if key == "flux":
-#             blob = np.load(paths["flux"], allow_pickle=True)
-#             return dict(blob)[var_config.var_save_name].item()["flux"]["cov_frac"]
-#         if key == "g4":
-#             blob = np.load(paths["g4"], allow_pickle=True)
-#             return dict(blob)[var_config.var_save_name].item()["G4"]["cov_frac"]
-#         if key == "genie":
-#             if genie_cov_frac_key not in ("genie", "genie_rate"):
-#                 raise ValueError(
-#                     "genie_cov_frac_key must be 'genie' or 'genie_rate', got %r" % (genie_cov_frac_key,)
-#                 )
-#             with open(paths["genie"], "rb") as gf:
-#                 genie_blob = pickle.load(gf)
-#             row = genie_blob[var_config.var_save_name]
-#             if genie_cov_frac_key not in row:
-#                 raise KeyError(
-#                     "GENIE pickle for %r has no %r (keys: %s)"
-#                     % (var_config.var_save_name, genie_cov_frac_key, sorted(row.keys()))
-#                 )
-#             return row[genie_cov_frac_key]
-#         if key == "cosmics":
-#             blob = np.load(paths["cosmics"], allow_pickle=True)
-#             return dict(blob)[var_config.var_save_name].item()["Cosmics"]["cov_frac"]
-#         if key == "detector":
-#             blob = np.load(paths["detector"], allow_pickle=True)
-#             return dict(blob)["detector"].item()[var_config.var_save_name]["cov_frac"]
-#         raise KeyError(key)
+    def _load_disk_frac_cov(key: str) -> np.ndarray:
+        assert paths is not None
+        if key == "mcstat":
+            blob = np.load(paths["mcstat"], allow_pickle=True)
+            return dict(blob)[var_config.var_save_name].item()["MCstat"]["cov_frac"]
+        if key == "flux":
+            blob = np.load(paths["flux"], allow_pickle=True)
+            return dict(blob)[var_config.var_save_name].item()["flux"]["cov_frac"]
+        if key == "g4":
+            blob = np.load(paths["g4"], allow_pickle=True)
+            return dict(blob)[var_config.var_save_name].item()["G4"]["cov_frac"]
+        if key == "genie":
+            if genie_cov_frac_key not in ("genie", "genie_rate"):
+                raise ValueError(
+                    "genie_cov_frac_key must be 'genie' or 'genie_rate', got %r" % (genie_cov_frac_key,)
+                )
+            with open(paths["genie"], "rb") as gf:
+                genie_blob = pickle.load(gf)
+            row = genie_blob[var_config.var_save_name]
+            if genie_cov_frac_key not in row:
+                raise KeyError(
+                    "GENIE pickle for %r has no %r (keys: %s)"
+                    % (var_config.var_save_name, genie_cov_frac_key, sorted(row.keys()))
+                )
+            return row[genie_cov_frac_key]
+        if key == "cosmics":
+            blob = np.load(paths["cosmics"], allow_pickle=True)
+            return dict(blob)[var_config.var_save_name].item()["Cosmics"]["cov_frac"]
+        if key == "detector":
+            blob = np.load(paths["detector"], allow_pickle=True)
+            return dict(blob)["detector"].item()[var_config.var_save_name]["cov_frac"]
+        raise KeyError(key)
 
-#     # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
-#     # detvar_syst = detvar_syst[var_config.var_save_name]['detvar']
+    # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
+    # detvar_syst = detvar_syst[var_config.var_save_name]['detvar']
 
-#     # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
-#     # detvar_syst = np.sqrt(detvar_syst[var_config.var_save_name]['ccal']**2 \
-#     #     + detvar_syst[var_config.var_save_name]['alpha']**2 \
-#     #     + detvar_syst[var_config.var_save_name]['beta']**2 \
-#     #     + detvar_syst[var_config.var_save_name]['R']**2) / 2.
+    # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
+    # detvar_syst = np.sqrt(detvar_syst[var_config.var_save_name]['ccal']**2 \
+    #     + detvar_syst[var_config.var_save_name]['alpha']**2 \
+    #     + detvar_syst[var_config.var_save_name]['beta']**2 \
+    #     + detvar_syst[var_config.var_save_name]['R']**2) / 2.
 
 
-#     # flat uncertainties
-#     pot_frac_unc = 0.02
-#     ntargets_frac_unc = 0.01
+    # flat uncertainties
+    pot_frac_unc = 0.02
+    ntargets_frac_unc = 0.01
 
-#     # flat uncertainties
-#     frac_uncert_total = np.zeros(len(var_config.bin_centers))
-#     frac_cov_matrix_total = np.zeros((len(var_config.bin_centers), len(var_config.bin_centers)))
+    # flat uncertainties
+    frac_uncert_total = np.zeros(len(var_config.bin_centers))
+    frac_cov_matrix_total = np.zeros((len(var_config.bin_centers), len(var_config.bin_centers)))
 
-#     n_bins = len(var_config.bin_centers)
-#     for key in SYST_UNC_DISK_KEYS:
-#         if key not in active:
-#             continue
-#         syst_name = _SYST_UNC_DISK_LABELS[key]
-#         try:
-#             syst = _load_disk_frac_cov(key)
-#             if key == "cosmics":
-#                 from analysis_village.numucc_1p0pi.syst_cosmics_common import (
-#                     flat_uncorrelated_cov_frac,
-#                 )
+    n_bins = len(var_config.bin_centers)
+    for key in SYST_UNC_DISK_KEYS:
+        if key not in active:
+            continue
+        syst_name = _SYST_UNC_DISK_LABELS[key]
+        try:
+            syst = _load_disk_frac_cov(key)
+            if key == "cosmics":
+                from analysis_village.numucc_1p0pi.syst_cosmics_common import (
+                    flat_uncorrelated_cov_frac,
+                )
 
-#                 syst = flat_uncorrelated_cov_frac(syst)
-#             syst_uncert = np.sqrt(np.diag(syst))
-#             if key == "cosmics":
-#                 flat_val = float(np.max(syst_uncert)) if len(syst_uncert) else 0.0
-#                 syst_uncert = flat_val * np.ones(n_bins)
-#             if syst.shape != (n_bins, n_bins):
-#                 raise ValueError(
-#                     "cov_frac shape %s does not match %d bins for %r"
-#                     % (syst.shape, n_bins, var_config.var_save_name)
-#                 )
-#             frac_uncert_total += syst_uncert ** 2
-#             frac_cov_matrix_total += syst
-#             if plot:
-#                 plt.hist(
-#                     var_config.bin_centers,
-#                     bins=var_config.bins,
-#                     weights=syst_uncert,
-#                     histtype="step",
-#                     linewidth=2,
-#                     label=syst_name,
-#                 )
-#         except (KeyError, ValueError) as ex:
-#             if not skip_missing_vars:
-#                 raise
-#             print(
-#                 "[get_syst_unc] skip %s for %r: %s"
-#                 % (syst_name, var_config.var_save_name, ex),
-#                 flush=True,
-#             )
-#             continue
+                syst = flat_uncorrelated_cov_frac(syst)
+            syst_uncert = np.sqrt(np.diag(syst))
+            if key == "cosmics":
+                flat_val = float(np.max(syst_uncert)) if len(syst_uncert) else 0.0
+                syst_uncert = flat_val * np.ones(n_bins)
+            if syst.shape != (n_bins, n_bins):
+                raise ValueError(
+                    "cov_frac shape %s does not match %d bins for %r"
+                    % (syst.shape, n_bins, var_config.var_save_name)
+                )
+            frac_uncert_total += syst_uncert ** 2
+            frac_cov_matrix_total += syst
+            if plot:
+                plt.hist(
+                    var_config.bin_centers,
+                    bins=var_config.bins,
+                    weights=syst_uncert,
+                    histtype="step",
+                    linewidth=2,
+                    label=syst_name,
+                )
+        except (KeyError, ValueError) as ex:
+            if not skip_missing_vars:
+                raise
+            print(
+                "[get_syst_unc] skip %s for %r: %s"
+                % (syst_name, var_config.var_save_name, ex),
+                flush=True,
+            )
+            continue
 
-#     if "pot" in active:
-#         syst_name = "POT"
-#         syst_uncert = pot_frac_unc * np.ones(len(var_config.bin_centers))
-#         frac_uncert_total += syst_uncert ** 2
-#         frac_cov_matrix_total += np.diag(syst_uncert ** 2)
-#         if plot:
-#             plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert,   histtype="step", linewidth=2, label=syst_name)
-#     if "ntargets" in active:
-#         syst_name = "Ntargets"
-#         syst_uncert = ntargets_frac_unc * np.ones(len(var_config.bin_centers))
-#         frac_uncert_total += syst_uncert ** 2
-#         frac_cov_matrix_total += np.diag(syst_uncert ** 2)
-#         if plot:
-#             plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert,   histtype="step", linewidth=2, label=syst_name)
+    if "pot" in active:
+        syst_name = "POT"
+        syst_uncert = pot_frac_unc * np.ones(len(var_config.bin_centers))
+        frac_uncert_total += syst_uncert ** 2
+        frac_cov_matrix_total += np.diag(syst_uncert ** 2)
+        if plot:
+            plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert,   histtype="step", linewidth=2, label=syst_name)
+    if "ntargets" in active:
+        syst_name = "Ntargets"
+        syst_uncert = ntargets_frac_unc * np.ones(len(var_config.bin_centers))
+        frac_uncert_total += syst_uncert ** 2
+        frac_cov_matrix_total += np.diag(syst_uncert ** 2)
+        if plot:
+            plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert,   histtype="step", linewidth=2, label=syst_name)
 
-#     # frac_uncert_total += detvar_syst ** 2
+    # frac_uncert_total += detvar_syst ** 2
 
-#     frac_uncert_total = np.sqrt(frac_uncert_total)
-#     syst = frac_uncert_total
-
-#     if plot:
-#         plt.hist(var_config.bin_centers, bins=var_config.bins, weights=frac_uncert_total,    histtype="step", linewidth=2, color="k",  label="Total")
-
-#         plt.xlim(var_config.bins[0], var_config.bins[-1])
-#         plt.ylim(0, max(frac_uncert_total) * 1.4)
-
-#         plt.xlabel(var_config.var_labels[1])
-#         plt.ylabel("Uncertainty [%]")
-#         plt.legend(fontsize=11, ncol=3, loc="upper center")
-
-#         plt.grid(which='major', linestyle='-', linewidth=0.7, alpha=0.7)
-#         plt.grid(which='minor', linestyle=':', linewidth=0.5, alpha=0.5)
-#         plt.minorticks_on()
-
-#         if save_fig:
-#             plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
-
-#         if not plot:
-#             plt.close()
-#         else:
-#             plt.show();
-
-#     return syst, frac_cov_matrix_total
-
-def get_syst_unc(var_config, plot=False):
-
-    outdir = "/exp/sbnd/data/users/munjung/xsec/RESULTS/DATA_RESULTS"
-    print(os.path.join(outdir, "frac_cov_dict.pkl"))
-    with open(os.path.join(outdir, "frac_cov_dict.pkl"), "rb") as f:
-        frac_cov_dict = pickle.load(f)
-    frac_cov_matrix_total = frac_cov_dict[var_config.var_save_name]
-
-    frac_uncert_total = np.sqrt(np.diag(frac_cov_matrix_total))
-   
+    frac_uncert_total = np.sqrt(frac_uncert_total)
+    syst = frac_uncert_total
 
     if plot:
         plt.hist(var_config.bin_centers, bins=var_config.bins, weights=frac_uncert_total,    histtype="step", linewidth=2, color="k",  label="Total")
@@ -306,12 +271,15 @@ def get_syst_unc(var_config, plot=False):
         plt.grid(which='minor', linestyle=':', linewidth=0.5, alpha=0.5)
         plt.minorticks_on()
 
+        if save_fig:
+            plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
+
         if not plot:
             plt.close()
         else:
             plt.show();
 
-    return frac_uncert_total, frac_cov_matrix_total
+    return syst, frac_cov_matrix_total
 
 
 _CATEGORY_SYST_SUMMARY_CACHE = {}
@@ -351,7 +319,6 @@ def load_overlay_syst_cov_frac(
     )
     cache_key = (path, vsn, syst_kind)
     if cache_key in _CATEGORY_SYST_SUMMARY_CACHE:
-        print("key", cache_key, "in cache")
         return _CATEGORY_SYST_SUMMARY_CACHE[cache_key]
     if not os.path.isfile(path):
         raise FileNotFoundError(
@@ -452,24 +419,6 @@ def _overlay_bkgd_syst_sigma(total_mc_bkgd, bkgd_frac_cov):
         return np.sqrt(frac_diag) * total_mc_bkgd
 
 
-def _overlay_resolve_legend_fractions(breakdown_fractions, legend_percentages):
-    """Use explicit legend percentages (0–100) when provided; else auto fractions (0–1)."""
-    if legend_percentages is None:
-        return breakdown_fractions
-    if breakdown_fractions is None:
-        raise ValueError(
-            "legend_percentages was provided but no MC breakdown fractions were computed"
-        )
-    fracs = np.asarray(legend_percentages, dtype=float) / 100.0
-    n_categ = len(breakdown_fractions)
-    if len(fracs) != n_categ:
-        raise ValueError(
-            "legend_percentages length %d != number of MC categories %d"
-            % (len(fracs), n_categ)
-        )
-    return list(fracs)
-
-
 def _overlay_draw_bkgd_syst_band(
     ax,
     bin_centers,
@@ -499,7 +448,14 @@ def _overlay_draw_bkgd_syst_band(
 
 def _overlay_add_poisson_mc_stat_to_band(syst_explicit, load_syst_from_summary):
     """``category_syst_summary`` totals already include MC stat.; skip Poisson MC stat on the band."""
-    return not (load_syst_from_summary and not syst_explicit)
+    # If the uncertainties are sourced from the category summary, MC stat is already included in
+    # the provided covariance (either loaded internally or passed explicitly from that same source).
+    # Adding Poisson MC stat again would inflate the band and break consistency with printed
+    # fractional uncertainties (sqrt(diag(cov_frac))).
+    if load_syst_from_summary:
+        return False
+    # Otherwise (legacy / ad-hoc syst inputs), keep the historical behavior and include Poisson MC stat.
+    return True
 
 
 def _overlay_syst_sigma(total_mc, mc_stat_err, syst_frac_cov, *, add_poisson_mc_stat):
@@ -999,21 +955,10 @@ def add_approval_text(approval, textloc_x, textloc_y, textloc_ha, fontsize=20):
 def add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y, textloc_ha, label=""):
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
     prefix = f"{label} " if label else ""
-    # ax.text(
-    #     textloc_x,
-    #     textloc_y,
-    #     f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)}",
-    #     transform=ax.transAxes,
-    #     ha=textloc_ha,
-    #     va="top",
-    #     fontsize=12,
-    #     color="black",
-    # )
-
     ax.text(
         textloc_x,
         textloc_y,
-        "8.8 $\\times 10^{19}$ POT",
+        f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)}",
         transform=ax.transAxes,
         ha=textloc_ha,
         va="top",
@@ -1632,8 +1577,7 @@ def overlay_hists_from_histdata(histdata,
                                 save_name=None,
                                 cosmic_estimate="intime",
                                 show_cosmic_model_unc=True,
-                                verbose_hist=False,
-                                legend_percentages=None):
+                                verbose_hist=False):
     """Render an overlay histogram plot from precomputed histograms.
 
     The plot output is bit-for-bit identical to overlay_hists(...) with raw
@@ -1653,10 +1597,6 @@ def overlay_hists_from_histdata(histdata,
     show_cosmic_model_unc : bool
         Accepted for API compatibility with ``overlay_hists``; the intime/offbeam
         uncertainty band is **not** drawn (only the merged cosmic estimate is used).
-    legend_percentages : sequence of float or None
-        Optional per-category percentages (0–100) for legend labels, in the same
-        order as ``labels`` / ``breakdown_fractions``. When set, overrides the
-        fractions computed from the MC stack integrals.
     Other arguments behave identically to overlay_hists().
     """
 
@@ -1889,10 +1829,6 @@ def overlay_hists_from_histdata(histdata,
                 breakdown_fractions = [li / tot_int for li in layer_integrals]
             else:
                 breakdown_fractions = [0.0] * len(layer_integrals)
-
-    breakdown_fractions = _overlay_resolve_legend_fractions(
-        breakdown_fractions, legend_percentages
-    )
 
     chi2_val = None
     chi2_reduced = None
@@ -2195,6 +2131,7 @@ def overlay_hists_from_histdata(histdata,
             "total_mc_bkgd": total_mc_bkgd,
             "total_data": total_data,
             "chi2_val": chi2_val,
+            "chi2_reduced": chi2_reduced,
             "p_val": p_val,
             "ndof": ndof,
             "chi2_pull": chi2_pull}
@@ -2232,8 +2169,7 @@ def overlay_hists(breakdown_type="topology",
                   cosmic_estimate="intime",
                   show_cosmic_model_unc=True,
                   verbose_hist=False,
-                  signal_truth_fv="per_tpc",
-                  legend_percentages=None):
+                  signal_truth_fv="per_tpc"):
 
     # If precomputed histogram contents are provided, dispatch to the
     # histdata-based renderer so that the chunked / aggregated framework
@@ -2266,7 +2202,6 @@ def overlay_hists(breakdown_type="topology",
             cosmic_estimate=cosmic_estimate,
             show_cosmic_model_unc=show_cosmic_model_unc,
             verbose_hist=verbose_hist,
-            legend_percentages=legend_percentages,
         )
 
     # ==== prepare dfs for plotting ====
@@ -2505,10 +2440,6 @@ def overlay_hists(breakdown_type="topology",
                 )
                 bottom += hist_vals
 
-        breakdown_fractions = _overlay_resolve_legend_fractions(
-            breakdown_fractions, legend_percentages
-        )
-
     chi2_val = None
     chi2_reduced = None
     p_val = None
@@ -2525,29 +2456,22 @@ def overlay_hists(breakdown_type="topology",
         category_syst_summary_path=category_syst_summary_path,
         load_syst_from_summary=load_syst_from_summary,
     )
-    # syst = "cosmics"
 
     if syst is not None: # list of syst uncertainties 
 
-        # # TODO: diff between data and mc as additional systematic
-        # # syst_diff = total_data - total_mc
-        # # syst_diff_cov = np.cov(np.array([total_data, total_mc]).T)
+        add_poisson_mc_stat = _overlay_add_poisson_mc_stat_to_band(
+            syst_explicit, load_syst_from_summary
+        )
 
-        # add_poisson_mc_stat = _overlay_add_poisson_mc_stat_to_band(
-        #     syst_explicit, load_syst_from_summary
-        # )
+        # decompose into shape and norm components
+        cov_norm, cov_mixed, cov_shape = Matrix_Decomp(total_mc, syst * (total_mc**2))
+        syst_err_norm = np.sqrt(np.abs(np.diag(cov_norm)))
+        syst_err_mixed = np.sqrt(np.abs(np.diag(cov_mixed)))
+        syst_err_shape = np.sqrt(np.abs(np.diag(cov_shape)))
 
-        # # decompose into shape and norm components
-        # cov_norm, cov_mixed, cov_shape = Matrix_Decomp(total_mc, syst * (total_mc**2))
-        # syst_err_norm = np.sqrt(np.abs(np.diag(cov_norm)))
-        # syst_err_mixed = np.sqrt(np.abs(np.diag(cov_mixed)))
-        # syst_err_shape = np.sqrt(np.abs(np.diag(cov_shape)))
-
-        # syst_err = _overlay_syst_sigma(
-        #     total_mc, mc_stat_err, syst, add_poisson_mc_stat=add_poisson_mc_stat
-        # )
-
-        syst_err = np.sqrt(np.diag(syst)) * total_mc * 0.3
+        syst_err = _overlay_syst_sigma(
+            total_mc, mc_stat_err, syst, add_poisson_mc_stat=add_poisson_mc_stat
+        )
 
         if syst_decomp == False:
             ax.bar(
@@ -2779,6 +2703,8 @@ def overlay_hists(breakdown_type="topology",
             else:
                 mc_handles = [h for i, h in enumerate(handles) if 'Unc.' not in labels_orig[i]]
 
+            # breakdown_fractions[-1] = 0.916
+            # breakdown_fractions[0] = 0.008
             mc_labels = [f"{label} ({frac*100:.1f}%)"
                                 for label, frac in zip(labels, breakdown_fractions)]
             ordered_handles.extend(mc_handles)
@@ -2928,6 +2854,7 @@ def overlay_hists(breakdown_type="topology",
             "total_mc_bkgd": total_mc_bkgd,
             "total_data": total_data,
             "chi2_val": chi2_val,
+            "chi2_reduced": chi2_reduced,
             "p_val": p_val,
             "ndof": ndof,
             "chi2_pull": chi2_pull}
@@ -2979,7 +2906,7 @@ def plot_chi2_pull(chi2_pull,
         textloc_y = textloc[1]
         textloc_ha = "left"
         ax.text(textloc_x, textloc_y,
-                f"$\\chi^2$/ndof = {chi2_val:.2f}/{ndof} (p-value = {p_val:.2f})",
+                f"$\\chi^2$/ndof = {chi2_val:.1f}/{ndof}",
                 transform=ax.transAxes,
                 ha=textloc_ha, va="top",
                 fontsize=12, color="black")
@@ -3158,9 +3085,10 @@ def plot_univ_hists(
 def _covariance_per_bin_width(cov, bin_widths):
     """If ``x_i = y_i / bw_i``, propagate ``Cov(y)`` to ``Cov(x)`` with ``D = diag(1/bw)``."""
     invbw = 1.0 / np.clip(np.asarray(bin_widths, dtype=float), 1e-300, None)
-    d = np.diag(invbw)
     cov = np.asarray(cov, dtype=float)
-    return d @ cov @ d
+    # Avoid explicit diag + matrix-multiply (O(n^3)); scaling is elementwise (O(n^2)):
+    # (D cov D)_{ij} = cov_{ij} / (bw_i bw_j)
+    return cov * np.outer(invbw, invbw)
 
 
 def plot_unfolded_result(unfold, 
@@ -3168,7 +3096,6 @@ def plot_unfolded_result(unfold,
                          models,
                          var_config, 
                          chi2_list=[],
-                         chi2_dict={},
                          xsec_unit=0,
                          textloc=[0.05, 0.55],
                          approval="internal",
@@ -3178,7 +3105,8 @@ def plot_unfolded_result(unfold,
                          save_name=None,
                          data=False,
                          closure_test=False,
-                         model_add_smear=None):
+                         model_add_smear=None,
+                         verbose: bool = False):
 
     bins = var_config.bins
     bin_centers = var_config.bin_centers
@@ -3198,22 +3126,23 @@ def plot_unfolded_result(unfold,
 
     # --- stat uncertainties
     UnfoldCov_stat = unfold['StatUnfoldCov']
-    Unfold_uncert_stat = np.diag(UnfoldCov_stat)
+    Unfold_uncert_stat = np.sqrt(np.maximum(np.diag(UnfoldCov_stat), 0.0))
 
     # --- syst uncertainties
     UnfoldCov_syst = unfold['SystUnfoldCov']
-    Unfold_uncert_syst = np.diag(UnfoldCov_syst)
+    Unfold_uncert_syst = np.sqrt(np.maximum(np.diag(UnfoldCov_syst), 0.0))
     UnfoldCov_syst_frac = fraccov_from_cov(UnfoldCov_syst, Unfolded)
 
     # --- decompose into norm and shape components
     # the first item in models dict is the nominal input model
     norm_model = list(models.keys())[0]
     SystUnfoldCov_norm, SystUnfoldCov_mixed, SystUnfoldCov_shape = Matrix_Decomp(models[norm_model], UnfoldCov_syst)
-    Unfold_uncert_norm = np.sqrt(np.abs(np.diag(SystUnfoldCov_norm)))
+    Unfold_uncert_norm = np.sqrt(np.abs(np.diag(SystUnfoldCov_norm + SystUnfoldCov_mixed)))
     Unfold_uncert_shape = np.sqrt(np.abs(np.diag(SystUnfoldCov_shape)))
 
 
     # --- plot
+    # fig, ax = plt.subplots(figsize=(8.5, 7))
     fig, ax = plt.subplots(figsize=(8, 6))
     # set err to 0 for closure test
     if closure_test:
@@ -3221,47 +3150,49 @@ def plot_unfolded_result(unfold,
         bar_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=dummy_err, fmt='o', color='black')
 
     else:
-        # plot shape uncertainty as error bars
+        # Plot two uncertainty envelopes on the unfolded points:
+        # - inner: unfolded statistical uncertainty (from StatUnfoldCov)
+        # - outer: total unfolded uncertainty (stat ⊕ syst, from UnfoldCov)
         Unfold_uncert_stat_perwidth = Unfold_uncert_stat / bin_widths
-        Unfold_uncert_shape_perwidth = Unfold_uncert_shape / bin_widths
-        # Unfold_uncert_stat_shape_perwidth = Unfold_uncert_stat_perwidth + Unfold_uncert_shape_perwidth
-        #Unfold_uncert_stat_shape_perwidth = Unfold_uncert_shape_perwidth
-        bar_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=Unfold_uncert_shape_perwidth, fmt='o', color='black', capsize=3)
+        Unfold_uncert_syst_perwidth = Unfold_uncert_syst / bin_widths
+        Unfold_uncert_total_perwidth = np.sqrt(
+            np.maximum(Unfold_uncert_stat_perwidth**2 + Unfold_uncert_syst_perwidth**2, 0.0)
+        )
+        # Outer (total)
+        bar_handle = plt.errorbar(
+            bin_centers,
+            Unfolded_perwidth,
+            yerr=Unfold_uncert_total_perwidth,
+            fmt="o",
+            color="black",
+            capsize=3,
+            label="Unfolded (total)",
+        )
+        # Inner (stat-only)
+        plt.errorbar(
+            bin_centers,
+            Unfolded_perwidth,
+            yerr=Unfold_uncert_stat_perwidth,
+            fmt="o",
+            color="black",
+            capsize=0,
+            alpha=0.7,
+            label="Unfolded (stat)",
+        )
 
         # plot syst norm component as histogram at the bottom
         Unfold_uncert_norm_perwidth = Unfold_uncert_norm / bin_widths
         if len(var_config.bins) != 2:
             norm_handle = plt.bar(bin_centers, Unfold_uncert_norm_perwidth, width=bin_widths, label='Syst. error (norm)', alpha=0.5, color='gray')
 
-    if data: # get stat uncertainty for data
-        # data_eylow, data_eyhigh = return_data_stat_err(measured/xsec_unit)
-        # Data_frac_unc = (data_eyhigh - data_eylow) / (2 * measured/xsec_unit)
-        Data_frac_unc = (1/np.sqrt(measured / xsec_unit))
-        Data_stat_frac_cov = np.diag(Data_frac_unc**2)
-
-        Data_stat = Unfolded_perwidth * Data_frac_unc
-        Data_stat_frac_unc_smeared = (unfold['AddSmear'] @ Data_frac_unc)
-        Data_stat_smeared = Unfolded_perwidth * Data_stat_frac_unc_smeared
-
-        Data_stat_cov = cov_from_fraccov(Data_stat_frac_cov, Unfolded_perwidth)
-        Data_stat_frac_cov_smeared = np.diag((unfold['AddSmear'] @ Data_frac_unc)**2)
-        Data_stat_cov_smeared = cov_from_fraccov(Data_stat_frac_cov_smeared, Unfolded_perwidth)
-
-        if len(var_config.bins) == 2:
-            tot_err = np.sqrt(Data_stat**2 + Unfold_uncert_norm_perwidth**2)
-        else:
-            tot_err = np.sqrt(Data_stat**2 + Unfold_uncert_shape_perwidth**2)
-
-
-        # TODO
-        # tot_err = np.sqrt(Unfold_uncert_stat_perwidth**2 + Unfold_uncert_shape_perwidth**2)
-        Data_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=tot_err, fmt='o', color='black', capsize=3)
-        handles = [bar_handle, Data_handle]
-        labels = ["SBND Development Data", "Measured Signal"]
+    if data:
+        # For data unfolds, the statistical component is already propagated into
+        # ``StatUnfoldCov`` inside ``WienerSVD`` (via the diagonal Poisson term on the measured spectrum).
+        # Keep the covariance bookkeeping consistent with what is plotted above.
+        handles = [bar_handle]
+        labels = ["Unfolded (total)"]
         UnfoldCov_syst = cov_from_fraccov(UnfoldCov_syst_frac, Unfolded_perwidth)
-
-        UnfoldCov_syst = UnfoldCov_syst + Data_stat_cov
-        UnfoldCov_syst_smeared = UnfoldCov_syst + Data_stat_cov_smeared
+        UnfoldCov_syst_smeared = UnfoldCov_syst.copy()
 
     # divide measured & model by bin width
     measured_perwidth = measured / bin_widths
@@ -3306,18 +3237,18 @@ def plot_unfolded_result(unfold,
         #     model_smeared_perwidth = model_smeared 
 
         if not use_provided_chi2:
-            # remove bins with <= 0 events
-            # Fix chi2 mask logic: mask just once, store, reuse, improve clarity
-            mask = (Unfolded_perwidth > 0) & (model_smeared_perwidth > 0)
-            Unfolded_perwidth_safe = Unfolded_perwidth[mask]
-            model_smeared_perwidth_safe = model_smeared_perwidth[mask]
-            cov_chi2_safe = cov_unfold_perwidth[np.ix_(mask, mask)]
+            # Use ndof from the configured binning (len(bins)-1) and compute χ²/p on those bins.
+            # (Do not drop bins based on content — keep ndof stable across plots.)
             chi2_val, p_val = get_chi2(
-                Unfolded_perwidth_safe, model_smeared_perwidth_safe, cov_chi2_safe
+                Unfolded_perwidth, model_smeared_perwidth, cov_unfold_perwidth
             )
             chi2_vals.append(chi2_val)
             p_values.append(p_val)
-            ndof_list.append(int(np.sum(mask)))
+            ndof_list.append(ndof_bins)
+
+        if verbose:
+            print("Unfolded perwidth: ", Unfolded_perwidth)
+            print("Model smeared perwidth: ", model_smeared_perwidth)
 
         model_handle, = plt.step(bins, np.append(model_smeared_perwidth, model_smeared_perwidth[-1]), where='post')
         model_handles.append(model_handle)
@@ -3334,10 +3265,11 @@ def plot_unfolded_result(unfold,
     elif data:
         if len(var_config.bins) == 2:
             handles = [bar_handle] + model_handles
-            labels = ['Data (Syst. Unc. + Stat. Unc.)\n8.8 $\\times 10^{19}$ POT'] + model_labels
+            labels = ['Data (Syst. Unc. + Stat. Unc.)\n8.81 $\\times 10^{19}$ POT'] + model_labels
+       
         else:
             handles = [bar_handle, norm_handle] + model_handles
-            labels = ['Data (Shape Syst. Unc. + Stat. Unc.)\n8.8 $\\times 10^{19}$ POT', 'Norm. Syst. Unc.'] + model_labels
+            labels = ['Data (Shape Syst. Unc. + Stat. Unc.)\n8.81 $\\times 10^{19}$ POT', 'Norm. Syst. Unc.'] + model_labels
     else:
         if len(var_config.bins) == 2:
             if reco_handle is not None:
@@ -3371,27 +3303,25 @@ def plot_unfolded_result(unfold,
     ):
         model_keys = list(models.keys())
         midx = model_keys.index("GENIE") if "GENIE" in model_keys else 0
-        suffix = f" ($\\chi^2$/ndof = {float(chi2_dict[model_keys[midx]][0]):.1f}/{int(ndof_bins)})"
+        suffix = f" ($\\chi^2$/ndof = {float(chi2_vals[0]):.1f}/{int(ndof_bins)})"
         labels[n_non_model + midx] += suffix
 
     plt.legend(handles, labels,
-               loc='best', fontsize=12, frameon=False, ncol=1)
+               loc='best', fontsize=14, frameon=False, ncol=1)
 
-    plt.xlabel(var_config.var_labels[0], fontsize=20)
-    plt.ylabel(var_config.xsec_label, fontsize=20)
-    plt.title(plot_labels[2])
+    plt.xlabel(var_config.var_labels[0], fontsize=22)
+    plt.ylabel(var_config.xsec_label, fontsize=22)
+    plt.title(plot_labels[2], fontsize=22)
+    ax.tick_params(axis='both', labelsize=16)
     plt.xlim(bins[0], bins[-1])
-    plt.ylim(0., np.max(Unfolded_perwidth)*1.2)
+    plt.ylim(0., None)
 
     # ==== plot additions
-    # textloc_x, textloc_ha = get_textloc_x(Unfolded_perwidth, var_config.bins, textloc)
-    # _, textloc_ha = get_textloc_x(Unfolded_perwidth, var_config.bins, textloc)
-    textloc_x = textloc[0]
-    textloc_ha = "left"
+    textloc_x, textloc_ha = get_textloc_x(Unfolded_perwidth, var_config.bins, textloc)
     textloc_y = textloc[1]
     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
 
-    add_genie_version_text(textloc_x, textloc_y-0.08, textloc_ha)
+    add_genie_version_text(textloc_x, textloc_y-0.1, textloc_ha)
 
     if var_config.var_save_name == "integrated":
         format_singlebin_plot()
@@ -3554,18 +3484,8 @@ def variation_hists(evtdfs=None, var_name=None, breakdown_type=None,
 
     return nevts_list
 
-# def signal_cut(df, detector=DETECTOR):
-#     # print("DETECTOR: ", detector)
-#     # signal_cut =  (df.mc.nmu_220MeVc == 1) & (df.mc.np_300MeVc == 1) & (df.mc.npi_70MeVc == 0) & (df.mc.npi0 == 0) &\
-#     #                 (np.sqrt(df.mc.mu.genp.x**2 + df.mc.mu.genp.y**2 + df.mc.mu.genp.z**2) < 1) &\
-#     #                 (np.sqrt(df.mc.p.genp.x**2 + df.mc.p.genp.y**2 + df.mc.p.genp.z**2) < 1) &\
-#     #                     InFV(df.mc.mu.start, det=detector) & InFV(df.mc.p.start, det=detector) 
-#     # return df[signal_cut]
-#     return df[IsNuInFV_NumuCC_1p0pi(df, detector=detector)]
-
 def signal_cut(df, detector=DETECTOR, signal_truth_fv="per_tpc"):
     return df[IsNuInFV_NumuCC_1p0pi(df, detector=detector, signal_truth_fv=signal_truth_fv)]
-
 
 def signal_hists(evtdf=None,  # df with selected & reco'ed events
                  nudf=None,   # df with all MC truth
@@ -3693,6 +3613,7 @@ def signal_hists(evtdf=None,  # df with selected & reco'ed events
             "nevts_allsel_reco": nevts_allsel_reco,
         }
 
+
 # ==== fractional uncertainty plot ====
 def plot_frac_unc(frac_unc_list, 
                   var_config, 
@@ -3768,7 +3689,7 @@ def plot_heatmap(matrix,
     x_tick_positions, y_tick_positions = (unif_bin[:-1] + unif_bin[1:]) / 2, (unif_bin[:-1] + unif_bin[1:]) / 2
     x_labels, y_labels = bin_range_labels(x_edges), bin_range_labels(y_edges)
 
-    fig, ax = plt.subplots(figsize=(12, 12))
+    fig, ax = plt.subplots(figsize=(10, 10))
     if cmap == "bwr":
         plt.imshow(matrix, extent=extent, origin="lower", vmin=-1, vmax=1, cmap=cmap)
     else:
@@ -3790,24 +3711,17 @@ def plot_heatmap(matrix,
 
         formatter = mpl.ticker.FuncFormatter(lambda x, _: f"{x/10**exponent:.2f}")
         cbar = plt.colorbar(shrink=0.7)
-        # cbar.set_label(f"{plot_labels[2]} [10$^{{{exponent}}}$]", fontsize=16)
-        if exponent != 0 and exponent != -1:
-            cbar.set_label(plot_labels[2] + f" [10$^{{{exponent}}}$]", fontsize=16)
-        else:
-            cbar.set_label(plot_labels[2], fontsize=16)
+        cbar.set_label(f"{plot_labels[3]} [10$^{{{exponent}}}$]", fontsize=20)
+        # cbar.set_label(f"[10$^{{{exponent}}}$]", fontsize=20)
         cbar.ax.yaxis.set_major_formatter(formatter)
-
-    # else:
-    #     plt.colorbar(shrink=0.7, label=plot_labels[2])
+    else:
+        plt.colorbar(shrink=0.7, label=plot_labels[2])
 
     for i in range(nbins-1):      # rows (y)
         for j in range(nbins-1):  # columns (x)
             value = matrix[i, j]
             if not np.isnan(value):  # skip NaNs
-                if exponent != -1:
-                    significand = value / 10**exponent
-                else:
-                    significand = value
+                significand = value / 10**exponent
                 plt.text(
                     j + 0.5, i + 0.5,
                     f"{significand:.2f}",
@@ -3818,12 +3732,9 @@ def plot_heatmap(matrix,
 
     plt.xticks(x_tick_positions, x_labels, rotation=45, ha="right")
     plt.yticks(y_tick_positions, y_labels)
-    plt.xlabel(plot_labels[0], fontsize=20)
-    plt.ylabel(plot_labels[1], fontsize=20)
-    if len(plot_labels) > 3:
-        plt.title(plot_labels[3], fontsize=20)
-    else:
-        plt.title(plot_labels[2], fontsize=20)
+    plt.xlabel(plot_labels[0], fontsize=30)
+    plt.ylabel(plot_labels[1], fontsize=30)
+    plt.title(plot_labels[2], fontsize=30)
 
     if verbose:
         n_diag = np.sum(np.diag(matrix))

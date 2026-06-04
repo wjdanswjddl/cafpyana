@@ -89,10 +89,12 @@ def WienerSVD(Response, Signal, Measure, Covariance, C_type, Norm_type, *, stat_
 
     # Older: StatCov = np.diag(Measure); TotalCov = Covariance + StatCov
     # (Wrong when Measure = N * xsec_unit: Poisson Var needs extra xsec_unit factor → stat_scaling.)
-    m_eff = np.asarray(Measure, dtype=float)
+    m_eff = np.asarray(Measure, dtype=float) # / stat_scaling
     stat_var = np.maximum(m_eff * float(stat_scaling), 1e-300)
     StatCov = np.diag(stat_var)
     TotalCov = Covariance + StatCov
+    # print("StatCov: ", StatCov)
+    # print("Covariance: ", Covariance)
 
     # Decomposition of the total Covariance matrix to obtain Q.
     U_cov, s_cov, Vh_cov = np.linalg.svd(TotalCov)
@@ -180,41 +182,34 @@ def Matrix_Decomp(matrix_pred, matrix_syst):
         (matrix_norm_plus_mixed, matrix_shape): tuple of 2D numpy arrays
     """
 
-    nbins = len(matrix_pred)
-    matrix_pred = np.asarray(matrix_pred)
-    matrix_syst = np.asarray(matrix_syst)
+    # NOTE: The original implementation recomputed row/col sums inside the i,j loops,
+    # making this O(n^3). This vectorized form is O(n^2) and is a major speedup for
+    # repeated plotting/overlay calls.
+    pred = np.asarray(matrix_pred, dtype=float).reshape(-1)
+    cov = np.asarray(matrix_syst, dtype=float)
+    nbins = int(pred.shape[0])
+    if cov.shape != (nbins, nbins):
+        raise ValueError("matrix_syst shape %s does not match pred length %d" % (cov.shape, nbins))
 
-    # Total predicted events
-    N_T = np.sum(matrix_pred)
+    N_T = float(np.sum(pred))
+    if not np.isfinite(N_T) or N_T == 0.0:
+        # Degenerate spectrum: treat everything as shape=0, mixed=0, norm=0
+        z = np.zeros((nbins, nbins), dtype=float)
+        return z, z.copy(), z.copy()
 
-    # Total covariance sum
-    M_kl = np.sum(matrix_syst)
+    M_kl = float(np.sum(cov))
+    row_sum = np.sum(cov, axis=1)  # M_ik
+    col_sum = np.sum(cov, axis=0)  # M_kj
 
-    # Initialize output matrices
-    matrix_shape = np.zeros((nbins, nbins))
-    matrix_mixed = np.zeros((nbins, nbins))
-    matrix_norm = np.zeros((nbins, nbins))
+    # Broadcast helpers
+    Ni = pred[:, None]
+    Nj = pred[None, :]
+    Rik = row_sum[:, None]
+    Ckj = col_sum[None, :]
+    NT = N_T
 
-    for i in range(nbins):
-        N_i = matrix_pred[i]
-        for j in range(nbins):
-            N_j = matrix_pred[j]
-            M_ij = matrix_syst[i, j]
-            M_ik = np.sum(matrix_syst[i, :])
-            M_kj = np.sum(matrix_syst[:, j])
-            matrix_shape[i, j] = (
-                M_ij
-                - N_j * M_ik / N_T
-                - N_i * M_kj / N_T
-                + N_i * N_j * M_kl / (N_T * N_T)
-            )
-            matrix_mixed[i, j] = (
-                N_j * M_ik / N_T
-                + N_i * M_kj / N_T
-                - 2 * N_i * N_j * M_kl / (N_T * N_T)
-            )
-            matrix_norm[i, j] = N_i * N_j * M_kl / (N_T * N_T)
+    matrix_norm = (Ni * Nj) * (M_kl / (NT * NT))
+    matrix_mixed = (Nj * Rik / NT) + (Ni * Ckj / NT) - 2.0 * (Ni * Nj) * (M_kl / (NT * NT))
+    matrix_shape = cov - (Nj * Rik / NT) - (Ni * Ckj / NT) + (Ni * Nj) * (M_kl / (NT * NT))
 
-    matrix_norm_plus_mixed = matrix_norm + matrix_mixed
-    # return matrix_norm_plus_mixed, matrix_shape
     return matrix_norm, matrix_mixed, matrix_shape

@@ -9,7 +9,7 @@ DETECTOR = "SBND_Gen1"
 # DETECTOR = "SBND"
 
 # Cathode inset (cm) for per-TPC x-fiducial; matches reco helpers in
-# ``scripts/selected_events.py`` / ``selected_events_cumulative.py``.
+# ``makedf.selections.event_contained_per_tpc`` and selected-events drivers.
 PER_TPC_INCATHODE_CM = 10
 
 # ==== definitions for event categories ===-
@@ -67,9 +67,10 @@ def IsTruthCC1p0piNominalFV(df, detector=DETECTOR):
 def Is_1p0pi(df, detector=DETECTOR, signal_truth_fv="per_tpc"):
     """True CC 1p0π topology with configurable truth fiducial.
 
-    signal_truth_fv : {'per_tpc', 'nominal'}
+    signal_truth_fv : {'per_tpc', 'nominal', 'none'}
         ``per_tpc`` — ``IsTruthCC1p0piPerTPCFV`` (matches per-TPC reco selection).
         ``nominal`` — μ/p start and end in ``detector`` (default ``SBND_nohighyz``).
+        ``none`` — topology only, no μ/p end containment requirement.
     """
     topo = (
         (df.mc.nmu_220MeVc == 1)
@@ -83,8 +84,10 @@ def Is_1p0pi(df, detector=DETECTOR, signal_truth_fv="per_tpc"):
         return topo & IsTruthCC1p0piPerTPCFV(df)
     if signal_truth_fv == "nominal":
         return topo & IsTruthCC1p0piNominalFV(df, detector=detector)
+    if signal_truth_fv == "none":
+        return topo
     raise ValueError(
-        f"signal_truth_fv must be 'per_tpc' or 'nominal', got {signal_truth_fv!r}"
+        f"signal_truth_fv must be 'per_tpc', 'nominal', or 'none', got {signal_truth_fv!r}"
     )
 
 def Is_Np0pi(df):

@@ -5,8 +5,75 @@ from .calo import *
 from . import numisyst, g4syst, geniesyst, bnbsyst, getenv, mcstat
 # from makedf import chi2pid, chi2pid_cccal_m, chi2pid_cccal_p, chi2pid_alpha_m, chi2pid_alpha_p, chi2pid_beta_m, chi2pid_beta_p, chi2pid_R_m, chi2pid_R_p
 from makedf import chi2pid
+import uproot
+from scipy.interpolate import RegularGridInterpolator
 
 pd.set_option('future.no_silent_downcasting', True)
+
+_SBND_EFIELD_MAP_ROOT = (
+    "/exp/sbnd/app/users/jaz8600/CathodeSimulation/"
+    "localProducts_larsoft_v10_06_00_02_e26_prof/sbnd_data/v01_99/"
+    "SCEoffsets/SBND_DataMap_v3.root"
+)
+_SBND_EFIELD_INTERP = None
+
+
+def _th3_axis_centers(axis):
+    nbins = axis.member("fNbins")
+    xmin = axis.member("fXmin")
+    xmax = axis.member("fXmax")
+    edges = np.linspace(xmin, xmax, nbins + 1)
+    return 0.5 * (edges[:-1] + edges[1:])
+
+
+def _load_sbnd_efield_interpolators():
+    global _SBND_EFIELD_INTERP
+    if _SBND_EFIELD_INTERP is not None:
+        return _SBND_EFIELD_INTERP
+
+    fmap = uproot.open(_SBND_EFIELD_MAP_ROOT)
+    out = {}
+    for tpc in ("E", "W"):
+        hist = fmap[f"True_ElecField_Mag_{tpc};1"]
+        grid = (
+            _th3_axis_centers(hist.member("fXaxis")),
+            _th3_axis_centers(hist.member("fYaxis")),
+            _th3_axis_centers(hist.member("fZaxis")),
+        )
+        out[tpc] = RegularGridInterpolator(
+            grid,
+            np.asarray(hist.values(), dtype=float),
+            bounds_error=False,
+            fill_value=0.0,
+        )
+
+    _SBND_EFIELD_INTERP = out
+    return _SBND_EFIELD_INTERP
+
+
+def _apply_sbnd_efield_map(trkhitdf):
+    # Map is split into East/West; for SBND hit coordinates, x<0 -> East, x>=0 -> West.
+    interps = _load_sbnd_efield_interpolators()
+    xyz = np.column_stack([
+        trkhitdf.x.to_numpy(dtype=float),
+        trkhitdf.y.to_numpy(dtype=float),
+        trkhitdf.z.to_numpy(dtype=float),
+    ])
+    xvals = xyz[:, 0]
+
+    delta = np.zeros(len(trkhitdf), dtype=float)
+    east = xvals < 0.0
+    west = np.invert(east)
+    if east.any():
+        delta[east] = interps["E"](xyz[east])
+    if west.any():
+        delta[west] = interps["W"](xyz[west])
+
+    # True_ElecField_Mag_* is treated as a fractional variation map (few-percent level).
+    # Keep only physically valid non-negative fields.
+    efield_new = trkhitdf.efield.to_numpy(dtype=float) * (1.0 + delta)
+    efield_new = np.clip(efield_new, 1e-6, None)
+    trkhitdf["efield"] = efield_new
 
 PDG = {
     "muon": [13, "muon", 0.105,],
@@ -205,7 +272,7 @@ def make_opflashdf(f):
     opflashdf = loadbranches(f["recTree"], opflashbranches).rec.opflashes
     return opflashdf
 
-def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=False, mcs=False, updatecalo=None):
+def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=False, mcs=False, updatecalo=None, updateefield=False):
     trkdf = loadbranches(f["recTree"], trkbranches)
     if scoreCut:
         trkdf = trkdf.rec.slc.reco[trkdf.rec.slc.reco.pfp.trackScore > 0.5]
@@ -235,6 +302,9 @@ def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=Fal
 
         for plane in range(0, 3):
             trkhitdf = make_trkhitdf(f, plane)
+            if updateefield:
+                # print("updatecalo", updatecalo, "updateefield", updateefield)
+                _apply_sbnd_efield_map(trkhitdf)
             trkhitdf = trkhitdf[InFV(df=trkhitdf, det=det)]
 
             dedx_redo = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc, new_calo_params=chi2pid.CALO_VARIATIONS[updatecalo])
@@ -471,13 +541,22 @@ def make_all_pandora_df(f):
 
     return pfpdf
 
-def make_pandora_df_calo_update(f, **trkArgs):
-    pandoradf = make_pandora_df(f, trkScoreCut=False, trkDistCut=50., cutClearCosmic=True, requireFiducial=False, updatecalo=True, **trkArgs)
+def make_pandora_df_calo_update(f, updateefield=False, **trkArgs):
+    pandoradf = make_pandora_df(
+        f,
+        trkScoreCut=False,
+        trkDistCut=50.,
+        cutClearCosmic=True,
+        requireFiducial=False,
+        updatecalo=True,
+        updateefield=updateefield,
+        **trkArgs,
+    )
     return pandoradf
 
-def make_pandora_df(f, trkScoreCut=False, trkDistCut=50., cutClearCosmic=False, requireFiducial=False, updatecalo=False, **trkArgs):
+def make_pandora_df(f, trkScoreCut=False, trkDistCut=50., cutClearCosmic=False, requireFiducial=False, updatecalo=False, updateefield=False, **trkArgs):
     # load
-    trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
+    trkdf = make_trkdf(f, scoreCut=trkScoreCut, updateefield=updateefield, **trkArgs)
     if updatecalo:
         # check detector
         det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
@@ -492,6 +571,8 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=50., cutClearCosmic=False, 
         chi2_pids = []
         for plane in range(0, 3):
             trkhitdf = make_trkhitdf(f, plane)
+            if updateefield:
+                _apply_sbnd_efield_map(trkhitdf)
             if det == "SBND": ## FIXME
                 trkhitdf = trkhitdf[InFV(df = trkhitdf, inzback = 0., det = "SBND_nohighyz")]
             #dqdx_redo = chi2pid.dqdx(trkhitdf, gain=det, calibrate=det, isMC=ismc)

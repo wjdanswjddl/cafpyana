@@ -2,8 +2,8 @@
 
 Edit paths **here only** so drivers stay thin:
 
-- ``run_event_selection_chunked.sh`` — map shards: MC/data/intime/offbeam/dirt ``.df`` files for
-  ``event_selection_chunk.py`` / ``event_selection_aggregate.py``.
+- ``run_event_selection_batched.sh`` — map batches (≤1 GiB groups of ``.df`` files) for
+  ``event_selection_batch_map.py`` / ``event_selection_aggregate.py``.
 - ``run_syst_multisim_chunked.sh`` — per systematic + CAF shard (default syst subset: Flux+G4;
   MCstat opt-in via ``MULTISIM_SYST_TYPES`` / ``--syst-types``); **Combined** chunks live under
   ``multisim_syst-chunked-*`` / ``chunks/Combined/``; **MCstat**, **Flux**, and **G4** map shards use
@@ -70,18 +70,18 @@ PLOTS_BASE = Path(
 )
 
 # -----------------------------------------------------------------------------
-# DFs with all slices, for event selection chunked driver
-# run_event_selection_chunked.sh
+# DFs with all slices, for event selection batched driver
+# run_event_selection_batched.sh
 # Keys: mc, data, intime, offbeam, dirt
 # -----------------------------------------------------------------------------
 EVENT_SELECTION_GLOBS: Dict[str, str] = {
     # "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*df"),
     #"mc": str(SPRING_GEN1_ROOT / "2026_05_11_183347__sel_all-mc-BNB_cosmics-EField_R00/*df"),
-    "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/merged/*.df"),
-    "data": str(SPRING_GEN1_ROOT / "2026_05_16_230859__sel_all-data-1e20/merged/*.df"),
-    "intime": str(SPRING_GEN1_ROOT / "2026_05_11_040132__sel_all-mc-Intime/merged/*.df"),
-    "offbeam": str(SPRING_GEN1_ROOT / "2026_05_11_035756__sel_all-data-OffBeamLight/merged/*.df"),
-    "dirt": str(SPRING_GEN1_ROOT / "2026_05_11_040638__sel_all-mc-dirt/merged/*.df"),
+    "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*.df"),
+    "data": str(SPRING_GEN1_ROOT / "2026_05_16_230859__sel_all-data-1e20/*.df"),
+    "intime": str(SPRING_GEN1_ROOT / "2026_05_11_040132__sel_all-mc-Intime/*.df"),
+    "offbeam": str(SPRING_GEN1_ROOT / "2026_05_11_035756__sel_all-data-OffBeamLight/*.df"),
+    "dirt": str(SPRING_GEN1_ROOT / "2026_05_11_040638__sel_all-mc-dirt/*.df"),
 }
 
 # -----------------------------------------------------------------------------
