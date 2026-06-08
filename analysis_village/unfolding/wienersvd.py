@@ -111,14 +111,16 @@ def WienerSVD(Response, Signal, Measure, Covariance, C_type, Norm_type, *, stat_
 
     # Build the smoothness matrix
     C0 = Matrix_C(n, C_type)
-    normsig = np.zeros((n, n))
-    for i in range(n):
-        normsig[i, i] = 1.0 / (Signal[i] ** Norm_type)
+    # Guard against tiny/zero prior bins. Some phase-space corners can be empty in MC,
+    # and Signal**Norm_type then causes inf/NaN for Norm_type>0.
+    signal_safe = np.clip(np.asarray(Signal, dtype=float), 1e-12, None)
+    normsig = np.diag(signal_safe ** (-float(Norm_type)))
     C0 = C0 @ normsig
 
     # Copy and invert the smoothness matrix
     C = C0.copy()
-    C_inv = np.linalg.inv(C0)
+    # Use pseudo-inverse for stability when C0 is ill-conditioned.
+    C_inv = np.linalg.pinv(C0, rcond=1e-12)
     Signal_mod = C @ Signal
     R = R @ C_inv
 

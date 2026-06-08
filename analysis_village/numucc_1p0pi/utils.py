@@ -3198,7 +3198,7 @@ def plot_unfolded_result(unfold,
 
     # --- stat uncertainties
     UnfoldCov_stat = unfold['StatUnfoldCov']
-    Unfold_uncert_stat = np.diag(UnfoldCov_stat)
+    Unfold_uncert_stat = np.sqrt(np.maximum(np.diag(UnfoldCov_stat), 0.0))
 
     # --- syst uncertainties
     UnfoldCov_syst = unfold['SystUnfoldCov']
@@ -3208,7 +3208,7 @@ def plot_unfolded_result(unfold,
     # --- decompose into norm and shape components
     # the first item in models dict is the nominal input model
     norm_model = list(models.keys())[0]
-    SystUnfoldCov_norm, SystUnfoldCov_mixed, SystUnfoldCov_shape = Matrix_Decomp(models[norm_model], UnfoldCov_syst)
+    SystUnfoldCov_norm, SystUnfoldCov_mixed, SystUnfoldCov_shape = Matrix_Decomp(models[norm_model][0], UnfoldCov_syst)
     Unfold_uncert_norm = np.sqrt(np.abs(np.diag(SystUnfoldCov_norm)))
     Unfold_uncert_shape = np.sqrt(np.abs(np.diag(SystUnfoldCov_shape)))
 
@@ -3221,47 +3221,46 @@ def plot_unfolded_result(unfold,
         bar_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=dummy_err, fmt='o', color='black')
 
     else:
-        # plot shape uncertainty as error bars
+        # Draw nested black error bars:
+        # inner  = shape syst only
+        # outer  = shape syst + stat (in quadrature)
         Unfold_uncert_stat_perwidth = Unfold_uncert_stat / bin_widths
         Unfold_uncert_shape_perwidth = Unfold_uncert_shape / bin_widths
-        # Unfold_uncert_stat_shape_perwidth = Unfold_uncert_stat_perwidth + Unfold_uncert_shape_perwidth
-        #Unfold_uncert_stat_shape_perwidth = Unfold_uncert_shape_perwidth
-        bar_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=Unfold_uncert_shape_perwidth, fmt='o', color='black', capsize=3)
+        Unfold_uncert_total_perwidth = np.sqrt(
+            np.maximum(
+                Unfold_uncert_shape_perwidth**2 + Unfold_uncert_stat_perwidth**2,
+                0.0,
+            )
+        )
+        bar_handle = plt.errorbar(
+            bin_centers,
+            Unfolded_perwidth,
+            yerr=Unfold_uncert_total_perwidth,
+            fmt='o',
+            color='black',
+            ecolor='black',
+            elinewidth=1.5,
+            capsize=3,
+        )
+        shape_handle = plt.errorbar(
+            bin_centers,
+            Unfolded_perwidth,
+            yerr=Unfold_uncert_shape_perwidth,
+            fmt='none',
+            ecolor='black',
+            elinewidth=1.5,
+            capsize=3,
+        )
 
         # plot syst norm component as histogram at the bottom
         Unfold_uncert_norm_perwidth = Unfold_uncert_norm / bin_widths
         if len(var_config.bins) != 2:
             norm_handle = plt.bar(bin_centers, Unfold_uncert_norm_perwidth, width=bin_widths, label='Syst. error (norm)', alpha=0.5, color='gray')
 
-    if data: # get stat uncertainty for data
-        # data_eylow, data_eyhigh = return_data_stat_err(measured/xsec_unit)
-        # Data_frac_unc = (data_eyhigh - data_eylow) / (2 * measured/xsec_unit)
-        Data_frac_unc = (1/np.sqrt(measured / xsec_unit))
-        Data_stat_frac_cov = np.diag(Data_frac_unc**2)
-
-        Data_stat = Unfolded_perwidth * Data_frac_unc
-        Data_stat_frac_unc_smeared = (unfold['AddSmear'] @ Data_frac_unc)
-        Data_stat_smeared = Unfolded_perwidth * Data_stat_frac_unc_smeared
-
-        Data_stat_cov = cov_from_fraccov(Data_stat_frac_cov, Unfolded_perwidth)
-        Data_stat_frac_cov_smeared = np.diag((unfold['AddSmear'] @ Data_frac_unc)**2)
-        Data_stat_cov_smeared = cov_from_fraccov(Data_stat_frac_cov_smeared, Unfolded_perwidth)
-
-        if len(var_config.bins) == 2:
-            tot_err = np.sqrt(Data_stat**2 + Unfold_uncert_norm_perwidth**2)
-        else:
-            tot_err = np.sqrt(Data_stat**2 + Unfold_uncert_shape_perwidth**2)
-
-
-        # TODO
-        # tot_err = np.sqrt(Unfold_uncert_stat_perwidth**2 + Unfold_uncert_shape_perwidth**2)
-        Data_handle = plt.errorbar(bin_centers, Unfolded_perwidth, yerr=tot_err, fmt='o', color='black', capsize=3)
-        handles = [bar_handle, Data_handle]
-        labels = ["SBND Development Data", "Measured Signal"]
-        UnfoldCov_syst = cov_from_fraccov(UnfoldCov_syst_frac, Unfolded_perwidth)
-
-        UnfoldCov_syst = UnfoldCov_syst + Data_stat_cov
-        UnfoldCov_syst_smeared = UnfoldCov_syst + Data_stat_cov_smeared
+    if data:
+        # Keep uncertainties from unfold covariance components only; this avoids NaNs from
+        # sqrt(measured/xsec_unit) when background-subtracted measured bins go negative.
+        pass
 
     # divide measured & model by bin width
     measured_perwidth = measured / bin_widths
@@ -3298,7 +3297,7 @@ def plot_unfolded_result(unfold,
         add_smear = unfold["AddSmear"]
         if model_add_smear is not None and mkey in model_add_smear:
             add_smear = model_add_smear[mkey]
-        model_smeared = add_smear @ models[mkey]
+        model_smeared = add_smear @ models[mkey][0]
         # if "SBN" in mkey:
         model_smeared_perwidth = model_smeared / bin_widths
 
@@ -3307,7 +3306,6 @@ def plot_unfolded_result(unfold,
 
         if not use_provided_chi2:
             # remove bins with <= 0 events
-            # Fix chi2 mask logic: mask just once, store, reuse, improve clarity
             mask = (Unfolded_perwidth > 0) & (model_smeared_perwidth > 0)
             Unfolded_perwidth_safe = Unfolded_perwidth[mask]
             model_smeared_perwidth_safe = model_smeared_perwidth[mask]
@@ -3319,9 +3317,10 @@ def plot_unfolded_result(unfold,
             p_values.append(p_val)
             ndof_list.append(int(np.sum(mask)))
 
-        model_handle, = plt.step(bins, np.append(model_smeared_perwidth, model_smeared_perwidth[-1]), where='post')
+        model_handle, = plt.step(bins, np.append(model_smeared_perwidth, model_smeared_perwidth[-1]), where='post', color=models[mkey][1])
         model_handles.append(model_handle)
-        model_labels.append(f'$A_c \\otimes$ {mkey}')
+        # model_labels.append(f'$A_c \\otimes$ {mkey}')
+        model_labels.append(f'{mkey}')
 
     # legend
     if closure_test:
@@ -3337,7 +3336,7 @@ def plot_unfolded_result(unfold,
             labels = ['Data (Syst. Unc. + Stat. Unc.)\n8.8 $\\times 10^{19}$ POT'] + model_labels
         else:
             handles = [bar_handle, norm_handle] + model_handles
-            labels = ['Data (Shape Syst. Unc. + Stat. Unc.)\n8.8 $\\times 10^{19}$ POT', 'Norm. Syst. Unc.'] + model_labels
+            labels = ['Data (Shape Syst. + Stat. Unc.)\n8.8 $\\times 10^{19}$ POT', 'Norm. Syst. Unc.'] + model_labels
     else:
         if len(var_config.bins) == 2:
             if reco_handle is not None:
@@ -3348,21 +3347,23 @@ def plot_unfolded_result(unfold,
                 labels = ["Fake Data"] + model_labels
         else:
             if reco_handle is not None:
-                handles = [bar_handle, norm_handle, reco_handle] + model_handles
+                handles = [bar_handle, shape_handle, norm_handle, reco_handle] + model_handles
                 labels = [
-                    "Fake Data",
+                    "Fake Data (Shape Syst. + Stat. Unc.)",
+                    "Shape Syst. Unc.",
                     "Norm. Syst. Unc.",
                     "Measured Signal (Input)",
                 ] + model_labels
             else:
-                handles = [bar_handle, norm_handle] + model_handles
-                labels = ["Fake Data", "Norm. Syst. Unc."] + model_labels
+                handles = [bar_handle, shape_handle, norm_handle] + model_handles
+                labels = ["Fake Data (Shape Syst. + Stat. Unc.)", "Shape Syst. Unc.", "Norm. Syst. Unc."] + model_labels
     # Append chi2/ndof to model legend entries
     n_non_model = len(labels) - len(model_labels)
     if len(chi2_vals) == len(models):
         ndofs = ndof_list if len(ndof_list) == len(models) else [ndof_bins] * len(models)
         for midx in range(len(model_labels)):
             suffix = f" ($\\chi^2$/ndof = {float(chi2_vals[midx]):.1f}/{int(ndofs[midx])})"
+            # suffix = f" ($\\chi^2$/ndof = {float(chi2_vals[midx]):.1f}/{int(ndofs[midx])}, p-value = {p_values[midx]:.3f})"
             labels[n_non_model + midx] += suffix
     elif (
         isinstance(chi2_list, dict)
@@ -3377,11 +3378,11 @@ def plot_unfolded_result(unfold,
     plt.legend(handles, labels,
                loc='best', fontsize=12, frameon=False, ncol=1)
 
-    plt.xlabel(var_config.var_labels[0], fontsize=20)
-    plt.ylabel(var_config.xsec_label, fontsize=20)
+    plt.xlabel(var_config.var_labels[0], fontsize=22)
+    plt.ylabel(var_config.xsec_label, fontsize=22)
     plt.title(plot_labels[2])
     plt.xlim(bins[0], bins[-1])
-    plt.ylim(0., np.max(Unfolded_perwidth)*1.2)
+    plt.ylim(0., np.max(Unfolded_perwidth)*1.1)
 
     # ==== plot additions
     # textloc_x, textloc_ha = get_textloc_x(Unfolded_perwidth, var_config.bins, textloc)
