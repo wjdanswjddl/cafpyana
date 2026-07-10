@@ -5,6 +5,7 @@ from .calo import *
 from . import numisyst, g4syst, geniesyst, bnbsyst, getenv, mcstat
 # from makedf import chi2pid, chi2pid_cccal_m, chi2pid_cccal_p, chi2pid_alpha_m, chi2pid_alpha_p, chi2pid_beta_m, chi2pid_beta_p, chi2pid_R_m, chi2pid_R_p
 from makedf import chi2pid
+import os
 import uproot
 from scipy.interpolate import RegularGridInterpolator
 
@@ -15,9 +16,10 @@ pd.set_option('future.no_silent_downcasting', True)
 # True_ElecField_Mag stores the fractional change of |E|:
 #   Mag = sqrt((1 + fx)^2 + fy^2 + fz^2) - 1, with fx/fy/fz the fractional offsets.
 # See analysis_village/numucc_1p0pi/notebooks/detector_Efield_doubleanode.ipynb.
-_SBND_EFIELD_MAP_ROOT = (
-    "/exp/sbnd/app/users/gputnam/cathode-study/"
-    "sce_input_doubleanode_2d/sbnd_sce_doubleanode_2d_v10c.root"
+# Path is relative to the cafpyana repo root so grid workers (git clone) can find it.
+_CAFPYANA_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SBND_EFIELD_MAP_ROOT = os.path.join(
+    _CAFPYANA_ROOT, "data", "efield", "sbnd_sce_doubleanode_2d_v10c.root"
 )
 _SBND_EFIELD_INTERP = None
 
@@ -34,6 +36,12 @@ def _load_sbnd_efield_interpolator():
     global _SBND_EFIELD_INTERP
     if _SBND_EFIELD_INTERP is not None:
         return _SBND_EFIELD_INTERP
+
+    if not os.path.isfile(_SBND_EFIELD_MAP_ROOT):
+        raise FileNotFoundError(
+            f"SBND E-field map not found: {_SBND_EFIELD_MAP_ROOT}. "
+            "Expected data/efield/sbnd_sce_doubleanode_2d_v10c.root in the cafpyana checkout."
+        )
 
     fmap = uproot.open(_SBND_EFIELD_MAP_ROOT)
     hist = fmap["True_ElecField_Mag"]
