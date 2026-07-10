@@ -173,7 +173,7 @@ class NTupleGlob(object):
             thisglob = thisglob[:maxfile]
 
         if nproc == "auto":
-            CPU_COUNT_use = int(CPU_COUNT * 0.2)
+            CPU_COUNT_use = int(CPU_COUNT * 0.4)
             nproc = min(CPU_COUNT_use, len(thisglob))
             print("CPU_COUNT : " + str(CPU_COUNT) + ", len(thisglob): " + str(len(thisglob)) + ", nproc: " + str(nproc))
 

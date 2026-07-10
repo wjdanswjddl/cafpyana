@@ -301,24 +301,37 @@ def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=Fal
 
         for plane in range(0, 3):
             trkhitdf = make_trkhitdf(f, plane)
-            if updateefield:
-                # print("updatecalo", updatecalo, "updateefield", updateefield)
-                _apply_sbnd_efield_map(trkhitdf)
             trkhitdf = trkhitdf[InFV(df=trkhitdf, det=det)]
 
-            dedx_redo = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc, new_calo_params=chi2pid.CALO_VARIATIONS[updatecalo])
-
+            # Always redo dE/dx + χ² with the nominal (CAF) hit E-field first.
+            # chi2_*_new isolates recalculation bias vs the stored CAF χ².
+            dedx_redo = chi2pid.dedx(
+                trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc,
+                new_calo_params=chi2pid.CALO_VARIATIONS[updatecalo],
+            )
             trkhitdf["dedx_redo"] = dedx_redo
-            # TODO: check if score is reproduced
-            # dedx_bias = (dedx_redo - trkhitdf.dedx) / trkhitdf.dedx
-            # trkhitdf["dedx_bias"] = dedx_bias
-            # print("bias", list(dedx_bias.head()))
             for par in ['muon', 'proton']:
                 this_chi2_new, this_chi2_ndof = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
                 this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new', '')
                 this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new', '')
                 trkdf[this_chi2_col] = this_chi2_new.fillna(0.)
                 trkdf[this_ndof_col] = this_chi2_ndof.fillna(0.)
+
+            # Optional second pass: apply the SCE E-field map, then redo χ² again.
+            # chi2_*_new_efield is compared to chi2_*_new for the pure E-field effect.
+            if updateefield:
+                _apply_sbnd_efield_map(trkhitdf)
+                dedx_redo_ef = chi2pid.dedx(
+                    trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc,
+                    new_calo_params=chi2pid.CALO_VARIATIONS[updatecalo],
+                )
+                trkhitdf["dedx_redo"] = dedx_redo_ef
+                for par in ['muon', 'proton']:
+                    this_chi2_ef, this_ndof_ef = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
+                    this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new_efield', '')
+                    this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new_efield', '')
+                    trkdf[this_chi2_col] = this_chi2_ef.fillna(0.)
+                    trkdf[this_ndof_col] = this_ndof_ef.fillna(0.)
 
     trkdf[("pfp", "tindex", "", "", "", "")] = trkdf.index.get_level_values(2)
 
@@ -567,28 +580,29 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=50., cutClearCosmic=False, 
         hdrdf = make_mchdrdf(f)
         ismc = hdrdf.ismc.iloc[0]
 
-        chi2_pids = []
         for plane in range(0, 3):
             trkhitdf = make_trkhitdf(f, plane)
-            if updateefield:
-                _apply_sbnd_efield_map(trkhitdf)
             if det == "SBND": ## FIXME
                 trkhitdf = trkhitdf[InFV(df = trkhitdf, inzback = 0., det = "SBND_nohighyz")]
-            #dqdx_redo = chi2pid.dqdx(trkhitdf, gain=det, calibrate=det, isMC=ismc)
             dedx_redo = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc)
-            dedx_bias = (dedx_redo - trkhitdf.dedx) / trkhitdf.dedx
             trkhitdf["dedx_redo"] = dedx_redo
-            #trkhitdf["dqdx_redo"] = dqdx_redo
-            #trkhitdf["dedx_bias"] = dedx_bias
-            #print(trkhitdf[trkhitdf.rr < 26.].head(50))
             for par in ['muon', 'proton']:
                 this_chi2_new, this_chi2_ndof = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
                 this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new', '')
                 this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new', '')
-                trkdf[this_chi2_col] = this_chi2_new
-                trkdf[this_ndof_col] = this_chi2_ndof
-                trkdf[this_chi2_col] = trkdf[this_chi2_col].fillna(0.)
-                trkdf[this_ndof_col] = trkdf[this_ndof_col].fillna(0)
+                trkdf[this_chi2_col] = this_chi2_new.fillna(0.)
+                trkdf[this_ndof_col] = this_chi2_ndof.fillna(0.)
+
+            if updateefield:
+                _apply_sbnd_efield_map(trkhitdf)
+                dedx_redo_ef = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc)
+                trkhitdf["dedx_redo"] = dedx_redo_ef
+                for par in ['muon', 'proton']:
+                    this_chi2_ef, this_ndof_ef = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
+                    this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new_efield', '')
+                    this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new_efield', '')
+                    trkdf[this_chi2_col] = this_chi2_ef.fillna(0.)
+                    trkdf[this_ndof_col] = this_ndof_ef.fillna(0.)
 
     slcdf = make_slcdf(f)
 

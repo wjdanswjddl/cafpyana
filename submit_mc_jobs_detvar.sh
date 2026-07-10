@@ -21,9 +21,9 @@
 # fileyz="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/WireMod/mc_SBND2026A_prodgenie_corsika_proton_rockbox_sbnd_SV_v10_06_00_10_flatcaf_sbnd_xrootd.list"
 # python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-updateefield.py -l $fileyz -o sel_2prong-mc-WireModYZ-efield -ngrid 2000
 
-#filecv="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list"
-#python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-updateefield.py -l $filecv -o sel_2prong-mc-BNB_cosmics-efieldvar -ngrid 3000
+filecv="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list"
+python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-updateefield.py -l $filecv -o sel_2prong-mc-BNB_cosmics-efieldvar -ngrid 2000
 #python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-updatecalo.py -l $filecv -o sel_mup-mc-BNB_cosmics-calovar -ngrid 3000
 #
-filecv="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_test_100"
-python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-updateefield.py -l $filecv -o sel_2prong-mc-BNB_cosmics-efieldvar 
+#filecv="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_test_100"
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_2prong-updateefield.py -l $filecv -o sel_2prong-mc-BNB_cosmics-efieldvar 
