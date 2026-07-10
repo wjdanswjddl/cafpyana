@@ -10,10 +10,14 @@ from scipy.interpolate import RegularGridInterpolator
 
 pd.set_option('future.no_silent_downcasting', True)
 
+# Double-anode cathode-study SCE map. Single set of TH3F histograms covering the
+# full detector (no East/West split, unlike the older SBND_DataMap_v3.root).
+# True_ElecField_Mag stores the fractional change of |E|:
+#   Mag = sqrt((1 + fx)^2 + fy^2 + fz^2) - 1, with fx/fy/fz the fractional offsets.
+# See analysis_village/numucc_1p0pi/notebooks/detector_Efield_doubleanode.ipynb.
 _SBND_EFIELD_MAP_ROOT = (
-    "/exp/sbnd/app/users/jaz8600/CathodeSimulation/"
-    "localProducts_larsoft_v10_06_00_02_e26_prof/sbnd_data/v01_99/"
-    "SCEoffsets/SBND_DataMap_v3.root"
+    "/exp/sbnd/app/users/gputnam/cathode-study/"
+    "sce_input_doubleanode_2d/sbnd_sce_doubleanode_2d_v10c.root"
 )
 _SBND_EFIELD_INTERP = None
 
@@ -26,50 +30,37 @@ def _th3_axis_centers(axis):
     return 0.5 * (edges[:-1] + edges[1:])
 
 
-def _load_sbnd_efield_interpolators():
+def _load_sbnd_efield_interpolator():
     global _SBND_EFIELD_INTERP
     if _SBND_EFIELD_INTERP is not None:
         return _SBND_EFIELD_INTERP
 
     fmap = uproot.open(_SBND_EFIELD_MAP_ROOT)
-    out = {}
-    for tpc in ("E", "W"):
-        hist = fmap[f"True_ElecField_Mag_{tpc};1"]
-        grid = (
-            _th3_axis_centers(hist.member("fXaxis")),
-            _th3_axis_centers(hist.member("fYaxis")),
-            _th3_axis_centers(hist.member("fZaxis")),
-        )
-        out[tpc] = RegularGridInterpolator(
-            grid,
-            np.asarray(hist.values(), dtype=float),
-            bounds_error=False,
-            fill_value=0.0,
-        )
-
-    _SBND_EFIELD_INTERP = out
+    hist = fmap["True_ElecField_Mag"]
+    grid = (
+        _th3_axis_centers(hist.member("fXaxis")),
+        _th3_axis_centers(hist.member("fYaxis")),
+        _th3_axis_centers(hist.member("fZaxis")),
+    )
+    _SBND_EFIELD_INTERP = RegularGridInterpolator(
+        grid,
+        np.asarray(hist.values(), dtype=float),
+        bounds_error=False,
+        fill_value=0.0,
+    )
     return _SBND_EFIELD_INTERP
 
 
 def _apply_sbnd_efield_map(trkhitdf):
-    # Map is split into East/West; for SBND hit coordinates, x<0 -> East, x>=0 -> West.
-    interps = _load_sbnd_efield_interpolators()
+    interp = _load_sbnd_efield_interpolator()
     xyz = np.column_stack([
         trkhitdf.x.to_numpy(dtype=float),
         trkhitdf.y.to_numpy(dtype=float),
         trkhitdf.z.to_numpy(dtype=float),
     ])
-    xvals = xyz[:, 0]
+    delta = interp(xyz)
 
-    delta = np.zeros(len(trkhitdf), dtype=float)
-    east = xvals < 0.0
-    west = np.invert(east)
-    if east.any():
-        delta[east] = interps["E"](xyz[east])
-    if west.any():
-        delta[west] = interps["W"](xyz[west])
-
-    # True_ElecField_Mag_* is treated as a fractional variation map (few-percent level).
+    # True_ElecField_Mag is the fractional |E| variation; outside the map delta=0.
     # Keep only physically valid non-negative fields.
     efield_new = trkhitdf.efield.to_numpy(dtype=float) * (1.0 + delta)
     efield_new = np.clip(efield_new, 1e-6, None)

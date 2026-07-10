@@ -420,7 +420,7 @@ def make_metadf(f):
 
 def make_pandora_evtdf(f, sel_level="all", 
                        include_weights=True, multisim_nuniv=1000, genie_multisim_nuniv=100, wgt_types=[], slim=True, genie_systematics=None, flux_systematics=None,
-                       trkScoreCut=False, trkDistCut=100., updatecalo=None,
+                       trkScoreCut=False, trkDistCut=100., updatecalo=None, updateefield=False,
                        cutClearCosmic=True, **trkArgs):
 
     """
@@ -521,7 +521,7 @@ def make_pandora_evtdf(f, sel_level="all",
     if sel_level == "nu":
         return truth_match(slcdf, mcdf)
 
-    trkdf = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    trkdf = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, updateefield=updateefield, **trkArgs)
     trkdf = get_valid_trks(trkdf)
     trkdf = match_trkdf_to_slcdf(trkdf, slcdf)
     evtdf = get_trk_info(slcdf, trkdf, save_ntrks)

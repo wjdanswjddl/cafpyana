@@ -36,14 +36,19 @@ def get_chi2(data, model, cov):
 
 
 def get_chi2_shape(data, model, cov):
-    """Shape chi2 using full covariance matrix: model normalized to data integral."""
+    """Shape chi2: model normalized to data integral.
+
+    The normalization fit consumes one degree of freedom, so the p-value uses
+    ndof = nbins - 1. The caller should pass a covariance appropriate for a
+    shape comparison (e.g. with the normalization component removed).
+    """
     scale = np.sum(data) / np.sum(model)
     model_shape = model * scale
     diff = np.asarray(data - model_shape, dtype=float).ravel()
     cov = np.asarray(cov, dtype=float)
     cov = 0.5 * (cov + cov.T)
-    ndof = int(len(diff))
-    if ndof == 0:
+    ndof = int(len(diff)) - 1
+    if ndof <= 0:
         return 0.0, 1.0
     try:
         chi2_value = float(diff @ np.linalg.solve(cov, diff))
@@ -68,7 +73,10 @@ def get_chi2_avg(data, model, cov):
 
 
 def get_chi2_shape_avg(data, model, cov):
-    """Shape chi2 averaged over bins: model normalized to data integral, bins treated independently."""
+    """Shape chi2 averaged over bins: model normalized to data integral, bins treated independently.
+
+    The normalization fit consumes one degree of freedom (ndof = nbins - 1).
+    """
     scale = np.sum(data) / np.sum(model)
     model_shape = model * scale
     var = np.diag(cov)
@@ -76,7 +84,9 @@ def get_chi2_shape_avg(data, model, cov):
     data = data[valid_idx]
     model_shape = model_shape[valid_idx]
     var = var[valid_idx]
-    ndof = int(np.sum(valid_idx))
+    ndof = int(np.sum(valid_idx)) - 1
+    if ndof <= 0:
+        return 0.0, 1.0
     chi2_per_bin = (data - model_shape) ** 2 / var
     chi2_total = np.sum(chi2_per_bin)
     p_value = 1 - chi2.cdf(chi2_total, df=ndof)
