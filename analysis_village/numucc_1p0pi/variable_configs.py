@@ -276,8 +276,8 @@ class VariableConfig:
             var_save_name="E_nu",
             var_plot_name="$E_{\\nu}$",
             var_labels=["$\mathrm{E_{\\nu}}$ [GeV]", 
-            "", 
-            ""],
+            "Neutrino Energy [GeV]", 
+            "Neutrino Energy [GeV]"],
             bins=np.linspace(0.2, 1.7, 16),
             var_evt_reco_col=('mc', 'E', '', '', '', '', ''),
             var_evt_truth_col=('mc', 'E', '', '', '', '', ''),
@@ -421,21 +421,6 @@ class VariableConfig:
             var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'end', 'z'),
             var_nu_col=('mc', 'mu', 'end', 'z'),
             xsec_label=r"$\frac{d\sigma}{dz_\mu}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
-        )
-
-    @classmethod
-    def trk1_end_x(cls):
-        return cls(
-            var_save_name="trk1-end_x",
-            var_plot_name="x_\mu",
-            var_labels=[r"trk1 End X [cm]", 
-            r"trk1 End X [cm]", 
-            r"trk1 End X [cm]"],
-            bins=np.linspace(-200, 200, 51),
-            var_evt_reco_col=('trk1', 'pfp', 'trk', 'end', 'x', '', ''),
-            var_evt_truth_col=('trk1', 'pfp', 'trk', 'truth', 'p', 'end', 'x'),
-            var_nu_col=('mc', 'trk1', 'end', 'x'),
-            xsec_label=r"$\frac{d\sigma}{dx_trk1}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{Ar}}\right)$"
         )
 
     @classmethod
@@ -612,7 +597,7 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\phi}$ [deg]", 
             r"$\mathrm{\phi^{reco.}}$ [deg]", 
             r"$\mathrm{\phi^{true}}$ [deg]"],
-            bins=np.linspace(-180, 180, 31),
+            bins=np.linspace(-180, 180, 41),
             var_evt_reco_col=('trk2', 'pfp', 'trk', 'phi', '', '', ''),
             var_evt_truth_col=('trk2', 'pfp', 'trk', 'truth', 'p', 'phi', ''),
             var_nu_col=('mc', 'trk2', 'phi', '', '', '', ''),
@@ -627,7 +612,7 @@ class VariableConfig:
             var_labels=[r"Track 1 End X [cm]", 
             r"Track 1 End X [cm]", 
             r"Track 1 End X [cm]"],
-            bins=np.linspace(-200, 200, 21),
+            bins=np.linspace(-200, 200, 41),
             var_evt_reco_col=('trk1', 'pfp', 'trk', 'end', 'x', '', ''),
             var_evt_truth_col=('trk1', 'pfp', 'trk', 'truth', 'p', 'end', 'x'),
             var_nu_col=('mc', 'trk1', 'end', 'x'),
@@ -642,7 +627,7 @@ class VariableConfig:
             var_labels=[r"Track 2 End X [cm]", 
             r"Track 2 End X [cm]", 
             r"Track 2 End X [cm]"],
-            bins=np.linspace(-200, 200, 21),
+            bins=np.linspace(-200, 200, 41),
             var_evt_reco_col=('trk2', 'pfp', 'trk', 'end', 'x', '', ''),
             var_evt_truth_col=('trk2', 'pfp', 'trk', 'truth', 'p', 'end', 'x'),
             var_nu_col=('mc', 'trk2', 'end', 'x'),
@@ -689,6 +674,21 @@ class VariableConfig:
             "", 
             ""],
             bins=np.linspace(0.2, 0.9, 71),
+            var_evt_reco_col=('pfp', 'trackScore', '', '', '', ''),
+            var_evt_truth_col=('pfp', 'trackScore', '', '', '', ''),
+            var_nu_col=('', '', ''),
+            xsec_label=r""
+        )
+
+    @classmethod
+    def track_score_trk1(cls):
+        return cls(
+            var_save_name="track_score",
+            var_plot_name="PFP Track-like Score",
+            var_labels=[r"PFP Track-like Score", 
+            "", 
+            ""],
+            bins=np.linspace(0.2, 0.9, 71),
             var_evt_reco_col=('trk1', 'pfp', 'trackScore', '', '', '', ''),
             var_evt_truth_col=('trk1', 'pfp', 'trackScore', '', '', '', ''),
             var_nu_col=('', '', ''),
@@ -714,16 +714,32 @@ class VariableConfig:
     def vtx_dist(cls):
         return cls(
             var_save_name="vtx_dist",
-            var_plot_name="Slice Vertex - Track Start Distance [cm]",
-            var_labels=[r"Slice Vertex - Track Start Distance [cm]", 
+            var_plot_name="|Slice Vertex - Track Start Position| [cm]",
+            var_labels=["|Slice Vertex - Track Start Position| [cm]", 
             "", 
             ""],
-            bins=np.linspace(0, 6, 41),
+            bins=np.linspace(0, 4, 41),
             var_evt_reco_col=('pfp', 'pfochar', 'vtxdist', '', '', ''),
             var_evt_truth_col=('pfp', 'pfochar', 'vtxdist', '', '', ''),
             var_nu_col=('trk', 'vtxdist', ''),
             xsec_label=r""
         )
+
+    @classmethod
+    def vtx_dist_trk1(cls):
+        return cls(
+            var_save_name="vtx_dist",
+            var_plot_name="|Slice Vertex - Track Start Position| [cm]",
+            var_labels=["|Slice Vertex - Track Start Position| [cm]", 
+            "", 
+            ""],
+            bins=np.linspace(0, 4, 41),
+            var_evt_reco_col=('trk1', 'pfp', 'pfochar', 'vtxdist', '', '', ''),
+            var_evt_truth_col=('trk1', 'pfp', 'pfochar', 'vtxdist', '', '', ''),
+            var_nu_col=('trk1', 'vtxdist', ''),
+            xsec_label=r""
+        )
+
 
     @classmethod
     def trk_len(cls):
@@ -733,10 +749,25 @@ class VariableConfig:
             var_labels=[r"$\mathrm{Track \, \, Length}$ (cm)", 
             r"$\mathrm{Track Length^{reco.}}$ [cm]", 
             r"$\mathrm{Track Length^{true}}$ [cm]"],
-            bins=np.linspace(0, 100, 26),
+            bins=np.linspace(0, 300, 51),
             var_evt_reco_col=('pfp', 'trk', 'len', '', '', ''),
             var_evt_truth_col=('pfp', 'trk', 'truth', 'len', '', ''),
             var_nu_col=('trk', 'len', ''),
+            xsec_label=r""
+        )
+
+    @classmethod
+    def trk_len_trk1(cls):
+        return cls(
+            var_save_name="trk_len",
+            var_plot_name="Track Length [cm]",
+            var_labels=[r"$\mathrm{Track \, \, Length}$ (cm)", 
+            r"$\mathrm{Track Length^{reco.}}$ [cm]", 
+            r"$\mathrm{Track Length^{true}}$ [cm]"],
+            bins=np.linspace(0, 300, 51),
+            var_evt_reco_col=('trk1', 'pfp', 'trk', 'len', '', '', ''),
+            var_evt_truth_col=('trk1', 'pfp', 'trk', 'truth', 'p', 'length', '', ''),
+            var_nu_col=('trk1', 'len', ''),
             xsec_label=r""
         )
 
@@ -745,13 +776,28 @@ class VariableConfig:
         return cls(
             var_save_name="mcs_range_diff",
             var_plot_name="MCS Range Difference",
+            var_labels=[r"$\mathrm{(P_{MCS} - P_{Range}) \, / \, P_{Range}}$", 
+            r"$\mathrm{(P_{MCS} - P_{Range})^{reco.}}$", 
+            r"$\mathrm{(P_{MCS} - P_{Range})^{true}}$"],
+            bins=np.linspace(-0.8, 0.4, 41),
+            var_evt_reco_col=('pfp', 'trk', 'mcs_range_diff', '', '', ''),
+            var_evt_truth_col=('pfp', 'trk', 'mcs_range_diff', '', '', ''),
+            var_nu_col=('trk', 'mcs_range_diff', '', ''),
+            xsec_label=r""
+        )
+
+    @classmethod
+    def mcs_range_diff_trk1(cls):
+        return cls(
+            var_save_name="mcs_range_diff",
+            var_plot_name="MCS Range Difference",
             var_labels=[r"$\mathrm{(MCS - Range) \, / \, Range}$", 
             r"$\mathrm{(MCS - Range)^{reco.}}$", 
             r"$\mathrm{(MCS - Range)^{true}}$"],
-            bins=np.linspace(-0.6, 0.4, 51),
-            var_evt_reco_col=('pfp', 'trk', 'mcs_range_diff', '', '', ''),
-            var_evt_truth_col=('pfp', 'trk', 'truth', 'mcs_range_diff', '', '', ''),
-            var_nu_col=('trk', 'mcs_range_diff', '', ''),
+            bins=np.linspace(-0.8, 0.4, 41),
+            var_evt_reco_col=('trk1', 'pfp', 'trk', 'mcs_range_diff', '', '', ''),
+            var_evt_truth_col=('trk1', 'pfp', 'trk', 'mcs_range_diff', '', '', ''),
+            var_nu_col=('trk1', 'mcs_range_diff', '', ''),
             xsec_label=r""
         )
 
@@ -763,9 +809,24 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\chi^{2}_{\mu}}$",
             r"$\mathrm{\chi^{2}_{\mu,\mathrm{reco.}}}$",
             r"$\mathrm{\chi^{2}_{\mu,\mathrm{true}}}$"],
-            bins=np.linspace(0, 55, 31),
+            bins=np.linspace(0, 60, 61),
             var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'avg', 'chi2_muon',  ''),
             var_evt_truth_col=('', '', '', '', '', ''),
+            var_nu_col=('', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu}}$ ($\mathrm{cm}^2$)"
+        )
+
+    @classmethod
+    def chi2_mu_trk1(cls):
+        return cls(
+            var_save_name="chi2_mu",
+            var_plot_name="$\\chi^2_{\\mu}$",
+            var_labels=[r"$\mathrm{\chi^{2}_{\mu}}$",
+            r"$\mathrm{\chi^{2}_{\mu,\mathrm{reco.}}}$",
+            r"$\mathrm{\chi^{2}_{\mu,\mathrm{true}}}$"],
+            bins=np.linspace(0, 60, 61),
+            var_evt_reco_col=('trk1','pfp', 'trk', 'chi2pid', 'avg', 'chi2_muon',  ''),
+            var_evt_truth_col=('trk1','pfp', 'trk', 'chi2pid', 'avg', 'chi2_muon',  ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu}}$ ($\mathrm{cm}^2$)"
         )
@@ -778,9 +839,24 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\chi^{2}_{p}}$",
             r"$\mathrm{\chi^{2}_{p,\mathrm{reco.}}}$",
             r"$\mathrm{\chi^{2}_{p,\mathrm{true}}}$"],
-            bins=np.linspace(0, 300, 41),
-            var_evt_reco_col=('mu', 'pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton',  ''),
+            bins=np.linspace(0, 350, 61),
+            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'avg', 'chi2_proton',  ''),
             var_evt_truth_col=('', '', '', '', '', ''),
+            var_nu_col=('', '', ''),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p}}$ ($\mathrm{cm}^2$)"
+        )
+
+    @classmethod
+    def chi2_proton_trk1(cls):
+        return cls(
+            var_save_name="chi2_p",
+            var_plot_name="$\\chi^2_{p}$",
+            var_labels=[r"$\mathrm{\chi^{2}_{p}}$",
+            r"$\mathrm{\chi^{2}_{p,\mathrm{reco.}}}$",
+            r"$\mathrm{\chi^{2}_{p,\mathrm{true}}}$"],
+            bins=np.linspace(0, 300, 61),
+            var_evt_reco_col=('trk1', 'pfp', 'trk', 'chi2pid', 'avg', 'chi2_proton',  ''),
+            var_evt_truth_col=('trk1', 'pfp', 'trk', 'chi2pid', 'avg', 'chi2_proton',  ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p}}$ ($\mathrm{cm}^2$)"
         )
@@ -807,7 +883,7 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\chi^{2}_{p}}$",
             r"$\mathrm{\chi^{2}_{p,\mathrm{reco.}}}$",
             r"$\mathrm{\chi^{2}_{p,\mathrm{true}}}$"],
-            bins=np.linspace(0, 300, 61),
+            bins=np.linspace(0, 350, 61),
             var_evt_reco_col=('trk1', 'pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton',  ''),
             var_evt_truth_col=('trk1', 'pfp', 'trk', 'truth', 'chi2pid', 'I2', 'chi2_proton'),
             var_nu_col=('trk1', 'pfp', 'trk', 'truth', 'chi2pid', 'I2', 'chi2_proton'),
@@ -1017,7 +1093,7 @@ class VariableConfig:
             var_labels=[r"$\mathrm{\phi}$ [deg]", 
             r"$\mathrm{\phi^{reco.}}$ [deg]", 
             r"$\mathrm{\phi^{true}}$ [deg]"],
-            bins=np.linspace(-180, 180, 21),
+            bins=np.linspace(-180, 180, 41),
             var_evt_reco_col=('pfp', 'trk', 'phi', '', '', ''),
             var_evt_truth_col=('pfp', 'trk', 'truth', 'phi', '', ''),
             var_nu_col=('trk', 'phi', '', '', '', ''),

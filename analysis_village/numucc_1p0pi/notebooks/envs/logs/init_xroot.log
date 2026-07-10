@@ -1,0 +1,540 @@
+Thu Jul 9 04:50:05 PM CDT 2026
+Using cmake at /usr/bin/cmake3
+running install
+/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/venv_py310_cafpyana/lib/python3.10/site-packages/setuptools/command/install.py:34: SetuptoolsDeprecationWarning: setup.py install is deprecated. Use build and pip and other standards-based tools.
+  warnings.warn(
+/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/venv_py310_cafpyana/lib/python3.10/site-packages/setuptools/command/easy_install.py:144: EasyInstallDeprecationWarning: easy_install command is deprecated. Use build and pip and other standards-based tools.
+  warnings.warn(
+running bdist_egg
+running egg_info
+writing xrootd.egg-info/PKG-INFO
+writing dependency_links to xrootd.egg-info/dependency_links.txt
+writing top-level names to xrootd.egg-info/top_level.txt
+reading manifest file 'xrootd.egg-info/SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+adding license file 'LICENSE'
+adding license file 'COPYING'
+adding license file 'COPYING.BSD'
+adding license file 'COPYING.LGPL'
+writing manifest file 'xrootd.egg-info/SOURCES.txt'
+installing library code to build/bdist.linux-x86_64/egg
+running install_lib
+running build_py
+creating build
+creating build/lib.linux-x86_64-cpython-310
+creating build/lib.linux-x86_64-cpython-310/XRootD
+copying bindings/python/libs/__init__.py -> build/lib.linux-x86_64-cpython-310/XRootD
+creating build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/file.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/_version.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/__init__.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/copyprocess.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/glob_funcs.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/finalize.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/env.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/utils.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/flags.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/filesystem.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/url.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+copying bindings/python/libs/client/responses.py -> build/lib.linux-x86_64-cpython-310/XRootD/client
+creating build/lib.linux-x86_64-cpython-310/pyxrootd
+copying bindings/python/src/__init__.py -> build/lib.linux-x86_64-cpython-310/pyxrootd
+running build_ext
+-- The C compiler identification is GNU 11.5.0
+-- The CXX compiler identification is GNU 11.5.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Looking for setresuid
+-- Looking for setresuid - found
+-- Looking for strlcpy
+-- Looking for strlcpy - not found
+-- Looking for fstatat
+-- Looking for fstatat - found
+-- Looking for sigwaitinfo
+-- Looking for sigwaitinfo - found
+-- Looking for shadow.h
+-- Looking for shadow.h - found
+-- Looking for getifaddrs
+-- Looking for getifaddrs - found
+-- Looking for getnameinfo
+-- Looking for getnameinfo - found
+-- Looking for getprotobyname_r
+-- Looking for getprotobyname_r - found
+-- Looking for gethostbyaddr_r
+-- Looking for gethostbyaddr_r - found
+-- Looking for sendfile
+-- Looking for sendfile - found
+-- Looking for crypt
+-- Looking for crypt - not found
+-- Looking for crypt in crypt
+-- Looking for crypt in crypt - found
+-- Looking for et/com_err.h
+-- Looking for et/com_err.h - found
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Performing Test HAVE_ATOMICS
+-- Performing Test HAVE_ATOMICS - Success
+-- Performing Test HAVE_CXX_ATOMICS_WITHOUT_LIB
+-- Performing Test HAVE_CXX_ATOMICS_WITHOUT_LIB - Success
+-- Found ZLIB: /usr/lib64/libz.so (found version "1.2.11")
+-- Looking for uuid_generate_random
+-- Looking for uuid_generate_random - not found
+-- Looking for uuid_generate_random
+-- Looking for uuid_generate_random - found
+-- Found libuuid: /usr/include
+-- Performing Test READLINE_OK
+-- Performing Test READLINE_OK - Failed
+-- Found Readline: /cvmfs/larsoft.opensciencegrid.org/spack-fnal-v1.0.0/opt/spack/linux-x86_64_v2/readline-8.3-edszmzcegh2cn2g2sh5x46ity5uul62x/lib/libreadline.so;/usr/lib64/libncurses.so
+-- Could NOT find TinyXml (missing: TINYXML_LIBRARIES TINYXML_INCLUDE_DIR) 
+-- Found LibXml2: /cvmfs/larsoft.opensciencegrid.org/spack-fnal-v1.0.0/opt/spack/linux-x86_64_v2/libxml2-2.13.5-5k2gkz7uz5rlxcjewbrx3mspqzlk326c/lib/libxml2.so (found version "2.13.5")
+-- Could NOT find systemd (missing: SYSTEMD_INCLUDE_DIRS SYSTEMD_LIBRARIES) 
+-- Found CURL: /usr/lib64/libcurl.so (found version "7.76.1")
+-- Found OpenSSL: /usr/lib64/libcrypto.so (found suitable version "3.5.5", minimum required is "1.0.2")
+-- Found Kerberos5: /usr/lib64/libkrb5.so;/usr/lib64/libcom_err.so
+-- Could NOT find fuse (missing: FUSE_INCLUDE_DIR FUSE_LIBRARY) 
+-- Looking for curl_multi_wait
+-- Looking for curl_multi_wait - found
+-- Could NOT find Macaroons (missing: MACAROONS_INCLUDES MACAROONS_LIB) 
+-- Found PkgConfig: /usr/bin/pkg-config (found version "1.7.3")
+-- Checking for module 'json-c'
+--   Found json-c, version 0.18
+-- Could NOT find SciTokensCpp (missing: SCITOKENS_CPP_LIBRARIES SCITOKENS_CPP_INCLUDE_DIR) 
+-- Found Python: /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/venv_py310_cafpyana/bin/python (found suitable version "3.10.16", minimum required is "3") found components: Interpreter Development.Module
+-- Could NOT find VOMS (missing: VOMS_LIBRARY VOMS_INCLUDE_DIR) 
+-- Checking for module 'davix'
+--   Found davix, version 0.8.10
+-- Found Python: /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/venv_py310_cafpyana/bin/python (found version "3.10.16") found components: Interpreter Development.Module
+-- ----------------------------------------
+-- Installation path: /usr/local
+-- C Compiler:        /usr/bin/cc
+-- C++ Compiler:      /usr/bin/c++
+-- Build type:        RelWithDebInfo
+-- Plug-in version:   5
+-- 
+-- Ceph support:      disabled
+-- Readline support:  yes
+-- FUSE support:      disabled
+-- Kerberos5 support: yes
+-- XrdCl:             yes
+-- XrdClHttp:         yes
+-- HTTP support:      yes
+-- HTTP TPC support:  yes
+-- VOMS support:      disabled
+-- Python support:    yes
+-- Erasure coding:    disabled
+-- Macaroons:         disabled
+-- SciTokens:         disabled
+-- Tests:             disabled
+-- ----------------------------------------
+-- Configuring done (54.5s)
+-- Generating done (0.4s)
+-- Build files have been written to: /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/temp.linux-x86_64-cpython-310
+[  0%] Building CXX object src/CMakeFiles/XrdUtils.dir/XProtocol/XProtocol.cc.o
+[  1%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysIOEvents.cc.o
+[  1%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysDir.cc.o
+[  1%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysLogger.cc.o
+[  1%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysError.cc.o
+[  2%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysFAttr.cc.o
+[  4%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysPriv.cc.o
+[  4%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysPthread.cc.o
+[  4%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysUtils.cc.o
+[  7%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysXSLock.cc.o
+[  7%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdTls/XrdTls.cc.o
+[  8%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdTls/XrdTlsNotary.cc.o
+[  8%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdTls/XrdTlsPeerCerts.cc.o
+[  8%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdTls/XrdTlsTempCA.cc.o
+[  9%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptosslAux.cc.o
+[  9%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptoX509Chain.cc.o
+[  9%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptoRSA.cc.o
+[  9%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptoX509.cc.o
+[ 11%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptoX509Req.cc.o
+[ 12%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptosslX509Crl.cc.o
+[ 12%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucBackTrace.cc.o
+[ 12%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptoX509Crl.cc.o
+[ 13%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucArgs.cc.o
+[ 13%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucCache.cc.o
+[ 14%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucCRC32C.cc.o
+[ 14%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucCallBack.cc.o
+[ 15%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucExport.cc.o
+[ 16%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucEnv.cc.o
+[ 16%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucFileInfo.cc.o
+[ 17%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucGMap.cc.o
+[ 18%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucMsubs.cc.o
+[ 18%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucHashVal.cc.o
+[ 19%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucN2NLoader.cc.o
+[ 20%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucNList.cc.o
+[ 21%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucPgrwUtils.cc.o
+[ 21%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucPreload.cc.o
+[ 21%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucPinLoader.cc.o
+[ 22%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucProg.cc.o
+[ 22%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucSid.cc.o
+[ 22%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucReqID.cc.o
+[ 22%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucPup.cc.o
+[ 22%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucSiteName.cc.o
+[ 23%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucString.cc.o
+[ 25%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucTPC.cc.o
+[ 25%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucSxeq.cc.o
+[ 26%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucUri.cc.o
+[ 26%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucUtils.cc.o
+[ 27%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNet.cc.o
+[ 27%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetAddr.cc.o
+[ 27%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetBuffer.cc.o
+[ 28%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetCache.cc.o
+[ 28%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetIdentity.cc.o
+[ 28%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetMsg.cc.o
+[ 28%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetConnect.cc.o
+[ 31%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetPMark.cc.o
+[ 31%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetPMarkFF.cc.o
+[ 31%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetSocket.cc.o
+[ 31%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetRegistry.cc.o
+[ 33%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSut/XrdSutPFCache.cc.o
+[ 34%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSut/XrdSutBuffer.cc.o
+[ 35%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSut/XrdSutBuckList.cc.o
+[ 36%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSut/XrdSutPFEntry.cc.o
+[ 36%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdBuffer.cc.o
+[ 36%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdBuffXL.cc.o
+[ 36%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdLink.cc.o
+[ 36%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdInfo.cc.o
+[ 37%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdLinkMatch.cc.o
+[ 39%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdPoll.cc.o
+[ 40%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCks/XrdCksAssist.cc.o
+[ 40%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCks/XrdCksCalccrc32C.cc.o
+[ 41%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdSendQ.cc.o
+[ 42%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCks/XrdCksCalcmd5.cc.o
+[ 43%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCks/XrdCksLoader.cc.o
+[ 43%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCks/XrdCksManager.cc.o
+[ 43%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdRmc/XrdRmcData.cc.o
+[ 43%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdRmc/XrdRmc.cc.o
+[ 46%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSecsss/XrdSecsssCon.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysE2T.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSecsss/XrdSecsssID.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysLogging.cc.o
+[  2%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysPlatform.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysFallocate.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysTimer.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysPlugin.cc.o
+[  5%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysTrace.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSys/XrdSysXAttr.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdTls/XrdTlsContext.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdTls/XrdTlsSocket.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptosslX509.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptosslRSA.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptosslX509Req.cc.o
+[ 10%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptosslgsiAux.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCrypto/XrdCryptoAux.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOuca2x.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucCRC.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucBuffer.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucERoute.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucGatherConf.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucLogging.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucName2Name.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucNSWalk.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucPinPath.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucPsx.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucSHA3.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucStream.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucTokenizer.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucTrace.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdOuc/XrdOucVerName.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetAddrInfo.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetIF.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetCmsNotify.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetPMarkCfg.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetUtils.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdNet/XrdNetSecurity.cc.o
+[ 33%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSut/XrdSutAux.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSut/XrdSutBucket.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSut/XrdSutPFile.cc.o
+[ 35%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSut/XrdSutCacheEntry.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSut/XrdSutRndm.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdInet.cc.o
+[ 37%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdLinkXeq.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdLinkCtl.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdGlobals.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/Xrd/XrdScheduler.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCks/XrdCksCalccrc32.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCks/XrdCksConfig.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdCks/XrdCksManOss.cc.o
+[ 43%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSec/XrdSecEntity.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdRmc/XrdRmcReal.cc.o
+[ 44%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSec/XrdSecEntityAttr.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSec/XrdSecEntityXtra.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSecsss/XrdSecsssEnt.cc.o
+[ 47%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSecsss/XrdSecsssKT.cc.o
+[ 46%] Building CXX object src/CMakeFiles/XrdUtils.dir/XrdSec/XrdSecLoadSecurity.cc.o
+[ 47%] Linking CXX shared library /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdUtils.so
+[ 47%] Built target XrdUtils
+[ 47%] Building CXX object src/CMakeFiles/XrdAppUtils.dir/XrdApps/XrdCpConfig.cc.o
+[ 48%] Building CXX object src/CMakeFiles/XrdAppUtils.dir/XrdApps/XrdCpFile.cc.o
+[ 49%] Building CXX object src/CMakeFiles/XrdAppUtils.dir/XrdApps/XrdMpxXml.cc.o
+[ 49%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoCipher.cc.o
+[ 49%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoBasic.cc.o
+[ 50%] Building CXX object src/CMakeFiles/XrdXml.dir/XrdXml/tinyxml/tinystr.cpp.o
+[ 50%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoAux.cc.o
+[ 50%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoMsgDigest.cc.o
+[ 50%] Building CXX object src/CMakeFiles/XrdSecProt-5.dir/XrdSec/XrdSecProtect.cc.o
+[ 50%] Building CXX object src/CMakeFiles/XrdSec-5.dir/XrdSec/XrdSecClient.cc.o
+[ 51%] Building CXX object src/CMakeFiles/XrdSecProt-5.dir/XrdSec/XrdSecProtector.cc.o
+[ 51%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoFactory.cc.o
+[ 51%] Building CXX object src/CMakeFiles/XrdSec-5.dir/XrdSec/XrdSecPManager.cc.o
+[ 52%] Building CXX object src/CMakeFiles/XrdXml.dir/XrdXml/tinyxml/tinyxmlerror.cpp.o
+[ 53%] Building CXX object src/CMakeFiles/XrdXml.dir/XrdXml/tinyxml/tinyxml.cpp.o
+[ 55%] Building CXX object src/CMakeFiles/XrdCryptoLite.dir/XrdCrypto/XrdCryptoLite_bf32.cc.o
+[ 55%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoRSA.cc.o
+[ 55%] Building CXX object src/CMakeFiles/XrdSec-5.dir/XrdSec/XrdSecTLayer.cc.o
+[ 55%] Building CXX object src/CMakeFiles/XrdSecgsiAUTHZVO-5.dir/XrdSecgsi/XrdSecgsiAuthzFunVO.cc.o
+[ 55%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoX509Chain.cc.o
+[ 55%] Building CXX object src/CMakeFiles/XrdXml.dir/XrdXml/tinyxml/tinyxmlparser.cpp.o
+[ 55%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoX509Crl.cc.o
+[ 55%] Building CXX object src/CMakeFiles/XrdXml.dir/XrdXml/XrdXmlRdrTiny.cc.o
+[ 56%] Building CXX object src/CMakeFiles/XrdSecgsiGMAPDN-5.dir/XrdSecgsi/XrdSecgsiGMAPFunDN.cc.o
+[ 57%] Building CXX object src/CMakeFiles/XrdSeckrb5-5.dir/XrdSeckrb5/XrdSecProtocolkrb5.cc.o
+[ 57%] Building CXX object src/CMakeFiles/XrdSec-5.dir/XrdSec/XrdSecServer.cc.o
+[ 57%] Building CXX object src/CMakeFiles/XrdCryptoLite.dir/XrdCrypto/XrdCryptoLite.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdXml.dir/XrdXml/XrdXmlReader.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdSecztn-5.dir/XrdSecztn/XrdSecProtocolztn.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdSecunix-5.dir/XrdSecunix/XrdSecProtocolunix.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdSecztn-5.dir/XrdSecztn/XrdSecztn.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptogsiX509Chain.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoX509.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdSec-5.dir/XrdSec/XrdSecProtocolhost.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdXml.dir/XrdXml/XrdXmlRdrXml2.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdCrypto.dir/XrdCrypto/XrdCryptoX509Req.cc.o
+[ 58%] Building CXX object src/CMakeFiles/XrdXml.dir/XrdXml/XrdXmlMetaLink.cc.o
+[ 59%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecProt-5.so
+[ 59%] Linking CXX shared library /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCryptoLite.so
+[ 59%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecgsiAUTHZVO-5.so
+[ 61%] Linking CXX shared library /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdXml.so
+[ 62%] Linking CXX shared library /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCrypto.so
+[ 63%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecunix-5.so
+[ 63%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecgsiGMAPDN-5.so
+[ 63%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecztn-5.so
+[ 64%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSeckrb5-5.so
+[ 64%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSec-5.so
+[ 64%] Built target XrdSecgsiAUTHZVO-5
+[ 64%] Built target XrdSecunix-5
+[ 64%] Built target XrdSecztn-5
+[ 64%] Built target XrdSecgsiGMAPDN-5
+[ 64%] Linking CXX shared library /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdAppUtils.so
+[ 64%] Built target XrdSeckrb5-5
+[ 64%] Built target XrdSecProt-5
+[ 64%] Built target XrdSec-5
+[ 64%] Built target XrdCryptoLite
+[ 64%] Built target XrdXml
+[ 64%] Built target XrdCrypto
+[ 65%] Building CXX object src/CMakeFiles/XrdSecsss-5.dir/XrdSecsss/XrdSecProtocolsss.cc.o
+[ 65%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClLog.cc.o
+[ 66%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClUtils.cc.o
+[ 67%] Building CXX object src/CMakeFiles/XrdSecgsi-5.dir/XrdSecgsi/XrdSecProtocolgsi.cc.o
+[ 67%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClEnv.cc.o
+[ 67%] Building CXX object src/CMakeFiles/XrdCryptossl-5.dir/XrdCrypto/XrdCryptosslAux.cc.o
+[ 67%] Building CXX object src/CMakeFiles/XrdCryptossl-5.dir/XrdCrypto/XrdCryptosslCipher.cc.o
+[ 67%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClDefaultEnv.cc.o
+[ 67%] Building CXX object src/CMakeFiles/XrdSecpwd-5.dir/XrdSecpwd/XrdSecProtocolpwd.cc.o
+[ 67%] Building CXX object src/CMakeFiles/XrdCryptossl-5.dir/XrdCrypto/XrdCryptosslgsiAux.cc.o
+[ 68%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClSocket.cc.o
+[ 68%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClURL.cc.o
+[ 70%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClStatus.cc.o
+[ 70%] Building CXX object src/CMakeFiles/XrdCryptossl-5.dir/XrdCrypto/XrdCryptosslRSA.cc.o
+[ 70%] Building CXX object src/CMakeFiles/XrdCryptossl-5.dir/XrdCrypto/XrdCryptosslX509Crl.cc.o
+[ 71%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClPollerFactory.cc.o
+[ 71%] Building CXX object src/CMakeFiles/XrdCryptossl-5.dir/XrdCrypto/XrdCryptosslMsgDigest.cc.o
+[ 71%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClTls.cc.o
+[ 71%] Building CXX object src/CMakeFiles/XrdCryptossl-5.dir/XrdCrypto/XrdCryptosslX509Req.cc.o
+[ 73%] Building CXX object src/CMakeFiles/XrdCryptossl-5.dir/XrdCrypto/XrdCryptosslX509.cc.o
+[ 74%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClInQueue.cc.o
+[ 74%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClStream.cc.o
+[ 74%] Building CXX object src/CMakeFiles/XrdCryptossl-5.dir/XrdCrypto/XrdCryptosslFactory.cc.o
+[ 72%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClPollerBuiltIn.cc.o
+[ 75%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClFile.cc.o
+[ 75%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClChannel.cc.o
+[ 75%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClOutQueue.cc.o
+[ 75%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClFileStateHandler.cc.o
+[ 75%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClPostMaster.cc.o
+[ 75%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClSIDManager.cc.o
+[ 76%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClMessageUtils.cc.o
+[ 76%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClXRootDMsgHandler.cc.o
+[ 76%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClXRootDTransport.cc.o
+[ 76%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClClassicCopyJob.cc.o
+[ 76%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClThirdPartyCopyJob.cc.o
+[ 78%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClTaskManager.cc.o
+[ 78%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClFileSystem.cc.o
+[ 80%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClXRootDResponses.cc.o
+[ 80%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClChannelHandlerList.cc.o
+[ 80%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClAsyncSocketHandler.cc.o
+[ 80%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClJobManager.cc.o
+[ 81%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClCheckSumManager.cc.o
+[ 81%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClTransportManager.cc.o
+[ 81%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClCopyProcess.cc.o
+[ 80%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClForkHandler.cc.o
+[ 81%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClMetalinkRedirector.cc.o
+[ 81%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClPlugInManager.cc.o
+[ 81%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClFileSystemUtils.cc.o
+[ 81%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClFileTimer.cc.o
+[ 83%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClXCpCtx.cc.o
+[ 83%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClTPFallBackCopyJob.cc.o
+[ 83%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClRedirectorRegistry.cc.o
+[ 83%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClXCpSrc.cc.o
+[ 83%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClLocalFileTask.cc.o
+[ 84%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClLocalFileHandler.cc.o
+[ 84%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClOperations.cc.o
+[ 84%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClZipListHandler.cc.o
+[ 85%] Building CXX object src/XrdCl/CMakeFiles/XrdCl.dir/XrdClZipArchive.cc.o
+[ 85%] Built target XrdAppUtils
+[ 85%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecsss-5.so
+[ 85%] Built target XrdSecsss-5
+[ 85%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCryptossl-5.so
+[ 85%] Built target XrdCryptossl-5
+[ 85%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecpwd-5.so
+[ 85%] Built target XrdSecpwd-5
+[ 85%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecgsi-5.so
+[ 85%] Built target XrdSecgsi-5
+[ 85%] Linking CXX shared library /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCl.so
+[ 85%] Built target XrdCl
+[ 86%] Building CXX object src/CMakeFiles/XrdClProxyPlugin-5.dir/XrdApps/XrdClProxyPlugin/ProxyPrefixPlugin.cc.o
+[ 86%] Building CXX object src/CMakeFiles/xrdreplay.dir/XrdApps/XrdClRecordPlugin/XrdClReplay.cc.o
+[ 86%] Building CXX object src/CMakeFiles/XrdClProxyPlugin-5.dir/XrdApps/XrdClProxyPlugin/ProxyPrefixFile.cc.o
+[ 88%] Building CXX object src/XrdClHttp/CMakeFiles/XrdClHttp-5.dir/XrdClHttpPlugInUtil.cc.o
+[ 88%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixAdmin.cc.o
+[ 89%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixCallBack.cc.o
+[ 89%] Building CXX object src/XrdClHttp/CMakeFiles/XrdClHttp-5.dir/XrdClHttpFilePlugIn.cc.o
+[ 89%] Building CXX object bindings/python/src/CMakeFiles/client.dir/PyXRootDCopyProcess.cc.o
+[ 89%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixConfig.cc.o
+[ 90%] Building CXX object bindings/python/src/CMakeFiles/client.dir/PyXRootDFile.cc.o
+[ 91%] Building CXX object bindings/python/src/CMakeFiles/client.dir/PyXRootDFileSystem.cc.o
+[ 93%] Building CXX object bindings/python/src/CMakeFiles/client.dir/Utils.cc.o
+[ 94%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixObject.cc.o
+[ 94%] Building CXX object bindings/python/src/CMakeFiles/client.dir/PyXRootDURL.cc.o
+[ 94%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixXrootd.cc.o
+[ 95%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixMap.cc.o
+[ 95%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixXrootdPath.cc.o
+[ 95%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixFile.cc.o
+[ 95%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixExtra.cc.o
+[ 95%] Building CXX object src/XrdClHttp/CMakeFiles/XrdClHttp-5.dir/XrdClHttpPlugInFactory.cc.o
+[ 95%] Building CXX object src/CMakeFiles/XrdClRecorder-5.dir/XrdApps/XrdClRecordPlugin/XrdClRecorderPlugin.cc.o
+[ 95%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdClProxyPlugin-5.so
+[ 95%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixCache.cc.o
+[ 95%] Building CXX object bindings/python/src/CMakeFiles/client.dir/PyXRootDCopyProgressHandler.cc.o
+[ 90%] Building CXX object src/XrdClHttp/CMakeFiles/XrdClHttp-5.dir/XrdClHttpPosix.cc.o
+[ 95%] Building CXX object src/XrdClHttp/CMakeFiles/XrdClHttp-5.dir/XrdClHttpFileSystemPlugIn.cc.o
+[ 95%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixDir.cc.o
+[ 95%] Building CXX object bindings/python/src/CMakeFiles/client.dir/PyXRootDModule.cc.o
+[ 95%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixFileRH.cc.o
+[ 95%] Building CXX object src/CMakeFiles/XrdPosix.dir/XrdPosix/XrdPosixPrepIO.cc.o
+[ 95%] Built target XrdClProxyPlugin-5
+[ 95%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdClHttp-5.so
+[ 95%] Built target XrdClHttp-5
+[ 96%] Linking CXX shared library /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdPosix.so
+[ 96%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdClRecorder-5.so
+[ 97%] Linking CXX shared module /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/client.cpython-310-x86_64-linux-gnu.so
+[ 97%] Built target XrdClRecorder-5
+[ 97%] Built target client
+[ 97%] Built target XrdPosix
+[ 97%] Building CXX object src/CMakeFiles/XrdPosixPreload.dir/XrdPosix/XrdPosixPreload32.cc.o
+[ 97%] Building CXX object src/CMakeFiles/XrdPosixPreload.dir/XrdPosix/XrdPosix.cc.o
+[ 97%] Building CXX object src/CMakeFiles/XrdPosixPreload.dir/XrdPosix/XrdPosixLinkage.cc.o
+[ 98%] Building CXX object src/CMakeFiles/XrdPosixPreload.dir/XrdPosix/XrdPosixPreload.cc.o
+[ 99%] Linking CXX shared library /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdPosixPreload.so
+[ 99%] Built target XrdPosixPreload
+[100%] Linking CXX executable xrdreplay
+[100%] Built target xrdreplay
+creating build/bdist.linux-x86_64
+creating build/bdist.linux-x86_64/egg
+creating build/bdist.linux-x86_64/egg/XRootD
+copying build/lib.linux-x86_64-cpython-310/XRootD/__init__.py -> build/bdist.linux-x86_64/egg/XRootD
+creating build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/file.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/_version.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/__init__.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/copyprocess.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/glob_funcs.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/finalize.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/env.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/utils.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/flags.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/filesystem.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/url.py -> build/bdist.linux-x86_64/egg/XRootD/client
+copying build/lib.linux-x86_64-cpython-310/XRootD/client/responses.py -> build/bdist.linux-x86_64/egg/XRootD/client
+creating build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCl.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdUtils.so.3.0.0 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecpwd-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecgsiGMAPDN-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCrypto.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCrypto.so.2 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSec-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCryptoLite.so.2 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecztn-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdXml.so.3.0.0 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdPosixPreload.so.2.0.0 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/__init__.py -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCryptossl-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdAppUtils.so.2.0.0 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCrypto.so.2.0.0 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdPosixPreload.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdClProxyPlugin-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdPosix.so.3 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecunix-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCryptoLite.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdPosix.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCryptoLite.so.2.0.0 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdUtils.so.3 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecProt-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdXml.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdUtils.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdAppUtils.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecsss-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdClRecorder-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/client.cpython-310-x86_64-linux-gnu.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCl.so.3 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdPosix.so.3.0.0 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSeckrb5-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdAppUtils.so.2 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdClHttp-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecgsiAUTHZVO-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdSecgsi-5.so -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdXml.so.3 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdCl.so.3.0.0 -> build/bdist.linux-x86_64/egg/pyxrootd
+copying build/lib.linux-x86_64-cpython-310/pyxrootd/libXrdPosixPreload.so.2 -> build/bdist.linux-x86_64/egg/pyxrootd
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/__init__.py to __init__.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/file.py to file.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/_version.py to _version.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/__init__.py to __init__.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/copyprocess.py to copyprocess.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/glob_funcs.py to glob_funcs.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/finalize.py to finalize.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/env.py to env.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/utils.py to utils.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/flags.py to flags.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/filesystem.py to filesystem.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/url.py to url.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/XRootD/client/responses.py to responses.cpython-310.pyc
+byte-compiling build/bdist.linux-x86_64/egg/pyxrootd/__init__.py to __init__.cpython-310.pyc
+creating build/bdist.linux-x86_64/egg/EGG-INFO
+copying xrootd.egg-info/PKG-INFO -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying xrootd.egg-info/SOURCES.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying xrootd.egg-info/dependency_links.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying xrootd.egg-info/not-zip-safe -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying xrootd.egg-info/top_level.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+writing build/bdist.linux-x86_64/egg/EGG-INFO/native_libs.txt
+creating dist
+creating 'dist/xrootd-5.6.9-py3.10-linux-x86_64.egg' and adding 'build/bdist.linux-x86_64/egg' to it
+removing 'build/bdist.linux-x86_64/egg' (and everything under it)
+Processing xrootd-5.6.9-py3.10-linux-x86_64.egg
+creating /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/venv_py310_cafpyana/lib/python3.10/site-packages/xrootd-5.6.9-py3.10-linux-x86_64.egg
+Extracting xrootd-5.6.9-py3.10-linux-x86_64.egg to /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/venv_py310_cafpyana/lib/python3.10/site-packages
+Adding xrootd 5.6.9 to easy-install.pth file
+
+Installed /exp/sbnd/app/users/munjung/xsec/freeze/cafpyana/analysis_village/numucc_1p0pi/notebooks/envs/venv_py310_cafpyana/lib/python3.10/site-packages/xrootd-5.6.9-py3.10-linux-x86_64.egg
+Processing dependencies for xrootd==5.6.9
+Finished processing dependencies for xrootd==5.6.9

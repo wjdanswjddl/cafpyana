@@ -1,0 +1,96 @@
+#!/bin/bash
+
+# http://xrootd.org/doc/dev410/cms_config.htm#_Toc8247264
+# The specified program must write 5 white-space separated numbers to standard out.
+# The last number must be terminated by a new-line character (“\n”).
+# Each number must be normalized to 100, with 0 indicating no load and 100 indicating saturation. The numbers are in the order:
+# 1.      system load
+# 2.      cpu utilization
+# 3.      memory utilization
+# 4.      paging load, and
+# 5.      network utilization.
+
+INTERVAL="${1:-1}" # take as parameter the interval between runs, default to 1; NB! the loop take more than a few seconds to run
+NCPU=$(awk '/processor/ {nr++} END{print nr}' /proc/cpuinfo)
+
+# replace sleep subprocess
+snore() {
+    local IFS
+    [[ -n "${_snore_fd:-}" ]] || exec {_snore_fd}<> <(:)
+    read ${1:+-t "$1"} -u $_snore_fd || :
+}
+
+# return highest load (integer percentage) of either RX or TX
+IFACE_LOAD () {
+    local iface="${1}"
+    SPEED=$(< "${iface}"/speed)
+    [[ "$?" -ne 0 || ! "${SPEED}" -gt 0 ]] && { echo 0; return; } # just consider the interface load to be 0
+
+    RX1=$(< "${iface}"/statistics/rx_bytes)
+    TX1=$(< "${iface}"/statistics/tx_bytes)
+    snore 1
+    RX2=$(< "${iface}"/statistics/rx_bytes)
+    TX2=$(< "${iface}"/statistics/tx_bytes)
+
+    awk -v rx1="${RX1}" -v rx2="${RX2}"  -v tx1="${TX1}" -v tx2="${TX2}" -v speed="${SPEED}" 'BEGIN {
+        speed_bytes = int(speed * 1000000/8);
+        rx_diff = rx2 - rx1;
+        tx_diff = tx2 - tx1;
+        rx_perc = rx_diff*100/speed_bytes;
+        tx_perc = tx_diff*100/speed_bytes;
+
+        max = rx_perc;
+        if ( tx_perc > rx_perc) max = tx_perc;
+        printf "%.0f",max;
+        }' # ' end of awk
+    } # end of function
+
+CPU_UTIL () {
+    # http://man7.org/linux/man-pages/man5/proc.5.html ; /proc/stat
+    read -a CPU_ARR_BEGIN < /proc/stat
+    snore 1
+    read -a CPU_ARR_END   < /proc/stat
+    awk -v ncpu="${NCPU}" -v CPU_BEGIN_USR="${CPU_ARR_BEGIN[1]}" -v CPU_BEGIN_SYS="${CPU_ARR_BEGIN[3]}" -v CPU_END_USR="${CPU_ARR_END[1]}" -v CPU_END_SYS="${CPU_ARR_END[3]}" 'BEGIN {
+    printf "%.0f",  (CPU_END_USR + CPU_END_SYS - CPU_BEGIN_USR - CPU_BEGIN_SYS)/ncpu ;
+    }' # ' end of awk
+    }
+
+while(true); do # keep infinte loop
+    LOAD5=$(awk -v ncpu="${NCPU}" '{ LOAD_PERC = $2*100/ncpu; printf "%.0f",LOAD_PERC; }' /proc/loadavg) #'
+    [[ "${LOAD5}" -gt "100" ]] && LOAD5="100"
+
+    MEM=$(awk '/MemTotal/{ MEM_TOT=$(NF-1) } /MemAvailable/ { MEM_AVAIL=$(NF-1) } END{ MEM_PERC = (MEM_TOT - MEM_AVAIL)*100/MEM_TOT; printf "%.0f",MEM_PERC; }' /proc/meminfo) #'
+
+    # legacy, let's default to 0
+    PGIO=0
+
+    IFACE_DIR="/sys/class/net"
+    LIST_OF_ETH=""
+    for iface in ${IFACE_DIR}/*; do # create a list of valid,physical and UP network interfaces
+        [[ $(readlink -f "${iface}") =~ virtual ]] && continue
+        OPERSTATE=$(< "${iface}"/operstate)
+        [[ "$OPERSTATE" != "up" ]] && continue
+        [[ -z "${LIST_OF_ETH}" ]] && LIST_OF_ETH="${iface}" || LIST_OF_ETH="${LIST_OF_ETH} ${iface}"
+    done
+
+    exec {cpu_util}< <( CPU_UTIL )
+
+    NET_LOAD=0
+    LIST_OF_NET_FD=""
+    for iface in ${LIST_OF_ETH}; do
+        exec {iface_load}< <( IFACE_LOAD "${iface}" )
+        [[ -z "${LIST_OF_NET_FD}" ]] && LIST_OF_NET_FD="${iface_load}" || LIST_OF_NET_FD="${LIST_OF_NET_FD} ${iface_load}"
+    done
+
+    CPU=$(< /dev/fd/${cpu_util})
+    eval "exec ${cpu_util}<&-"
+
+    for NET_FD in ${LIST_OF_NET_FD}; do # select from all network interfaces the one with the biggest load
+        THIS_NET_LOAD=$(< /dev/fd/${NET_FD})
+        [[ "${THIS_NET_LOAD}" -gt "${NET_LOAD}" ]] && NET_LOAD=${THIS_NET_LOAD}
+        eval "exec ${NET_FD}<&-"
+    done
+
+    echo -ne "${LOAD5} ${CPU} ${MEM} ${PGIO} ${NET_LOAD}\n"
+    [[ "${INTERVAL}" -eq "0" ]] && break || snore ${INTERVAL}
+done # end of while loop

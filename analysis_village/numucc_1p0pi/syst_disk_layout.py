@@ -20,6 +20,8 @@ Producer scripts write into these paths; loaders **fail** if any expected file i
 from __future__ import annotations
 
 import os
+import pickle
+from typing import Any
 
 SYST_DISK_ENV = "NUMUCC_SYST_DISK_ROOT"
 
@@ -76,3 +78,31 @@ def category_summary_manifest_path(npz_path: str) -> str:
 def category_out_dir(root: str, category: str) -> str:
     """Directory for a producer category (``MCstat``, ``Flux``, …)."""
     return os.path.join(normalized_root(root), category)
+
+
+def resolve_genie_disk_path(root: str) -> str | None:
+    """Return the on-disk GENIE payload path (pickle or ``savez_compressed`` sidecar)."""
+    r = normalized_root(root)
+    base = os.path.join(r, SUB_GENIE, FILE_GENIE)
+    for candidate in (base, f"{base}.npz"):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def load_genie_disk_payload(root: str) -> Any | None:
+    """Load ``GENIE/cov_mat_dict.pkl`` (pickle) or the ``.npz`` written by multisim notebooks."""
+    genie_path = resolve_genie_disk_path(root)
+    if genie_path is None:
+        return None
+    if genie_path.endswith(".npz"):
+        import numpy as np
+
+        return np.load(genie_path, allow_pickle=True)
+    try:
+        with open(genie_path, "rb") as gf:
+            return pickle.load(gf)
+    except Exception:
+        import numpy as np
+
+        return np.load(genie_path, allow_pickle=True)

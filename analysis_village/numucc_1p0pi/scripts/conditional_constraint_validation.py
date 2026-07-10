@@ -618,6 +618,21 @@ def eigh_decomposition_tensions(
     return lam, q, eps
 
 
+STACKED_COV_BIN_AXIS_LABEL = "Bin Index"
+STACKED_COV_CORRELATION_CBAR_LABEL = "Correlation"
+
+_STACKED_COV_VAR_LABELS: dict[str, str] = {
+    "muon-p": r"$P_{\mu}$",
+    "muon-dir_z": r"$\cos\theta_{\mu}$",
+    "proton-p": r"$P_{p}$",
+}
+
+
+def stacked_cov_var_label(var_save_name: str) -> str:
+    """Human-readable (often mathtext) label for stacked covariance block annotations."""
+    return _STACKED_COV_VAR_LABELS.get(str(var_save_name), str(var_save_name))
+
+
 def draw_stacked_cov_separators(
     ax,
     block_sizes: list[int],
@@ -643,28 +658,58 @@ def annotate_stacked_cov_blocks(
     block_sizes: list[int],
     block_labels: list[str],
     *,
-    fontsize: float = 9.0,
+    fontsize: float | None = None,
+    var_pad_axes: float | None = None,
+    bin_labelpad: float | None = None,
+    reserve_margins: bool = False,
 ) -> None:
-    """Place variable names at the center of each block along both axes."""
+    """Place variable names outside the heatmap (left and bottom), without shrinking the matrix.
+
+    Block labels sit in the axes margin (blended data/axes transforms). Bin axis
+    labels (``xlabel`` / ``ylabel``) are re-applied with extra ``labelpad`` so they
+    clear the variable names. The heatmap limits stay tight on ``[-0.5, n-0.5]``.
+    """
+    import matplotlib as mpl
+    from matplotlib.transforms import blended_transform_factory
+
     if len(block_sizes) != len(block_labels):
         raise ValueError("block_sizes and block_labels length mismatch")
     n = int(sum(block_sizes))
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_ylim(-0.5, n - 0.5)
+
+    if fontsize is None:
+        fontsize = ax.xaxis.get_label().get_fontsize() or mpl.rcParams.get(
+            "axes.labelsize", 14.0
+        )
+
+    max_len = max((len(str(lb)) for lb in block_labels), default=6)
+    if var_pad_axes is None:
+        var_pad_axes = 0.065 + 0.0022 * max_len
+    if bin_labelpad is None:
+        bin_labelpad = 18.0 + 1.6 * max_len
+
+    trans_bottom = blended_transform_factory(ax.transData, ax.transAxes)
+    trans_left = blended_transform_factory(ax.transAxes, ax.transData)
+
     cur = 0
     for size, label in zip(block_sizes, block_labels):
         mid = cur + 0.5 * (size - 1)
         ax.text(
             mid,
-            n + 0.6,
+            -var_pad_axes,
             label,
+            transform=trans_bottom,
             ha="center",
-            va="bottom",
+            va="top",
             fontsize=fontsize,
             clip_on=False,
         )
         ax.text(
-            -0.6,
+            -var_pad_axes,
             mid,
             label,
+            transform=trans_left,
             ha="right",
             va="center",
             rotation=90,
@@ -672,8 +717,34 @@ def annotate_stacked_cov_blocks(
             clip_on=False,
         )
         cur += size
-    ax.set_xlim(-0.5, n - 0.5)
-    ax.set_ylim(-0.5, n - 0.5)
+
+    xlab = ax.xaxis.get_label().get_text()
+    ylab = ax.yaxis.get_label().get_text()
+    if xlab:
+        ax.set_xlabel(xlab, labelpad=bin_labelpad)
+    if ylab:
+        ax.set_ylabel(ylab, labelpad=bin_labelpad)
+
+    if reserve_margins:
+        left = 0.06 + 0.0045 * max_len + 0.55 * var_pad_axes
+        bottom = 0.06 + 0.55 * var_pad_axes
+        pos = ax.get_position()
+        ax.set_position([pos.x0 + left, pos.y0 + bottom, pos.width, pos.height])
+
+
+def finalize_stacked_cov_figure(
+    fig,
+    ax,
+    block_labels: list[str],
+    *,
+    colorbar=None,
+) -> None:
+    """Reserve figure margin for external block labels (left/bottom only)."""
+    del colorbar  # colorbar layout is handled by mpl; we only pad label margins
+    max_len = max((len(str(lb)) for lb in block_labels), default=6)
+    left = 0.12 + 0.0048 * max_len
+    bottom = 0.11 + 0.003 * max_len
+    fig.subplots_adjust(left=left, bottom=bottom)
 
 
 def proton_chi2_breakdown(

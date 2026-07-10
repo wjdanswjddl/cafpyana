@@ -161,12 +161,39 @@ def cosmics_selected_rate_cov_frac(cosmics_npz: Any, var_name: str) -> Optional[
 def genie_var_dict(genie_blob: Optional[Mapping], var_name: str) -> Optional[Mapping]:
     if genie_blob is None or var_name not in genie_blob:
         return None
-    return genie_blob[var_name]
+    cell = genie_blob[var_name]
+    if hasattr(cell, "item"):
+        cell = cell.item()
+    return cell if isinstance(cell, dict) else None
+
+
+def _genie_multisim_bundle_pack(gd: Mapping) -> Optional[Dict[str, Any]]:
+    """Bundled GENIE block from ``save_neutrino_multisim_npzs`` (``{GENIE: {cov_frac, ...}}``).
+
+    ``systematics-genie.ipynb`` writes one combined matrix per variable; ``cov_type`` in the
+    pack (or default ``rate``) selects ``rate_total`` vs ``xsec_total``.
+    """
+    pay = gd.get("GENIE")
+    if not isinstance(pay, dict) or pay.get("cov_frac") is None:
+        return None
+    cf = np.asarray(pay["cov_frac"], dtype=np.float64)
+    cov_type = str(pay.get("cov_type", "rate")).lower()
+    empty = {"rate_parts": {}, "xsec_parts": {}}
+    if cov_type == "xsec":
+        return {**empty, "rate_total": None, "xsec_total": cf}
+    return {**empty, "rate_total": cf, "xsec_total": None}
 
 
 def genie_knob_covs(gd: Optional[Mapping]) -> Optional[Dict[str, Any]]:
     if gd is None:
         return None
+    if hasattr(gd, "item"):
+        gd = gd.item()
+    if not isinstance(gd, dict):
+        return None
+    bundled = _genie_multisim_bundle_pack(gd)
+    if bundled is not None:
+        return bundled
     rate_parts: Dict[str, np.ndarray] = {}
     xsec_parts: Dict[str, np.ndarray] = {}
     rate_total = xsec_total = None
@@ -531,7 +558,7 @@ def category_frac_unc_pct(
 
 
 def total_cov_frac(
-    summary: Mapping[str, Any], var_save_name: str, *, kind: str = "xsec"
+    summary: Mapping[str, Any], var_save_name: str, *, kind: str = "rate"
 ) -> np.ndarray:
     key = TOTAL_XSEC if kind == "xsec" else TOTAL_RATE
     pack = _var_pack(summary, var_save_name)
@@ -541,7 +568,7 @@ def total_cov_frac(
 
 
 def total_frac_unc_pct(
-    summary: Mapping[str, Any], var_save_name: str, *, kind: str = "xsec"
+    summary: Mapping[str, Any], var_save_name: str, *, kind: str = "rate"
 ) -> np.ndarray:
     key = TOTAL_XSEC if kind == "xsec" else TOTAL_RATE
     pack = _var_pack(summary, var_save_name)
