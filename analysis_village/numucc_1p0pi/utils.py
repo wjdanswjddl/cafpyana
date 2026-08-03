@@ -479,44 +479,76 @@ def _overlay_chi2_valid_bins(total_data, total_mc):
 def _overlay_compute_chi2(total_data, total_mc, syst_frac_cov, data_eylow, data_eyhigh):
     """χ² using diagonal errors consistent with hatched syst. band + data error bars.
 
-    Also computes the shape-only χ² (MC normalized to the data integral,
-    same combined covariance).
+    The hatched MC band is drawn from ``√diag(cov)`` only.  Using the full
+    covariance inverse here would charge shape residuals against a nearly
+    rank-1 (rate-like) WireMod/unisim matrix and can make χ² explode even when
+    every point sits inside the band.  The displayed χ² therefore uses the
+    same diagonal variances as the band (syst) plus data stat. errors.
+
+    Also computes a shape-only χ² (MC normalized to the data integral) with the
+    same diagonal treatment.
     """
     total_data = np.asarray(total_data, dtype=float)
     total_mc = np.asarray(total_mc, dtype=float)
     valid = _overlay_chi2_valid_bins(total_data, total_mc)
     if not np.any(valid):
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
 
-    data_stat_cov = np.diag((0.5 * (np.asarray(data_eylow, dtype=float) + np.asarray(data_eyhigh, dtype=float))) ** 2)
-    syst_cov = cov_from_fraccov(np.asarray(syst_frac_cov, dtype=float), total_mc)
-    combined_cov = syst_cov + data_stat_cov
+    data_stat_var = (
+        0.5
+        * (
+            np.asarray(data_eylow, dtype=float)
+            + np.asarray(data_eyhigh, dtype=float)
+        )
+    ) ** 2
+    # Absolute syst variance matching the hatched band: (√diag(frac) * MC)^2
+    syst_frac_cov = np.nan_to_num(
+        np.asarray(syst_frac_cov, dtype=float), nan=0.0, posinf=0.0, neginf=0.0
+    )
+    syst_var = np.maximum(np.diag(syst_frac_cov), 0.0) * (total_mc ** 2)
+    combined_var = syst_var + data_stat_var
 
     d = total_data[valid]
     m = total_mc[valid]
-    c = combined_cov[np.ix_(valid, valid)]
-    ndof = int(np.sum(valid))
+    var = combined_var[valid]
+    good = var > 0
+    d, m, var = d[good], m[good], var[good]
+    ndof = int(len(d))
+    if ndof == 0:
+        return None, None, None, None, None, None, None, None
 
+    c = np.diag(var)
     chi2_total, p_val = get_chi2(d, m, c)
-    chi2_reduced, _ = get_chi2_avg(d, m, c)
+    chi2_reduced = chi2_total / ndof if ndof > 0 else None
 
-    # Shape-only chi2: MC scaled to the data integral. The syst covariance is
-    # rescaled accordingly (frac cov ~ MC^2) and its normalization component is
-    # removed via Matrix_Decomp so the normalization freedom absorbed by the
-    # scaling is not also charged as uncertainty. The diagonal data-stat term
-    # keeps the (singular) shape covariance invertible.
+    # Shape-only χ²: MC normalized to data integral; diagonal cov scaled with MC².
     chi2_shape = None
     p_val_shape = None
-    if m.sum() > 0:
+    ndof_shape = None
+    if m.sum() > 0 and ndof > 1:
         scale = d.sum() / m.sum()
-        syst_cov_scaled = syst_cov[np.ix_(valid, valid)] * scale**2
-        _, _, cov_shape_part = Matrix_Decomp(m * scale, syst_cov_scaled)
-        c_shape = cov_shape_part + data_stat_cov[np.ix_(valid, valid)]
-        chi2_shape, p_val_shape = get_chi2_shape(d, m, c_shape)
+        var_shape = syst_var[valid][good] * scale**2 + data_stat_var[valid][good]
+        good_s = var_shape > 0
+        n_shape = int(np.sum(good_s))
+        if n_shape > 1:
+            chi2_shape, p_val_shape = get_chi2_shape(
+                d[good_s], m[good_s], np.diag(var_shape[good_s])
+            )
+            ndof_shape = n_shape - 1  # overall rate floated
 
     chi2_pull = np.full_like(total_data, np.nan, dtype=float)
-    chi2_pull[valid] = (d - m) / np.sqrt(np.maximum(np.diag(c), 1e-10))
-    return chi2_total, chi2_reduced, p_val, ndof, chi2_pull, chi2_shape, p_val_shape
+    pull_idx = np.flatnonzero(valid)[good]
+    chi2_pull[pull_idx] = (d - m) / np.sqrt(np.maximum(var, 1e-10))
+    return (
+        chi2_total,
+        chi2_reduced,
+        p_val,
+        ndof,
+        chi2_pull,
+        chi2_shape,
+        p_val_shape,
+        ndof_shape,
+    )
 
 
 def _resolve_overlay_syst_cov_frac(
@@ -558,7 +590,7 @@ def get_frac_unc(mc_evt_df=None, intime_evt_df=None, offbeam_evt_df=None, var_co
     for syst in ["G4", "GENIE", "Flux"]:
     # for syst in ["GENIE", "Flux"]:
         for i in range(100):
-            weights = mc_evt_df.mc[syst]["univ_{}".format(i)]* 3
+            weights = mc_evt_df.mc[syst]["univ_{}".format(i)] #* 3
             # set nan to 1
             weights = weights.fillna(1)
             # clip at 5
@@ -1085,31 +1117,40 @@ def add_pot_text(pot_text, textloc_x, textloc_y, textloc_ha, fontsize=20):
         fontsize=fontsize, color=textcolor
     )
 
-def add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y, textloc_ha, label=""):
+def add_chi2_text(
+    chi2_val,
+    p_val,
+    ndof,
+    textloc_x,
+    textloc_y,
+    textloc_ha,
+    label="",
+    chi2_shape=None,
+    p_val_shape=None,
+    ndof_shape=None,
+):
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
     prefix = f"{label} " if label else ""
+    lines = [
+        f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)} (p-value = {p_val:.2f})"
+    ]
+    if chi2_shape is not None and p_val_shape is not None:
+        ndof_s = int(ndof_shape) if ndof_shape is not None else max(int(ndof) - 1, 1)
+        lines.append(
+            f"{prefix}$\\chi^2_{{\\mathrm{{shape}}}}$/ndof = "
+            f"{chi2_shape:.1f}/{ndof_s} (p-value = {p_val_shape:.2f})"
+        )
     ax.text(
         textloc_x,
         textloc_y,
-        # f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)}",
-        f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)} (p-value = {p_val:.2f})",
+        "\n".join(lines),
         transform=ax.transAxes,
         ha=textloc_ha,
         va="top",
         fontsize=12,
         color="black",
+        linespacing=1.35,
     )
-
-    # ax.text(
-    #     textloc_x,
-    #     textloc_y,
-    #     "8.8 $\\times 10^{19}$ POT",
-    #     transform=ax.transAxes,
-    #     ha=textloc_ha,
-    #     va="top",
-    #     fontsize=12,
-    #     color="black",
-    # )
 
 def add_genie_version_text(textloc_x, textloc_y, textloc_ha):
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
@@ -1995,6 +2036,7 @@ def overlay_hists_from_histdata(histdata,
     chi2_pull = None
     chi2_shape_val = None
     p_val_shape = None
+    ndof_shape = None
     syst_err = syst_err_norm = syst_err_mixed = syst_err_shape = None
     bkgd_syst_err = None
 
@@ -2057,7 +2099,7 @@ def overlay_hists_from_histdata(histdata,
                    linewidth=0.0, label='Syst. Unc. (Norm)')
 
         if histdata.has_data:
-            chi2_val, chi2_reduced, p_val, ndof, chi2_pull, chi2_shape_val, p_val_shape = _overlay_compute_chi2(
+            chi2_val, chi2_reduced, p_val, ndof, chi2_pull, chi2_shape_val, p_val_shape, ndof_shape = _overlay_compute_chi2(
                 total_data, total_mc, syst, data_eylow, data_eyhigh
             )
 
@@ -2192,7 +2234,7 @@ def overlay_hists_from_histdata(histdata,
                 'Syst. Unc. (Norm)',
             ])
 
-    fontsize = 11.3
+    fontsize = 12
     ncol = 3
     if breakdown_type == "genie_sb":
         textloc_x_tmp, textloc_ha_tmp = get_textloc_x(total_mc, bins, textloc)
@@ -2266,7 +2308,17 @@ def overlay_hists_from_histdata(histdata,
     textloc_y = textloc[1]
 
     if textchi2 and chi2_val is not None:
-        add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y + 0.08, textloc_ha)
+        add_chi2_text(
+            chi2_val,
+            p_val,
+            ndof,
+            textloc_x,
+            textloc_y + 0.08,
+            textloc_ha,
+            chi2_shape=chi2_shape_val,
+            p_val_shape=p_val_shape,
+            ndof_shape=ndof_shape,
+        )
 
     fig.subplots_adjust(top=0.9)
     add_approval_text(approval, 0.03, 1.07, "left")
@@ -2297,7 +2349,8 @@ def overlay_hists_from_histdata(histdata,
             "ndof": ndof,
             "chi2_pull": chi2_pull,
             "chi2_shape_val": chi2_shape_val,
-            "p_val_shape": p_val_shape}
+            "p_val_shape": p_val_shape,
+            "ndof_shape": ndof_shape}
 
 
 # ==== histograms ====
@@ -3363,6 +3416,7 @@ def overlay_hists(breakdown_type="topology",
     chi2_pull = None
     chi2_shape_val = None
     p_val_shape = None
+    ndof_shape = None
     bkgd_syst_err = None
 
     syst_explicit = syst is not None
@@ -3470,7 +3524,7 @@ def overlay_hists(breakdown_type="topology",
 
 
         if data_df is not None:
-            chi2_val, chi2_reduced, p_val, ndof, chi2_pull, chi2_shape_val, p_val_shape = _overlay_compute_chi2(
+            chi2_val, chi2_reduced, p_val, ndof, chi2_pull, chi2_shape_val, p_val_shape, ndof_shape = _overlay_compute_chi2(
                 total_data, total_mc, syst, data_eylow, data_eyhigh
             )
  
@@ -3640,7 +3694,7 @@ def overlay_hists(breakdown_type="topology",
         ordered_labels.extend(unc_label)
 
     # adjust fontsize so that legend fits in the figure
-    fontsize = 5
+    fontsize = 12
     ncol = 3
     if breakdown_type == "genie_sb":
         textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
@@ -3744,11 +3798,21 @@ def overlay_hists(breakdown_type="topology",
     textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
     textloc_y = textloc[1]
 
-    if textchi2:
-    #     syst_cov = cov_from_fraccov(np.asarray(syst, dtype=float), total_mc)
-        chi2_val, p_val = get_chi2(total_data, total_mc, syst)
-        ndof = len(var_config.bins) - 1
-        add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y + 0.08, textloc_ha)
+    # Use χ² from ``_overlay_compute_chi2`` (absolute cov matching the band).
+    # Do NOT pass fractional ``syst`` into ``get_chi2`` — that treats frac.
+    # variances as absolute and inflates χ² by ~MC².
+    if textchi2 and chi2_val is not None:
+        add_chi2_text(
+            chi2_val,
+            p_val,
+            ndof,
+            textloc_x,
+            textloc_y + 0.08,
+            textloc_ha,
+            chi2_shape=chi2_shape_val,
+            p_val_shape=p_val_shape,
+            ndof_shape=ndof_shape,
+        )
 
     fig.subplots_adjust(top=0.9)
     # add_approval_text(approval, 0.1, 1.07, "left")
@@ -3785,7 +3849,8 @@ def overlay_hists(breakdown_type="topology",
             "ndof": ndof,
             "chi2_pull": chi2_pull,
             "chi2_shape_val": chi2_shape_val,
-            "p_val_shape": p_val_shape}
+            "p_val_shape": p_val_shape,
+            "ndof_shape": ndof_shape}
 
 
 
@@ -4217,8 +4282,8 @@ def plot_unfolded_result(unfold,
     if len(chi2_vals) == len(models):
         ndofs = ndof_list if len(ndof_list) == len(models) else [ndof_bins] * len(models)
         for midx in range(len(model_labels)):
-            # suffix = f" ($\\chi^2$/ndof = {float(chi2_vals[midx]):.1f}/{int(ndofs[midx])})"
-            suffix = f" ($\\chi^2$/ndof = {float(chi2_vals[midx]):.1f}/{int(ndofs[midx])}, p-value = {p_values[midx]:.3f})"
+            suffix = f" ($\\chi^2$/ndof = {float(chi2_vals[midx]):.1f}/{int(ndofs[midx])})"
+            # suffix = f" ($\\chi^2$/ndof = {float(chi2_vals[midx]):.1f}/{int(ndofs[midx])}, p-value = {p_values[midx]:.3f})"
             labels[n_non_model + midx] += suffix
     elif (
         isinstance(chi2_list, dict)
@@ -4240,7 +4305,7 @@ def plot_unfolded_result(unfold,
     plt.ylabel(var_config.xsec_label, fontsize=22)
     plt.title(plot_labels[2])
     plt.xlim(bins[0], bins[-1])
-    plt.ylim(0., np.max(Unfolded_perwidth)*1.4)
+    plt.ylim(0., np.max(Unfolded_perwidth)*1.2)
 
     # ==== plot additions
     # textloc_x, textloc_ha = get_textloc_x(Unfolded_perwidth, var_config.bins, textloc)

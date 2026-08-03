@@ -805,12 +805,13 @@ class VariableConfig:
     def chi2_mu(cls):
         return cls(
             var_save_name="chi2_mu",
-            var_plot_name="$\\chi^2_{\\mu}$",
-            var_labels=[r"$\mathrm{\chi^{2}_{\mu}}$",
-            r"$\mathrm{\chi^{2}_{\mu,\mathrm{reco.}}}$",
-            r"$\mathrm{\chi^{2}_{\mu,\mathrm{true}}}$"],
+            var_plot_name="$\\chi^2_{\\mu,\\mathrm{I2}}$",
+            var_labels=[r"$\mathrm{\chi^{2}_{\mu,\,I2}}$",
+            r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{reco.}}}$",
+            r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{true}}}$"],
             bins=np.linspace(0, 60, 61),
-            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'avg', 'chi2_muon',  ''),
+            # Plane-2 calovar-updated score (calo shifts only affect *_new)
+            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon_new',  ''),
             var_evt_truth_col=('', '', '', '', '', ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu}}$ ($\mathrm{cm}^2$)"
@@ -820,13 +821,13 @@ class VariableConfig:
     def chi2_mu_trk1(cls):
         return cls(
             var_save_name="chi2_mu",
-            var_plot_name="$\\chi^2_{\\mu}$",
-            var_labels=[r"$\mathrm{\chi^{2}_{\mu}}$",
-            r"$\mathrm{\chi^{2}_{\mu,\mathrm{reco.}}}$",
-            r"$\mathrm{\chi^{2}_{\mu,\mathrm{true}}}$"],
+            var_plot_name="$\\chi^2_{\\mu,\\mathrm{I2}}$",
+            var_labels=[r"$\mathrm{\chi^{2}_{\mu,\,I2}}$",
+            r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{reco.}}}$",
+            r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{true}}}$"],
             bins=np.linspace(0, 60, 61),
-            var_evt_reco_col=('trk1','pfp', 'trk', 'chi2pid', 'avg', 'chi2_muon',  ''),
-            var_evt_truth_col=('trk1','pfp', 'trk', 'chi2pid', 'avg', 'chi2_muon',  ''),
+            var_evt_reco_col=('trk1','pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon_new',  ''),
+            var_evt_truth_col=('trk1','pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon_new',  ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu}}$ ($\mathrm{cm}^2$)"
         )
@@ -835,12 +836,12 @@ class VariableConfig:
     def chi2_proton(cls):
         return cls(
             var_save_name="chi2_p",
-            var_plot_name="$\\chi^2_{p}$",
-            var_labels=[r"$\mathrm{\chi^{2}_{p}}$",
-            r"$\mathrm{\chi^{2}_{p,\mathrm{reco.}}}$",
-            r"$\mathrm{\chi^{2}_{p,\mathrm{true}}}$"],
+            var_plot_name="$\\chi^2_{p,\\mathrm{I2}}$",
+            var_labels=[r"$\mathrm{\chi^{2}_{p,\,I2}}$",
+            r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{reco.}}}$",
+            r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{true}}}$"],
             bins=np.linspace(0, 350, 61),
-            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'avg', 'chi2_proton',  ''),
+            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton_new',  ''),
             var_evt_truth_col=('', '', '', '', '', ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p}}$ ($\mathrm{cm}^2$)"
@@ -850,13 +851,13 @@ class VariableConfig:
     def chi2_proton_trk1(cls):
         return cls(
             var_save_name="chi2_p",
-            var_plot_name="$\\chi^2_{p}$",
-            var_labels=[r"$\mathrm{\chi^{2}_{p}}$",
-            r"$\mathrm{\chi^{2}_{p,\mathrm{reco.}}}$",
-            r"$\mathrm{\chi^{2}_{p,\mathrm{true}}}$"],
+            var_plot_name="$\\chi^2_{p,\\mathrm{I2}}$",
+            var_labels=[r"$\mathrm{\chi^{2}_{p,\,I2}}$",
+            r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{reco.}}}$",
+            r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{true}}}$"],
             bins=np.linspace(0, 300, 61),
-            var_evt_reco_col=('trk1', 'pfp', 'trk', 'chi2pid', 'avg', 'chi2_proton',  ''),
-            var_evt_truth_col=('trk1', 'pfp', 'trk', 'chi2pid', 'avg', 'chi2_proton',  ''),
+            var_evt_reco_col=('trk1', 'pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton_new',  ''),
+            var_evt_truth_col=('trk1', 'pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton_new',  ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p}}$ ($\mathrm{cm}^2$)"
         )
