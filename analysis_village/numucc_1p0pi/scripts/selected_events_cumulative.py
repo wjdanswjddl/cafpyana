@@ -99,55 +99,32 @@ print("Processing do_quadrant_plots: ", args.do_quadrant_plots)
 
 
 # ============================================================
-# Systematic uncertainty loader (memoized per var_config name)
+# Systematic uncertainty loader (memoized; pre-saved syst disk)
 # ============================================================
 
+from analysis_village.numucc_1p0pi.utils import get_syst_unc as load_syst_disk_unc
+from analysis_village.numucc_1p0pi.utils import _DEFAULT_SYST_DISK_ROOT
+from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV
+
+_SYST_DISK_ROOT = os.environ.get(SYST_DISK_ENV) or _DEFAULT_SYST_DISK_ROOT
 _syst_cache = {}
-
-def _load_syst_unc_uncached(var_config):
-    date_str = "20260220"
-    mcstat_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/mcstat_syst_dict.npz", allow_pickle=True)
-    mcstat_syst =dict(mcstat_syst)[var_config.var_save_name].item()['MCstat']['cov_frac']
-
-    g4_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/g4_syst_dict.npz", allow_pickle=True)
-    g4_syst =dict(g4_syst)[var_config.var_save_name].item()['G4']['cov_frac']
-
-    flux_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/flux_syst_dict.npz", allow_pickle=True)
-    flux_syst =dict(flux_syst)[var_config.var_save_name].item()['flux']['cov_frac']
-
-    date_str = "20260222"
-    cosmics_syst = np.load(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-{date_str}/cosmics_syst_dict.npz", allow_pickle=True)
-    cosmics_syst =dict(cosmics_syst)[var_config.var_save_name].item()['Cosmics']['cov_frac']
-
-    date_str = "20260219"
-    genie_syst = pickle.load(open(f"/exp/sbnd/data/users/munjung/plots/numucc1p0pi/cov_mat_dict-{date_str}.pkl", "rb"))
-    genie_syst = genie_syst[var_config.var_save_name]['genie']
-
-    pot_frac_unc = 0.02
-    ntargets_frac_unc = 0.01
-
-    frac_uncert_total = np.zeros(len(var_config.bin_centers))
-    cov_total = np.zeros((len(var_config.bin_centers), len(var_config.bin_centers)))
-    systs = [mcstat_syst, genie_syst, flux_syst, g4_syst, cosmics_syst]
-    for syst in systs:
-        cov_total += syst
-        syst_uncert = np.sqrt(np.diag(syst))
-        frac_uncert_total += syst_uncert ** 2
-
-    flat_systs = [pot_frac_unc, ntargets_frac_unc]
-    for syst in flat_systs:
-        cov_total += np.diag(syst * np.ones(len(var_config.bin_centers)) ** 2)
-        syst_uncert = syst * np.ones(len(var_config.bin_centers))
-        frac_uncert_total += syst_uncert ** 2
-
-    frac_uncert_total = np.sqrt(frac_uncert_total)
-    return cov_total, frac_uncert_total
+print("Systematics disk root: ", _SYST_DISK_ROOT)
 
 
 def get_syst_unc(var_config):
+    """Load pre-saved fractional uncertainties from the syst-disk tree (memoized).
+
+    Wraps :func:`utils.get_syst_unc`. Returns ``(cov, frac_unc)`` to match the
+    historical callers in this script (utils returns the reverse order).
+    """
     key = var_config.var_save_name
     if key not in _syst_cache:
-        _syst_cache[key] = _load_syst_unc_uncached(var_config)
+        frac_unc, cov = load_syst_disk_unc(
+            var_config,
+            syst_disk_root=_SYST_DISK_ROOT,
+            skip_missing_vars=True,
+        )
+        _syst_cache[key] = (cov, frac_unc)
     return _syst_cache[key]
 
 
@@ -789,7 +766,7 @@ def process_chunk(chunk_idx):
                         _record_chi2(ret, var_config.var_save_name, breakdown_type, cut_label_quad)
                         _plot_pull(ret, var_config, breakdown_type, quad_save_dir)
 
-    # ==== more vars (vertex_x/y/z): use get_frac_unc per cut variant ====
+    # ==== more vars (vertex_x/y/z): pre-saved syst per cut variant (zero if var not on disk) ====
 
     _cut_variants_phi = [
         ("nominal",      data_vs_mc_plotter,         save_fig_dir,        mc_evt_df_loc,      intime_evt_df_loc),
@@ -804,7 +781,7 @@ def process_chunk(chunk_idx):
         for breakdown_type in ["topology"]:
             plot_labels_hist = [var_config.var_labels[1], pot_label, ""]
             for cut_label, plotter, this_save_dir, this_mc_df, this_intime_df in _cut_variants_phi:
-                frac_unc, cov = get_frac_unc(this_mc_df, this_intime_df, this_intime_df, var_config)
+                cov, frac_unc = get_syst_unc(var_config)
                 _plot_labels = plot_labels_hist
                 if "crosser" in cut_label:
                     direction = "Forward" if "fwd" in cut_label else "Backward"
@@ -838,7 +815,7 @@ def process_chunk(chunk_idx):
                 cut_label_oct_phi = "octant_phi_{}_{}".format(vol_tag, oct_slug)
                 for var_config in var_configs_phi:
                     for breakdown_type in ["topology"]:
-                        frac_unc, cov = get_frac_unc(m_o, i_o, i_o, var_config)
+                        cov, frac_unc = get_syst_unc(var_config)
                         plot_labels_hist = [
                             var_config.var_labels[1],
                             pot_label,
@@ -874,7 +851,7 @@ def process_chunk(chunk_idx):
                 cut_label_quad_phi = "quadrant_phi_{}_{}".format(vol_tag, quad_slug)
                 for var_config in var_configs_phi:
                     for breakdown_type in ["topology"]:
-                        frac_unc, cov = get_frac_unc(m_q, i_q, i_q, var_config)
+                        cov, frac_unc = get_syst_unc(var_config)
                         plot_labels_hist = [
                             var_config.var_labels[1],
                             pot_label,

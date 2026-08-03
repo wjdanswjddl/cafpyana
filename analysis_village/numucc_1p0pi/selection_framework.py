@@ -23,16 +23,15 @@ After this refactor the scripts only ever hold one file's events in RAM at a
 time, plus the (negligible) accumulated histograms. This is what makes it run
 on the full sample.
 
-Systematic covariance from MC universes (Flux / G4 / GENIE)
-------------------------------------------------------------
-Weighted histograms are additive across chunks: for each universe index ``i``,
-``hist_univ[i] = Σ_chunk Σ_events w_cv * w_univ_i``. Accumulate those in
-``OverlayHistData.mc_univ_hist`` (optional; enabled from ``event_selection_chunk``).
-After merge + ``apply_global_exposure_scales``, build a fractional covariance with
-``pyanalib.covariance.get_covariance_matrix`` and pass it as ``syst`` to
-``utils.overlay_hists_from_histdata`` (same as loading ``cov_frac`` in
-``selected_events.ipynb``). Cosmic/dirt components are usually held fixed across
-neutrino MC weights when forming that covariance.
+Systematics on overlay plots
+----------------------------
+Consumer paths load **pre-saved** fractional covariances from the syst-disk tree
+via ``utils.get_syst_unc`` (``NUMUCC_SYST_DISK_ROOT`` / ``--syst-disk-root``), or
+the pre-summed ``CategorySummary/category_syst_summary.npz`` when overlay helpers
+default to that. On-the-fly covariances from MC multi-universe weights at plot
+time are retired (see ``cafpyana_trash/…/legacy_get_frac_unc.py`` and
+``legacy_frac_cov_from_mc_univ_histdata.py``). Producer pipelines that *write*
+those pre-saved files still use ``utils.get_univ_rates`` / DETVAR scripts.
 
 Adding new things
 -----------------
@@ -64,7 +63,6 @@ import pandas as pd
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 
 from pyanalib.pandas_helpers import pad_column_name
-from pyanalib.covariance import get_covariance_matrix
 
 from analysis_village.numucc_1p0pi.categories import (
     get_topo_category, get_genie_category, get_genie_sb_category, get_pdg_category,
@@ -77,13 +75,16 @@ from analysis_village.numucc_1p0pi.categories import (
 _EPS_CLIP = 1e-6
 
 # ---------------------------------------------------------------------------
-# MC multi-universe weights (Flux / G4 / GENIE …) for chunked systematic covariances
+# MC multi-universe weights (Flux / G4 / GENIE …) — map-phase optional bookkeeping.
+# Consumer-side systematic bands load pre-saved files via utils.get_syst_unc;
+# on-the-fly cov from these histograms was retired (see cafpyana_trash
+# legacy_frac_cov_from_mc_univ_histdata.py).
 # ---------------------------------------------------------------------------
 def mc_univ_weight_matrix(df: pd.DataFrame, syst_tag: str, max_univ: int = 512) -> Optional[np.ndarray]:
     """Return ``(n_univ, n_evt)`` multiplicative weights for ``mc[syst_tag]['univ_i']`` columns.
 
     Rows are consecutive ``univ_0 … univ_{n-1}`` until the first missing column.
-    Missing / non-finite weights are sanitised (same spirit as ``get_frac_unc``).
+    Missing / non-finite weights are sanitised (NaN and infinities treated as 1).
     """
     if df is None or len(df) == 0:
         return None
@@ -99,55 +100,6 @@ def mc_univ_weight_matrix(df: pd.DataFrame, syst_tag: str, max_univ: int = 512) 
     if not rows:
         return None
     return np.stack(rows, axis=0)
-
-
-def frac_cov_from_mc_univ_histdata(
-    hd: "OverlayHistData",
-    cosmic_estimate: str = "intime",
-) -> Optional[np.ndarray]:
-    """Build **fractional** covariance (for ``overlay_hists_from_histdata(..., syst=…)``).
-
-    Sums per-system fractional covariances from universe variations around the CV **total
-    stacked MC prediction** (nu MC categories summed + merged cosmic estimate). Cosmic and
-    dirt components are treated as **constant** across Flux/G4/GENIE universes (typical for
-    neutrino-generator weights on MC slices).
-
-    Requires chunk pickles filled with ``OverlayHistData.mc_univ_hist`` (enable
-    ``--mc-univ-syst`` when running ``event_selection_chunk.py``).
-    """
-    univ_pack = getattr(hd, "mc_univ_hist", None)
-    if not univ_pack:
-        return None
-
-    n_bin = hd.mc_hist.shape[1]
-    cosmic_hist_bins = np.zeros(n_bin, dtype=float)
-    if cosmic_estimate == "intime" and hd.has_intime:
-        cosmic_hist_bins = hd.intime_hist.astype(float)
-    elif cosmic_estimate == "offbeam" and getattr(hd, "has_offbeam", False):
-        cosmic_hist_bins = hd.offbeam_hist.astype(float)
-    else:
-        if hd.has_intime:
-            cosmic_hist_bins = hd.intime_hist.astype(float)
-        elif getattr(hd, "has_offbeam", False):
-            cosmic_hist_bins = hd.offbeam_hist.astype(float)
-
-    total_cv = np.sum(hd.mc_hist, axis=0).astype(float) + cosmic_hist_bins
-
-    cov_frac_total = np.zeros((n_bin, n_bin), dtype=float)
-    for _, arr in univ_pack.items():
-        a = np.asarray(arr, dtype=float)
-        if a.ndim != 3:
-            continue
-        # (n_univ, n_cat, n_bin) -> neutrino MC total per universe
-        nu_tot = np.sum(a, axis=1)
-        univ_tot = nu_tot + cosmic_hist_bins[np.newaxis, :]
-        ret = get_covariance_matrix(univ_tot, total_cv)
-        cov_frac_total += np.nan_to_num(
-            ret["cov_frac"], nan=0.0, posinf=0.0, neginf=0.0
-        )
-    if not np.any(cov_frac_total):
-        return None
-    return cov_frac_total
 
 
 def _squeeze_cfg_key_to_depth(parts: List[Any], n: int) -> Tuple[Any, ...]:
@@ -325,7 +277,7 @@ class OverlayHistData:
 
         ``mc_univ_syst_tags``: when ``sample=='mc'``, also accumulate weighted histograms for
         each multi-universe syst (columns ``mc[s]['univ_i']``), used at aggregation time to
-        build a fractional covariance like ``get_frac_unc`` / ``selected_events.ipynb``.
+        build a fractional covariance across universes at aggregation time.
         """
         if df is None:
             return

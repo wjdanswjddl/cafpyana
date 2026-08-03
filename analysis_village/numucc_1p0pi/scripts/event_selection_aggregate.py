@@ -12,15 +12,11 @@ This is the **reduce** pass of the chunked histogram workflow (one pickle per
      pre-binned content,
   5. produces the summary breakdown bar plot and the efficiency curve plots.
 
-**Systematic uncertainty bands (Flux / G4 / GENIE universes)** — entirely compatible with
-chunking: each chunk bin-wise histogram for universe ``i`` is a sum of independent event
-contributions, so you accumulate ``mc_univ_hist[s][univ, cat, bin]`` exactly like ``mc_hist``,
-apply the same global POT scaling, then form a fractional covariance from universe spread
-around CV (see ``selection_framework.frac_cov_from_mc_univ_histdata``). Enable map-phase
-``event_selection_chunk.py --mc-univ-syst Flux,G4,GENIE``. Aggregation draws syst bands from
-those chunks by default; pass ``--no-overlay-syst-from-universes`` to omit them. This complements the notebook workflow that loads
-precomputed ``cov_frac`` matrices from disk (``selected_events.ipynb`` / ``utils.get_syst_unc``
-via ``--syst-disk-root`` / ``NUMUCC_SYST_DISK_ROOT``).
+**Systematic uncertainty bands** load **pre-saved** fractional covariances from the
+syst-disk tree via :func:`utils.get_syst_unc` (``--syst-disk-root`` /
+``NUMUCC_SYST_DISK_ROOT``). On-the-fly covariances from MC multi-universe weights
+at plot time are no longer supported; see the ``cafpyana_trash`` legacy copies of
+``get_frac_unc`` / ``frac_cov_from_mc_univ_histdata``.
 
 The plotting step is a thin layer on top of the existing ``overlay_hists`` and
 ``plot_efficiency`` routines in ``utils.py``; the new precomputed-histogram
@@ -73,7 +69,6 @@ from analysis_village.numucc_1p0pi.selection_framework import (
     ExposureTotals, aggregate_chunk_files, merge_samples,
     sanitize_merged_histdata_finite,
     apply_global_exposure_scales,
-    frac_cov_from_mc_univ_histdata,
 )
 from analysis_village.numucc_1p0pi.utils import (
     overlay_hists_from_histdata,
@@ -124,13 +119,6 @@ def parse_args():
                    help="Save figures to disk (default True)")
     p.add_argument("--show_fig", action="store_true", default=False,
                    help="Show figures interactively (off by default)")
-    p.add_argument(
-        "--no-overlay-syst-from-universes",
-        action="store_true",
-        help="Skip fractional covariance / hatched syst bands from chunked MC universe histograms "
-             "(default is ON when chunks include mc_univ_hist). Chunks need "
-             "event_selection_chunk.py --mc-univ-syst Flux,G4,GENIE matching HDF columns.",
-    )
     p.add_argument(
         "--syst-disk-root",
         default=None,
@@ -193,7 +181,6 @@ def render_overlay_plots(
     show_fig: bool,
     cosmic_estimate: str,
     show_cosmic_model_unc: bool,
-    overlay_syst_from_universes: bool = True,
     syst_disk_root: str | None = None,
 ):
     """Render every plot stored in ``merged['histdata']``."""
@@ -239,14 +226,7 @@ def render_overlay_plots(
         # Match ``selected_events.ipynb``: combined syst as hatched band (not norm/shape/mixed fill).
         kwargs.setdefault("syst_decomp", False)
 
-        if overlay_syst_from_universes and kwargs.get("syst") is None:
-            fc = frac_cov_from_mc_univ_histdata(
-                hd, cosmic_estimate=kwargs.get("cosmic_estimate", cosmic_estimate)
-            )
-            if fc is not None:
-                kwargs["syst"] = fc
-
-        # Notebook parity: precomputed fractional covariances on disk (GENIE / flux / …).
+        # Pre-saved fractional covariance on the syst disk (GENIE / flux / …).
         if kwargs.get("syst") is None and syst_disk_root is not None:
             _, cov_disk = get_syst_unc(
                 ps.var_config,
@@ -598,22 +578,20 @@ def main():
 
     show_cosmic_unc = not args.hide_cosmic_model_unc
 
-    # ---- render
-    overlay_syst = not args.no_overlay_syst_from_universes
-    if overlay_syst:
-        print(
-            "[aggregate] overlay MC syst bands from chunked universe histograms when available "
-            "(flux/G4/GENIE weights on MC slices; cosmic/dirt held fixed per univ). "
-            "Use --no-overlay-syst-from-universes to disable.",
-            flush=True,
-        )
+    # ---- render (syst bands only from pre-saved disk covariances)
+    from analysis_village.numucc_1p0pi.utils import _DEFAULT_SYST_DISK_ROOT
+    syst_disk_root = (
+        args.syst_disk_root
+        or os.environ.get("NUMUCC_SYST_DISK_ROOT")
+        or _DEFAULT_SYST_DISK_ROOT
+    )
+    print(f"[aggregate] systematics disk root: {syst_disk_root}", flush=True)
     render_overlay_plots(
         merged, plot_label_map={}, save_fig_dir=save_fig_dir,
         pot_str=pot_str, save_fig=args.save_fig, show_fig=args.show_fig,
         cosmic_estimate=args.cosmic_estimate,
         show_cosmic_model_unc=show_cosmic_unc,
-        overlay_syst_from_universes=overlay_syst,
-        syst_disk_root=args.syst_disk_root or os.environ.get("NUMUCC_SYST_DISK_ROOT"),
+        syst_disk_root=syst_disk_root,
     )
     render_summary_breakdown_plot(
         merged, save_fig_dir,

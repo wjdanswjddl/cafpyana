@@ -1,8 +1,7 @@
 
+import os
 from os import path, makedirs
 
-_SYST_RESULTS_DIR = None
-_GENIE_COV_PKL = None
 from datetime import datetime
 from functools import partial
 import pickle
@@ -21,6 +20,9 @@ from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
     FINAL_SELECTED_EVT_VARIABLE_CONFIGS,
 )
 from analysis_village.numucc_1p0pi.utils import *
+from analysis_village.numucc_1p0pi.utils import get_syst_unc as load_syst_disk_unc
+from analysis_village.numucc_1p0pi.utils import _DEFAULT_SYST_DISK_ROOT
+from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV
 from analysis_village.numucc_1p0pi.files_config import *
 plt.style.use("presentation.mplstyle")
 
@@ -61,109 +63,40 @@ parser.add_argument(
     help='If set, make SBND quadrant diagnostic + per-quadrant overlay plots (E/W and Top/Bottom; N/S combined). Default: off.',
 )
 parser.add_argument(
-    '--syst-results-dir',
+    '--syst-disk-root',
     type=str,
     default=None,
-    help='Folder with mcstat_syst_dict.npz, g4_syst_dict.npz, flux_syst_dict.npz, cosmics_syst_dict.npz '
-    '(e.g. syst_multisim_aggregate.py / get_systematics_multisim.py / get_systematics_mcstat_flux_g4.py output). '
-    'Default: hardcoded dated paths.',
-)
-parser.add_argument(
-    '--genie-cov-pkl',
-    type=str,
-    default=None,
-    help='Override path to GENIE covariance pickle (cov_mat_dict-*.pkl).',
+    help='Root of the pre-saved syst-disk tree (MCstat/, Flux/, G4/, GENIE/, Cosmics/, Detector/; '
+    'see analysis_village.numucc_1p0pi.syst_disk_layout). Overrides env %s. '
+    'Default: env or the analysis systematics-final tree.' % SYST_DISK_ENV,
 )
 args = parser.parse_args()
-_SYST_RESULTS_DIR = args.syst_results_dir
-_GENIE_COV_PKL = args.genie_cov_pkl
+_SYST_DISK_ROOT = (
+    args.syst_disk_root
+    or os.environ.get(SYST_DISK_ENV)
+    or _DEFAULT_SYST_DISK_ROOT
+)
 
 print("Processing n_time_splits: ", args.n_time_splits)
 print("Processing chunk_idx: ", args.chunk_idx)
 print("Processing do_octant_plots: ", args.do_octant_plots)
 print("Processing do_quadrant_plots: ", args.do_quadrant_plots)
-
-
-def _zero_cov(var_config):
-    n = len(var_config.bin_centers)
-    return np.zeros((n, n))
+print("Systematics disk root: ", _SYST_DISK_ROOT)
 
 
 def get_syst_unc(var_config):
-    plots_base = "/exp/sbnd/data/users/munjung/plots/numucc1p0pi"
+    """Load pre-saved fractional uncertainties from the syst-disk tree.
 
-    def _cov_frac_from_npz(npz_obj, var_sn, inner_key):
-        z = dict(npz_obj)
-        if var_sn not in z:
-            return _zero_cov(var_config)
-        ret = z[var_sn].item()[inner_key]
-        return ret["cov_frac"]
-
-    if _SYST_RESULTS_DIR is not None:
-        bundle = _SYST_RESULTS_DIR
-        mcstat_npz = np.load(path.join(bundle, "mcstat_syst_dict.npz"), allow_pickle=True)
-        g4_npz = np.load(path.join(bundle, "g4_syst_dict.npz"), allow_pickle=True)
-        flux_npz = np.load(path.join(bundle, "flux_syst_dict.npz"), allow_pickle=True)
-        cosmics_npz = np.load(path.join(bundle, "cosmics_syst_dict.npz"), allow_pickle=True)
-    else:
-        date_str = "20260220"
-        mcstat_npz = np.load(path.join(plots_base, f"systematics-{date_str}", "mcstat_syst_dict.npz"), allow_pickle=True)
-        g4_npz = np.load(path.join(plots_base, f"systematics-{date_str}", "g4_syst_dict.npz"), allow_pickle=True)
-        flux_npz = np.load(path.join(plots_base, f"systematics-{date_str}", "flux_syst_dict.npz"), allow_pickle=True)
-        date_str = "20260222"
-        cosmics_npz = np.load(path.join(plots_base, f"systematics-{date_str}", "cosmics_syst_dict.npz"), allow_pickle=True)
-
-    vn = var_config.var_save_name
-    mcstat_syst = _cov_frac_from_npz(mcstat_npz, vn, "MCstat")
-    g4_syst = _cov_frac_from_npz(g4_npz, vn, "G4")
-    flux_syst = _cov_frac_from_npz(flux_npz, vn, "flux")
-    cosmics_syst = _cov_frac_from_npz(cosmics_npz, vn, "Cosmics")
-
-    if _GENIE_COV_PKL is not None:
-        genie_path = _GENIE_COV_PKL
-    else:
-        genie_path = path.join(plots_base, "cov_mat_dict-20260219.pkl")
-    genie_blob = pickle.load(open(genie_path, "rb"))
-    try:
-        genie_syst = genie_blob[var_config.var_save_name]["genie"]
-    except KeyError:
-        genie_syst = _zero_cov(var_config) 
-
-    # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
-    # detvar_syst = detvar_syst[var_config.var_save_name]['detvar']
-
-    # detvar_syst = pickle.load(open("/exp/sbnd/data/users/munjung/xsec/2025Spring_v10_06_00_10/nevts/det_unc_dict-20260216.pkl", "rb"))
-    # detvar_syst = np.sqrt(detvar_syst[var_config.var_save_name]['ccal']**2 \
-    #     + detvar_syst[var_config.var_save_name]['alpha']**2 \
-    #     + detvar_syst[var_config.var_save_name]['beta']**2 \
-    #     + detvar_syst[var_config.var_save_name]['R']**2) / 2.
-
-
-    # flat uncertainties
-    pot_frac_unc = 0.02
-    ntargets_frac_unc = 0.01
-
-    # flat uncertainties
-    frac_uncert_total = np.zeros(len(var_config.bin_centers))
-    cov_total = np.zeros((len(var_config.bin_centers), len(var_config.bin_centers)))
-    systs      = [mcstat_syst, genie_syst, flux_syst, g4_syst, cosmics_syst]
-    for syst in systs:
-        cov_total += syst
-        syst_uncert = np.sqrt(np.diag(syst))
-        frac_uncert_total += syst_uncert ** 2
-
-    flat_systs = [pot_frac_unc, ntargets_frac_unc]
-    for syst in flat_systs:
-        cov_total += np.diag(syst * np.ones(len(var_config.bin_centers)) ** 2)
-        syst_uncert = syst * np.ones(len(var_config.bin_centers))
-        frac_uncert_total += syst_uncert ** 2
-
-    # frac_uncert_total += detvar_syst ** 2
-
-    frac_uncert_total = np.sqrt(frac_uncert_total)
-    # syst = frac_uncert_total
-
-    return cov_total, frac_uncert_total
+    Thin wrapper around :func:`utils.get_syst_unc` that preserves this script's
+    historical return order ``(cov, frac_unc)`` (utils itself returns
+    ``(frac_unc, cov)``) and soft-skips variables not present on the disk.
+    """
+    frac_unc, cov = load_syst_disk_unc(
+        var_config,
+        syst_disk_root=_SYST_DISK_ROOT,
+        skip_missing_vars=True,
+    )
+    return cov, frac_unc
 
 
 save_fig = True
@@ -957,7 +890,8 @@ for var_config in var_configs:
         ]
 
         for cut_label, plotter, this_save_dir, this_mc_df, this_intime_df in _cut_variants_phi:
-            frac_unc, cov = get_frac_unc(this_mc_df, this_intime_df, this_intime_df, var_config)
+            # pre-saved fractional covariance (zero if var not on syst disk)
+            cov, frac_unc = get_syst_unc(var_config)
             _plot_labels = plot_labels_hist
             if "crosser" in cut_label:
                 direction = "Forward" if "fwd" in cut_label else "Backward"
@@ -1010,7 +944,7 @@ if args.do_octant_plots:
 
             for var_config in var_configs_phi:
                 for breakdown_type in ["topology"]:
-                    frac_unc, cov = get_frac_unc(m_o, i_o, i_o, var_config)
+                    cov, frac_unc = get_syst_unc(var_config)
                     plot_labels_hist = [
                         var_config.var_labels[1],
                         pot_label,
@@ -1078,7 +1012,7 @@ if args.do_quadrant_plots:
 
             for var_config in var_configs_phi_quad:
                 for breakdown_type in ["topology"]:
-                    frac_unc, cov = get_frac_unc(m_q, i_q, i_q, var_config)
+                    cov, frac_unc = get_syst_unc(var_config)
                     plot_labels_hist = [
                         var_config.var_labels[1],
                         pot_label,

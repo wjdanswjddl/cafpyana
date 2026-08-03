@@ -78,7 +78,7 @@ _SYST_UNC_DISK_LABELS = {
 }
 
 
-# ======= util to load systematic uncertainties ======
+# ======= load systematic uncertainties from pre-saved files ======
 def get_syst_unc(
     var_config,
     plot=False,
@@ -579,56 +579,6 @@ def _resolve_overlay_syst_cov_frac(
         return None
 
 
-# ====== legacy on-the-fly multisim fractional uncertainty ======
-def get_frac_unc(mc_evt_df=None, intime_evt_df=None, offbeam_evt_df=None, var_config=None):
-
-    # nu mc unc
-    var = mc_evt_df[var_config.var_evt_reco_col]
-    var, weights = get_clipped_evts(mc_evt_df, var_config.var_evt_reco_col, var_config.bins)
-
-    # frac_unc = np.zeros(len(var_config.bin_centers))
-    n_cv, _ = np.histogram(var, bins=var_config.bins)
-    n_univs = []
-    tot_cov_mat = np.zeros((len(var_config.bin_centers), len(var_config.bin_centers)))
-    for syst in ["G4", "GENIE", "Flux"]:
-    # for syst in ["GENIE", "Flux"]:
-        for i in range(100):
-            weights = mc_evt_df.mc[syst]["univ_{}".format(i)] #* 3
-            # set nan to 1
-            weights = weights.fillna(1)
-            # clip at 5
-            weights = np.clip(weights, 0, 5)
-            n_univ, _ = np.histogram(var, bins=var_config.bins, weights=weights)
-            n_univs.append(n_univ)
-
-        cov_mat = np.cov(np.array(n_univs).T)
-        tot_cov_mat += cov_mat
-        nu_frac_unc = np.sqrt(np.diag(cov_mat / n_cv**2))
-        nu_frac_unc = np.where(n_cv == 0, 0, nu_frac_unc)
-
-    tot_cov_mat = fraccov_from_cov(tot_cov_mat, n_cv)
-
-    # cosmic mc unc is the difference between the intime mc and offbeam data
-    intime_var, intime_weights = get_clipped_evts(intime_evt_df, var_config.var_evt_reco_col, var_config.bins)
-    offbeam_var, offbeam_weights = get_clipped_evts(offbeam_evt_df, var_config.var_evt_reco_col, var_config.bins)
-    n_intime, _ = np.histogram(intime_var, bins=var_config.bins)
-    n_offbeam, _ = np.histogram(offbeam_var, bins=var_config.bins)
-    cosmic_mc_unc = np.sqrt(np.diag(np.cov(np.array([n_intime, n_offbeam]).T) / n_intime**2))
-    cosmic_mc_unc = np.where(n_intime == 0, 0, cosmic_mc_unc)
-    # also multiply to the cosmic component of nu mc
-    var_numc_cosmics = var[IsCosmic(mc_evt_df)]
-    n_numc_cosmics, _ = np.histogram(var_numc_cosmics, bins=var_config.bins)
-
-    cosmic_cov = np.diag((cosmic_mc_unc * (n_offbeam+n_numc_cosmics) / n_cv) ** 2)
-    tot_cov_mat += cosmic_cov
-
-
-    tot_frac_unc = (nu_frac_unc * n_cv + cosmic_mc_unc * n_intime + cosmic_mc_unc * n_numc_cosmics) / (n_cv + n_intime)
-    # tot_frac_unc = (nu_frac_unc * n_cv + cosmic_mc_unc * n_intime) / (n_cv + n_intime)
-    return tot_frac_unc, tot_cov_mat
-
-
-#  ====== calculation functions ======
 # ====== general helpers: formatting, arrays, event clipping ======
 def get_pot_str(tot_pot):
     pot_str = "{:.2e}".format(tot_pot).replace("e+0", "e").replace("e+", "e")\
@@ -775,6 +725,10 @@ def _genie_weight_series(syst_type: str, weight_block: pd.DataFrame, uidx: int) 
 
 
 # ====== response matrix & multisim universe rates ======
+# NOTE: get_univ_rates is a *producer* helper used by scripts that write the
+# pre-saved GENIE/Flux/G4 covariance files consumed by get_syst_unc. Analysis
+# notebooks and overlay plots must not recompute covariances at runtime — load
+# them with get_syst_unc / get_category_summary_syst_unc instead.
 def smearing_reco_over_truth(reco_vs_true):
     """Per-bin ratio of reco- to truth-projected smearing matrix."""
     smear = np.asarray(reco_vs_true, dtype=float)

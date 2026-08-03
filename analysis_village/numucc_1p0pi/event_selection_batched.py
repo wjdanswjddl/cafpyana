@@ -71,7 +71,8 @@ class EventSelectionBatchedConfig:
     batches_dir: Path | str | None = None
     plots_dir: Path | str | None = None
     max_job_bytes: int = DEFAULT_MAX_JOB_BYTES
-    mc_univ_syst: Sequence[str] = ("Flux", "G4", "GENIE")
+    # Optional map-phase bookkeeping only (not used to form overlay bands).
+    mc_univ_syst: Sequence[str] = ()
     use_mc_genweight: bool = False
     skip_existing_batches: bool = True
     aggregate_only: bool = False
@@ -81,7 +82,6 @@ class EventSelectionBatchedConfig:
     f_offbeam_frac: float = 0.08
     save_fig: bool = True
     show_fig: bool = False
-    overlay_syst_from_universes: bool = True
     syst_disk_root: Path | str | None = None
     syst_tag: str = ""
     samples: Sequence[str] = SAMPLES
@@ -386,8 +386,8 @@ def run_aggregate(cfg: EventSelectionBatchedConfig, batches_dir: Path | str | No
     pot_str = agg.get_pot_str(data_pot)
     print(f"[batched] data_pot={data_pot:.3e} -> POT label={pot_str}", flush=True)
 
-    overlay_syst = cfg.overlay_syst_from_universes
     syst_disk_arg = str(syst_root) if syst_root.is_dir() else None
+    print(f"[batched] systematics disk root: {syst_disk_arg}", flush=True)
 
     agg.render_overlay_plots(
         merged,
@@ -398,7 +398,6 @@ def run_aggregate(cfg: EventSelectionBatchedConfig, batches_dir: Path | str | No
         show_fig=cfg.show_fig,
         cosmic_estimate=cfg.cosmic_estimate,
         show_cosmic_model_unc=not cfg.hide_cosmic_model_unc,
-        overlay_syst_from_universes=overlay_syst,
         syst_disk_root=syst_disk_arg,
     )
     agg.render_summary_breakdown_plot(
