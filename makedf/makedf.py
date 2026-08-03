@@ -1,9 +1,78 @@
 from pyanalib.pandas_helpers import *
-import pyanalib.calo_helpers as caloh
 from .branches import *
 from .util import *
 from .calo import *
-from . import numisyst, g4syst, geniesyst, bnbsyst
+from . import numisyst, g4syst, geniesyst, bnbsyst, getenv, mcstat
+# from makedf import chi2pid, chi2pid_cccal_m, chi2pid_cccal_p, chi2pid_alpha_m, chi2pid_alpha_p, chi2pid_beta_m, chi2pid_beta_p, chi2pid_R_m, chi2pid_R_p
+from makedf import chi2pid
+import os
+import uproot
+from scipy.interpolate import RegularGridInterpolator
+
+pd.set_option('future.no_silent_downcasting', True)
+
+# Double-anode cathode-study SCE map. Single set of TH3F histograms covering the
+# full detector (no East/West split, unlike the older SBND_DataMap_v3.root).
+# True_ElecField_Mag stores the fractional change of |E|:
+#   Mag = sqrt((1 + fx)^2 + fy^2 + fz^2) - 1, with fx/fy/fz the fractional offsets.
+# See analysis_village/numucc_1p0pi/notebooks/detector_Efield_doubleanode.ipynb.
+# Path is relative to the cafpyana repo root so grid workers (git clone) can find it.
+_CAFPYANA_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SBND_EFIELD_MAP_ROOT = os.path.join(
+    _CAFPYANA_ROOT, "data", "efield", "sbnd_sce_doubleanode_2d_v10c.root"
+)
+_SBND_EFIELD_INTERP = None
+
+
+def _th3_axis_centers(axis):
+    nbins = axis.member("fNbins")
+    xmin = axis.member("fXmin")
+    xmax = axis.member("fXmax")
+    edges = np.linspace(xmin, xmax, nbins + 1)
+    return 0.5 * (edges[:-1] + edges[1:])
+
+
+def _load_sbnd_efield_interpolator():
+    global _SBND_EFIELD_INTERP
+    if _SBND_EFIELD_INTERP is not None:
+        return _SBND_EFIELD_INTERP
+
+    if not os.path.isfile(_SBND_EFIELD_MAP_ROOT):
+        raise FileNotFoundError(
+            f"SBND E-field map not found: {_SBND_EFIELD_MAP_ROOT}. "
+            "Expected data/efield/sbnd_sce_doubleanode_2d_v10c.root in the cafpyana checkout."
+        )
+
+    fmap = uproot.open(_SBND_EFIELD_MAP_ROOT)
+    hist = fmap["True_ElecField_Mag"]
+    grid = (
+        _th3_axis_centers(hist.member("fXaxis")),
+        _th3_axis_centers(hist.member("fYaxis")),
+        _th3_axis_centers(hist.member("fZaxis")),
+    )
+    _SBND_EFIELD_INTERP = RegularGridInterpolator(
+        grid,
+        np.asarray(hist.values(), dtype=float),
+        bounds_error=False,
+        fill_value=0.0,
+    )
+    return _SBND_EFIELD_INTERP
+
+
+def _apply_sbnd_efield_map(trkhitdf):
+    interp = _load_sbnd_efield_interpolator()
+    xyz = np.column_stack([
+        trkhitdf.x.to_numpy(dtype=float),
+        trkhitdf.y.to_numpy(dtype=float),
+        trkhitdf.z.to_numpy(dtype=float),
+    ])
+    delta = interp(xyz)
+
+    # True_ElecField_Mag is the fractional |E| variation; outside the map delta=0.
+    # Keep only physically valid non-negative fields.
+    efield_new = trkhitdf.efield.to_numpy(dtype=float) * (1.0 + delta)
+    efield_new = np.clip(efield_new, 1e-6, None)
+    trkhitdf["efield"] = efield_new
 
 PDG = {
     "muon": [13, "muon", 0.105,],
@@ -35,20 +104,37 @@ TRUE_KE_THRESHOLDS = {"nmu_27MeV": ["muon", 0.027],
                       }
 
 TRUE_P_THRESHOLDS = {"nmu_220MeVc": ["muon", 0.22],
+                        "nmu_100MeVc": ["muon", 0.1],
                       "np_300MeVc": ["proton", 0.3],
                       "np_200MeVc": ["proton", 0.2],
                       "npi_70MeVc": ["pipm", 0.07],
                       }
 
-## == For updating dE/dx and chi2_pid
-#### == use pandora_df_calo_update to apply these changes
-CALO_PARAMS = {
-    "alpha_emb": 0.904,
-    "beta_90": 0.204,
-    "R_emb": 1.25,
-    "c_cal_frac": [1., 1., 1.],
-    "etau": [100., 35.], ## first value for MC and second value for data
-}
+def make_envdf(f):
+    env = getenv.get_env(f)
+    return env
+
+def make_histpotdf(f):
+    if f is None or "TotalPOT" not in f:
+        histpot = pd.DataFrame({"TotalPOT": pd.Series(dtype="float64")})
+        histpot.index.name = "entry"
+        return histpot
+
+    pot = f['TotalPOT'].values()
+    histpot = pd.DataFrame(data={'TotalPOT':pot})
+    histpot.index.name = 'entry'
+    return histpot
+
+def make_histgenevtdf(f):
+    if f is None or "TotalGenEvents" not in f:
+        histgenevt = pd.DataFrame({"TotalGenEvents": pd.Series(dtype="float64")})
+        histgenevt.index.name = "entry"
+        return histgenevt
+
+    genevt = f['TotalGenEvents'].values()
+    histgenevt = pd.DataFrame(data={'TotalGenEvents':genevt})
+    histgenevt.index.name = 'entry'
+    return histgenevt
 
 def make_hdrdf(f):
     hdr = loadbranches(f["recTree"], hdrbranches).rec.hdr
@@ -66,16 +152,26 @@ def make_potdf_numi(f):
     pot = loadbranches(f["recTree"], numipotbranches).rec.hdr.numiinfo
     return pot
 
+def make_framedf(f):
+    frame = loadbranches(f["recTree"],sbndframebranches).rec.sbnd_frames
+    return frame
+
+def make_triggerdf(f):
+    return  loadbranches(f["recTree"], trigger_info_branches).rec.hdr.triggerinfo
+
 def make_mcnuwgtdf(f):
-    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000)
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=100)
 
 def make_mcnuwgtdf_slim(f):
-    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000, slim=True)
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000, genie_multisim_nuniv=100, slim=True)
 
-def make_mcnuwgtdf_genie(f):
-    return make_mcnudf(f, include_weights=True, multisim_nuniv=500, wgt_types=["genie"], slim=False)
+def make_mcnudf_wgts_genie(f):
+    return make_mcnudf(f, include_weights=True, multisim_nuniv=1000, genie_multisim_nuniv=100, wgt_types=["genie"], slim=True)
 
-def make_mcnudf(f, include_weights=False, multisim_nuniv=250, wgt_types=["bnb","genie"], slim=False):
+# TODO: zip the nuniv configs
+def make_mcnudf(f, include_weights=False, multisim_nuniv=100, genie_multisim_nuniv=100, wgt_types=["bnb","genie"], slim=False, genie_systematics=None, flux_systematics=None):
+    # wgt_types may include "bnb", "genie", "g4", "mcstat". MC stat weights are
+    # computed in-memory (Poisson); flux/G4/GENIE load from CAF globalTree.
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
     if (1 == det.unique()):
@@ -88,21 +184,69 @@ def make_mcnudf(f, include_weights=False, multisim_nuniv=250, wgt_types=["bnb","
     if include_weights:
         if len(wgt_types) == 0:
             print("include_weights is set to True, pass at least one type of wgt to save")
-
         else:
-            if det == "ICARUS":
-                wgtdf = pd.concat([numisyst.numisyst(mcdf.pdg, mcdf.E), geniesyst.geniesyst(f, mcdf.ind), g4syst.g4syst(f, mcdf.ind)], axis=1)
-            elif det == "SBND":
-                df_list = []
-                if "bnb" in wgt_types:
-                    bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
-                    df_list.append(bnbwgtdf)
-                if "genie" in wgt_types:
-                    geniewgtdf = geniesyst.geniesyst_sbnd(f, mcdf.ind)
-                    df_list.append(geniewgtdf)
-                wgtdf = pd.concat(df_list, axis=1)
+            df_list = []
+            hdr_for_mcstat = None
+            if "mcstat" in wgt_types:
+                hdr_for_mcstat = make_hdrdf(f)
+            if "bnb" in wgt_types:
+                bnbwgtdf = bnbsyst.bnbsyst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim, systematics=flux_systematics)
+                df_list.append(bnbwgtdf)
+            if "genie" in wgt_types:
+                geniewgtdf = geniesyst.geniesyst(f, mcdf.ind, multisim_nuniv=genie_multisim_nuniv, slim=slim, systematics=genie_systematics)
+                df_list.append(geniewgtdf)
+            if "g4" in wgt_types:
+                g4wgtdf = g4syst.g4syst(f, mcdf.ind, multisim_nuniv=multisim_nuniv, slim=slim)
+                df_list.append(g4wgtdf)
+            if "mcstat" in wgt_types:
+                mcstatwgtdf = mcstat.mcstatsyst(
+                    hdr_for_mcstat,
+                    mcdf.ind,
+                    multisim_nuniv=multisim_nuniv,
+                    slim=slim,
+                )
+                df_list.append(mcstatwgtdf)
+
+            wgtdf = pd.concat(df_list, axis=1)
             mcdf = multicol_concat(mcdf, wgtdf)
+
     return mcdf
+
+def make_geniedf(f):
+    if "GenieEvtRecTree" not in f:
+        return pd.DataFrame([])
+
+    # shape = n of particles in genie 
+    genie_particle_branches = [
+        "GenieEvtRec.StdHepPdg",
+        "GenieEvtRec.StdHepStatus",
+        "GenieEvtRec.StdHepFm",
+    ]
+    # shape = 1 (per event)
+    genie_event_branches = [
+        "GENIEEntry",
+        "SourceFileHash",
+        "GenieEvtRec.EvtNum",
+        "GenieEvtRec.StdHepN",
+    ]
+    # Branches all have different shapes, need to manipulate before merging 
+    p_df = loadbranches(f["GenieEvtRecTree"],genie_particle_branches)
+    # shape = 4-vector per particle 
+    m_df = loadbranches(f["GenieEvtRecTree"],["GenieEvtRec.StdHepP4",])
+    m_df = m_df.unstack().rename(columns={0: 'px', 1 :'py', 2 :'pz', 3:'E'}, level=2)
+    p_df = multicol_merge(p_df,m_df,left_index=True,right_index=True)
+
+    e_df = loadbranches(f["GenieEvtRecTree"],genie_event_branches)
+    p_df = multicol_merge(e_df,p_df,left_index=True,right_index=True) 
+    
+    # shape = 4-vector per event
+    v_df = loadbranches(f["GenieEvtRecTree"], ["GenieEvtRec.EvtVtx"])
+    v_df = v_df.unstack().rename(columns={0: 'x', 1 :'y', 2 :'z', 3:'E'}, level=2)
+
+    df = multicol_merge(v_df,p_df,left_index=True,right_index=True)
+    df = df.reset_index().set_index('entry')
+    df = df.rename(columns={'subentry': 'pindex'},level=0)
+    return df
 
 def make_mchdf(f, include_weights=False):
     mcdf = loadbranches(f["recTree"], mchbranches).rec.mc.prtl
@@ -115,12 +259,20 @@ def make_crtspdf(f):
     crtspdf = loadbranches(f["recTree"], crtspbranches).rec
     return crtspdf
 
+def make_crtvetodf(f):
+    crtvetodf = loadbranches(f["recTree"], crtvetobranches).rec
+    return crtvetodf
+
+def make_crthitdf(f):
+    crthitdf = loadbranches(f["recTree"], crthitbranches).rec.crt_hits
+    return crthitdf
+
 def make_opflashdf(f):
     opflashdf = loadbranches(f["recTree"], opflashbranches).rec.opflashes
     return opflashdf
 
-def make_trkdf(f, scoreCut=False, requiret0=False, requireCosmic=False, mcs=False):
-    trkdf = loadbranches(f["recTree"], trkbranches + shwbranches)
+def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=False, mcs=False, updatecalo=None, updateefield=False):
+    trkdf = loadbranches(f["recTree"], trkbranches)
     if scoreCut:
         trkdf = trkdf.rec.slc.reco[trkdf.rec.slc.reco.pfp.trackScore > 0.5]
     else:
@@ -143,17 +295,131 @@ def make_trkdf(f, scoreCut=False, requiret0=False, requireCosmic=False, mcs=Fals
         maxlen = (cumlen*(mcsdf.seg_scatter_angles >= 0)).groupby(level=mcsgroup).max()
         trkdf[("pfp", "trk", "mcsP", "len", "", "")] = maxlen
 
+    if updatecalo is not None:
+        hdrdf = make_mchdrdf(f)
+        ismc = hdrdf.ismc.iloc[0]
+
+        for plane in range(0, 3):
+            trkhitdf = make_trkhitdf(f, plane)
+            trkhitdf = trkhitdf[InFV(df=trkhitdf, det=det)]
+
+            # Always redo dE/dx + χ² with the nominal (CAF) hit E-field first.
+            # chi2_*_new isolates recalculation bias vs the stored CAF χ².
+            dedx_redo = chi2pid.dedx(
+                trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc,
+                new_calo_params=chi2pid.CALO_VARIATIONS[updatecalo],
+            )
+            trkhitdf["dedx_redo"] = dedx_redo
+            for par in ['muon', 'proton']:
+                this_chi2_new, this_chi2_ndof = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
+                this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new', '')
+                this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new', '')
+                trkdf[this_chi2_col] = this_chi2_new.fillna(0.)
+                trkdf[this_ndof_col] = this_chi2_ndof.fillna(0.)
+
+            # Optional second pass: apply the SCE E-field map, then redo χ² again.
+            # chi2_*_new_efield is compared to chi2_*_new for the pure E-field effect.
+            if updateefield:
+                _apply_sbnd_efield_map(trkhitdf)
+                dedx_redo_ef = chi2pid.dedx(
+                    trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc,
+                    new_calo_params=chi2pid.CALO_VARIATIONS[updatecalo],
+                )
+                trkhitdf["dedx_redo"] = dedx_redo_ef
+                for par in ['muon', 'proton']:
+                    this_chi2_ef, this_ndof_ef = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
+                    this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new_efield', '')
+                    this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new_efield', '')
+                    trkdf[this_chi2_col] = this_chi2_ef.fillna(0.)
+                    trkdf[this_ndof_col] = this_ndof_ef.fillna(0.)
 
     trkdf[("pfp", "tindex", "", "", "", "")] = trkdf.index.get_level_values(2)
 
+    # pre-calculate additional stuff
+    trkdf[("pfp", "trk", "is_contained", "", "", "")] = (InFV(trkdf.pfp.trk.start, 0, det=det)) & (InFV(trkdf.pfp.trk.end, 0, det=det))
+
+    # reco momentum -- range for contained, MCS for exiting
+    for particle in ["muon", "pion", "proton"]:
+        trkdf[("pfp", "trk", "P", "p_{}".format(particle), "", "")] = np.nan
+        trkdf.loc[trkdf.pfp.trk.is_contained, ("pfp", "trk", "P", "p_{}".format(particle), "", "")]  = trkdf.loc[(trkdf.pfp.trk.is_contained), ("pfp", "trk", "rangeP", "p_{}".format(particle), "", "")]
+        trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "P", "p_{}".format(particle), "", "")] = trkdf.loc[np.invert(trkdf.pfp.trk.is_contained), ("pfp", "trk", "mcsP", "fwdP_{}".format(particle), "", "")]
+
+    trkdf.loc[:, ("pfp","trk","truth","p","totp","")] = np.sqrt(trkdf.pfp.trk.truth.p.genp.x**2 + trkdf.pfp.trk.truth.p.genp.y**2 + trkdf.pfp.trk.truth.p.genp.z**2)
+    trkdf.loc[:, ("pfp","trk","truth","p","dir","x")] = trkdf.pfp.trk.truth.p.genp.x / trkdf.pfp.trk.truth.p.totp
+    trkdf.loc[:, ("pfp","trk","truth","p","dir","y")] = trkdf.pfp.trk.truth.p.genp.y / trkdf.pfp.trk.truth.p.totp
+    trkdf.loc[:, ("pfp","trk","truth","p","dir","z")] = trkdf.pfp.trk.truth.p.genp.z / trkdf.pfp.trk.truth.p.totp
+
     return trkdf
 
-def make_trkhitdf(f, plane = 2):
-    plane_str = str(plane)
-    df = loadbranches(f["recTree"], trkhitbranches_perplane(plane)).rec.slc.reco.pfp.trk.calo
-    df = df['I' + plane_str]
-    df = df.points
+def make_pfpdf(f, update_shw=True):
+    pfpdf = loadbranches(f["recTree"], trkbranches + shwbranches)
+    pfpdf = pfpdf.rec.slc.reco
     
+    if update_shw:
+        ## necessary since "bestplane" stored in the cafs currently is from the dEdx alg
+        ## bestplane for dEdx alg is not necessarily the same as bestplane for shower energy
+
+        # set shower energy as the one with the plane that has the most number of hits (maxplane)
+        pfpdf['pfp','shw','maxplane','','',''] = pfpdf.loc(axis=1)['pfp','shw','plane',:,"nHits"].idxmax(axis=1).apply(lambda x: x[3])
+        pfpdf['pfp','shw','maxplane_energy','','',''] = np.nan
+        conditions = [pfpdf['pfp','shw','maxplane','','','']=="I2",pfpdf['pfp','shw','maxplane','','','']=="I1",pfpdf['pfp','shw','maxplane','','','']=="I0"]
+        choices = [pfpdf['pfp','shw','plane','I2','energy',''],pfpdf['pfp','shw','plane','I1','energy',''],pfpdf['pfp','shw','plane','I0','energy','']]
+        pfpdf['pfp','shw','maxplane_energy','','',''] = np.select(conditions,choices,default=np.nan)
+    pfpdf[("pfp", "tindex", "", "", "", "")] = pfpdf.index.get_level_values(2)
+    return pfpdf
+
+def make_trkhitdf_planeall(f):
+    df = make_trkhitdf(f, -1)
+    return df
+
+def make_trkhitdf_plane0(f):
+    df = make_trkhitdf(f, 0)
+    return df
+
+def make_trkhitdf_plane1(f):
+    return make_trkhitdf(f, 1)
+
+def make_trkhitdf_plane2(f):
+    return make_trkhitdf(f, 2)
+
+def make_trkhitdf(f, plane=2):
+    # ----- sbnd or icarus? -----
+    det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+    if (1 == det.unique()):
+        det = "SBND"
+    else:
+        det = "ICARUS"
+
+    branches = [trkhitbranches_P0, trkhitbranches_P1, trkhitbranches][plane] if det == "SBND" else [trkhitbranches_P0_icarus, trkhitbranches_P1_icarus, trkhitbranches_icarus][plane]
+
+    df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo
+    df = df["I" + str(plane)].points
+
+    # get the cryostat
+    df = df.merge(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.producer"]).rec.slc.reco.pfp.trk.producer.rename("cryo"),  how="left", left_index=True, right_index=True)
+
+    # save the plane
+    df["plane"] = plane
+
+    # Add in the run, useful in calibrations
+    df = df.merge(loadbranches(f["recTree"], ["rec.hdr.run"]).rec.hdr, how="left", left_index=True, right_index=True)
+
+    # Add in the track phi angle
+    #
+    # TODO: (when ready) -- get this from the hitdf for ICARUS, SBND is ready
+    if det == "ICARUS":
+        with np.errstate(invalid='ignore'):
+            df = df.merge(np.arccos(np.abs(loadbranches(f["recTree"], ["rec.slc.reco.pfp.trk.dir.x"]).rec.slc.reco.pfp.trk.dir.x)).rename("phi"), how="left", left_index=True, right_index=True)
+
+    # Add in the efield
+    #
+    # TODO: (when ready) -- get this from the hitdf for ICARUS, SBND is ready
+    if det == "ICARUS":
+        df["efield"] = Efield_icarus
+
+    # and the density
+    df["rho"] = LAr_density_gmL_icarus if (det == "ICARUS") else LAr_density_gmL_sbnd
+
     # Firsthit and Lasthit info
     ihit = df.index.get_level_values(-1)
     df["firsthit"] = ihit == 0
@@ -161,14 +427,29 @@ def make_trkhitdf(f, plane = 2):
     lasthit = df.groupby(level=list(range(df.index.nlevels-1))).tail(1).copy()
     lasthit["lasthit"] = True
     df["lasthit"] = lasthit.lasthit
-    df.lasthit = df.lasthit.fillna(False)
+    df.lasthit = df.lasthit.fillna(False).infer_objects()
+
+    return df
+
+def make_trktruehitdf_plane0(f):
+    return make_trktruehitdf(f, 0)
+
+def make_trktruehitdf_plane1(f):
+    return make_trktruehitdf(f, 1)
+
+def make_trktruehitdf_plane2(f):
+    return make_trktruehitdf(f, 2)
+
+def make_trktruehitdf(f, plane=2):
+    branches = [trktruehitbranches_P0, trktruehitbranches_P1, trktruehitbranches][plane]
+    df = loadbranches(f["recTree"], branches).rec.slc.reco.pfp.trk.calo
+    df = df["I" + str(plane)].points.truth
 
     return df
 
 def make_slcdf(f):
     slcdf = loadbranches(f["recTree"], slcbranches)
     slcdf = slcdf.rec
-
     slc_mcdf = make_mcdf(f, slc_mcbranches, slc_mcprimbranches)
     slc_mcdf.columns = pd.MultiIndex.from_tuples([tuple(["slc", "truth"] + list(c)) for c in slc_mcdf.columns])
     slcdf = multicol_merge(slcdf, slc_mcdf, left_index=True, right_index=True, how="left", validate="one_to_one")
@@ -215,7 +496,7 @@ def make_mcdf(f, branches=mcbranches, primbranches=mcprimbranches):
         this_p = np.sqrt(mcprimdf[np.abs(mcprimdf.pdg)==PDG[particle][0]].genp.x**2 + mcprimdf[np.abs(mcprimdf.pdg)==PDG[particle][0]].genp.y**2 + mcprimdf[np.abs(mcprimdf.pdg)==PDG[particle][0]].genp.z**2)
         mcdf = multicol_add(mcdf, ((np.abs(mcprimdf.pdg)==PDG[particle][0]) & (this_p > threshold)).groupby(level=[0,1]).sum().rename(identifier))
  
-    # lepton info
+    # muon info
     mudf = mcprimdf[np.abs(mcprimdf.pdg)==13].sort_values(mcprimdf.index.names[:2] + [("genE", "")]).groupby(level=[0,1]).last()
     mudf.columns = pd.MultiIndex.from_tuples([tuple(["mu"] + list(c)) for c in mudf.columns])
 
@@ -225,9 +506,14 @@ def make_mcdf(f, branches=mcbranches, primbranches=mcprimbranches):
     pdf = mcprimdf[mcprimdf.pdg==2212].sort_values(mcprimdf.index.names[:2] + [("genE", "")]).groupby(level=[0,1]).last()
     pdf.columns = pd.MultiIndex.from_tuples([tuple(["p"] + list(c)) for c in pdf.columns])
 
+    # electron info
+    edf = mcprimdf[np.abs(mcprimdf.pdg)==11].sort_values(mcprimdf.index.names[:2] + [("genE", "")]).groupby(level=[0,1]).last()
+    edf.columns = pd.MultiIndex.from_tuples([tuple(["e"] + list(c)) for c in edf.columns])
+
     mcdf = multicol_merge(mcdf, mudf, left_index=True, right_index=True, how="left", validate="one_to_one")
     mcdf = multicol_merge(mcdf, cpidf, left_index=True, right_index=True, how="left", validate="one_to_one")
     mcdf = multicol_merge(mcdf, pdf, left_index=True, right_index=True, how="left", validate="one_to_one")
+    mcdf = multicol_merge(mcdf, edf, left_index=True, right_index=True, how="left", validate="one_to_one")
 
     # primary track variables
     mcdf.loc[:, ('mu','totp','')] = np.sqrt(mcdf.mu.genp.x**2 + mcdf.mu.genp.y**2 + mcdf.mu.genp.z**2)
@@ -247,9 +533,77 @@ def make_mcprimdf(f):
     mcprimdf = loadbranches(f["recTree"], mcprimbranches)
     return mcprimdf
 
-def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, requireFiducial=False, **trkArgs):
+def make_mcprimvisEdf(f):
+    mcprimvisEdf = loadbranches(f["recTree"], mcprimvisEbranches)
+    return mcprimvisEdf
+
+def make_mcprimdaughtersdf(f):
+    mcprimdaughtersdf = loadbranches(f["recTree"], mcprimdaughtersbranches)
+    return mcprimdaughtersdf
+
+def make_all_pandora_df(f):
+    pfpdf = make_pfpdf(f)
+    slcdf = make_slcdf(f)
+
+    slcdf = multicol_merge(slcdf, pfpdf, left_index=True, right_index=True, how="right", validate="one_to_many")
+
+    # distance from vertex to track/shower start
+    slcdf = multicol_add(slcdf, dmagdf(slcdf.slc.vertex, slcdf.pfp.trk.start).rename(("pfp", "trk", "dist_to_vertex")))
+    slcdf = multicol_add(slcdf, dmagdf(slcdf.slc.vertex, slcdf.pfp.shw.start).rename(("pfp", "shw", "dist_to_vertex")))
+
+    return pfpdf
+
+def make_pandora_df_calo_update(f, updateefield=False, **trkArgs):
+    pandoradf = make_pandora_df(
+        f,
+        trkScoreCut=False,
+        trkDistCut=50.,
+        cutClearCosmic=True,
+        requireFiducial=False,
+        updatecalo=True,
+        updateefield=updateefield,
+        **trkArgs,
+    )
+    return pandoradf
+
+def make_pandora_df(f, trkScoreCut=False, trkDistCut=50., cutClearCosmic=False, requireFiducial=False, updatecalo=False, updateefield=False, **trkArgs):
     # load
-    trkdf = make_trkdf(f, trkScoreCut, **trkArgs)
+    trkdf = make_trkdf(f, scoreCut=trkScoreCut, updateefield=updateefield, **trkArgs)
+    if updatecalo:
+        # check detector
+        det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
+        if (1 == det.unique()):
+            det = "SBND"
+        else:
+            det = "ICARUS"
+        #check ismc
+        hdrdf = make_mchdrdf(f)
+        ismc = hdrdf.ismc.iloc[0]
+
+        for plane in range(0, 3):
+            trkhitdf = make_trkhitdf(f, plane)
+            if det == "SBND": ## FIXME
+                trkhitdf = trkhitdf[InFV(df = trkhitdf, inzback = 0., det = "SBND_nohighyz")]
+            dedx_redo = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc)
+            trkhitdf["dedx_redo"] = dedx_redo
+            for par in ['muon', 'proton']:
+                this_chi2_new, this_chi2_ndof = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
+                this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new', '')
+                this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new', '')
+                trkdf[this_chi2_col] = this_chi2_new.fillna(0.)
+                trkdf[this_ndof_col] = this_chi2_ndof.fillna(0.)
+
+            if updateefield:
+                _apply_sbnd_efield_map(trkhitdf)
+                dedx_redo_ef = chi2pid.dedx(trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc)
+                trkhitdf["dedx_redo"] = dedx_redo_ef
+                for par in ['muon', 'proton']:
+                    this_chi2_ef, this_ndof_ef = chi2pid.chi2par(trkhitdf, dedxname="dedx_redo", par=par)
+                    this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_new_efield', '')
+                    this_ndof_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'ndof_' + par + '_new_efield', '')
+                    trkdf[this_chi2_col] = this_chi2_ef.fillna(0.)
+                    trkdf[this_ndof_col] = this_ndof_ef.fillna(0.)
+
     slcdf = make_slcdf(f)
 
     # merge in tracks
@@ -266,6 +620,7 @@ def make_pandora_df(f, trkScoreCut=False, trkDistCut=10., cutClearCosmic=False, 
     if requireFiducial:
         slcdf = slcdf[InFV(slcdf.slc.vertex, 50)]
 
+    #print(slcdf.pfp.trk.chi2pid.head(50))
     return slcdf
 
 def make_spine_df(f, trkDistCut=-1, requireFiducial=True, **trkArgs):
@@ -287,11 +642,6 @@ def make_spine_df(f, trkDistCut=-1, requireFiducial=True, **trkArgs):
     return eslcdf
 
 def make_stubs(f, det="ICARUS"):
-    alpha_sbnd = 0.930                     
-    LAr_density_gmL_sbnd = 1.38434
-    Efield_sbnd = 0.5                           
-    beta_sbnd = 0.212 / (LAr_density_gmL_sbnd * Efield_sbnd)  
-    
     stubdf = loadbranches(f["recTree"], stubbranches)
     stubdf = stubdf.rec.slc.reco.stub
 
@@ -309,22 +659,9 @@ def make_stubs(f, det="ICARUS"):
     stubhitdf = stubhitdf.join(stubdf.efield_end)
 
     hdrdf = make_mchdrdf(f)
-    ismc = hdrdf.ismc.iloc[0]
-    def dEdx2dQdx_mc(dEdx): # MC parameters
-        if det == "SBND":
-            return np.log(alpha_sbnd + dEdx*beta_sbnd) / (Wion*beta_sbnd)
-        beta = MODB_mc / (LAr_density_gmL_mc * Efield_mc)
-        alpha = MODA_mc
-        return np.log(alpha + dEdx*beta) / (Wion*beta)
-    def dEdx2dQdx_data(dEdx): # data parameters
-        
-        if det == "SBND":
-            return np.log(alpha_sbnd + dEdx*beta_sbnd) / (Wion*beta_sbnd)
-        beta = MODB_data / (LAr_density_gmL_data * Efield_data)
-        alpha = MODA_data
-        return np.log(alpha + dEdx*beta) / (Wion*beta)
+    def dEdx2dQdx(dEdx): # MC parameters
+        return recombination_sbnd(dEdx, np.pi/2) if det == "SBND" else recombination_icarus(dEdx, np.pi/2)
 
-    dEdx2dQdx = dEdx2dQdx_mc if ismc else dEdx2dQdx_data
     MIP_dqdx = dEdx2dQdx(1.7) 
 
     stub_end_charge = stubhitdf.charge[stubhitdf.wire == stubhitdf.hit_w].groupby(level=[0,1,2,3]).first().groupby(level=[0,1,2]).first()
@@ -356,22 +693,17 @@ def make_stubs(f, det="ICARUS"):
     stubdf["truth_interaction_id"] = stubdf.truth.p.interaction_id 
     stubdf["truth_gen_E"] = stubdf.truth.p.genE 
 
-    # convert charge to energy
-    if ismc:
-        stubdf["ke"] = Q2KE_mc(stubdf.Q)
-        # also do calorimetric variations
-        # TODO: Systematic variations
-        stubdf["ke_callo"] = np.nan # Q2KE_mc_callo(stubdf.Q)
-        stubdf["ke_calhi"] = np.nan # Q2KE_mc_calhi(stubdf.Q)
-    else:
-        stubdf["ke"] = Q2KE_mc(stubdf.Q) ## FIXME
-        stubdf["ke_callo"] = np.nan
-        stubdf["ke_calhi"] = np.nan
+    # TODO: convert charge to energy
+    stubdf["ke"] = np.nan # Q2KE(stubdf.Q)
+    # TODO: also do calorimetric variations
+    stubdf["ke_callo"] = np.nan # Q2KE_mc_callo(stubdf.Q)
+    stubdf["ke_calhi"] = np.nan # Q2KE_mc_calhi(stubdf.Q)
 
     stubdf.ke = stubdf.ke.fillna(0)
     stubdf.Q = stubdf.Q.fillna(0)
 
     stubdf["dedx"] = stubdf.ke / stubdf.length
+
     stubdf["dedx_callo"] = stubdf.ke_callo / stubdf.length
     stubdf["dedx_calhi"] = stubdf.ke_calhi / stubdf.length
 
@@ -383,6 +715,7 @@ def make_stubs(f, det="ICARUS"):
         ((length > 1) & (dqdx > 3e5)) |\
         ((length > 2) & (dqdx > 2e5)))
 
+    stubdf["dqdx"] = dqdx 
     stubdf['pass_proton_stub'] = hasstub
     return stubdf
 

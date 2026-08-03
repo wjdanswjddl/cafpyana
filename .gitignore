@@ -1,9 +1,18 @@
 *.swp
+*.gif
+*.h5
 .python-version
 __pycache__/
 *.df
 *.png
 *.root
+# Keep the double-anode SCE / E-field map used by makedf updateefield (grid jobs).
+!data/efield/sbnd_sce_doubleanode_2d_v10c.root
 envs/cmake3
 envs/venv_py39_cafpyana/
 envs/xrootd-5.6.1/
+#*
+.#
+*~
+makedf_*.sh
+envs/*

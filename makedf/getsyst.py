@@ -3,11 +3,24 @@ import numpy as np
 import pandas as pd
 import awkward as ak
 
-def getsyst(f, systematics, nuind, multisim_nuniv=250):
+
+def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="slim"):
     if "globalTree" not in f:
         return pd.DataFrame(index=nuind.index)
 
     nuidx = pd.MultiIndex.from_arrays([nuind.index.get_level_values(0), nuind])
+
+    if slim:
+        # ``(slimname, univ_i)``: product of true multisim knobs only. Multisigma / morph
+        # stay as per-knob ``ps*`` / ``ms*`` / ``morph`` columns (concatenated at return).
+        cols = pd.MultiIndex.from_product(
+            [[slimname], [f"univ_{i}" for i in range(multisim_nuniv)]],
+        )
+        systs_slim = pd.DataFrame(
+            1.0,
+            index=nuidx,
+            columns=cols,
+        )
 
     globalTree = f["globalTree"]
     wgt_names = [n for n in f["globalTree"]['global/wgts/wgts.name'].arrays(library="np")['wgts.name'][0]]
@@ -35,20 +48,27 @@ def getsyst(f, systematics, nuind, multisim_nuniv=250):
         if wgt_types[isyst] == 3 and wgt_nuniv[isyst] == 1: # morph unisim
             s_morph = wgts[wgts.isyst == isyst].wgt.groupby(level=[0,1]).first()
             s_morph.name = (s, "morph")
-
             this_systs.append(s_morph)
+
         elif wgt_types[isyst] == 3 and wgt_nuniv[isyst] > 1: # +/- sigma unisim
-            nsigma = wgts[wgts.isyst == isyst].wgt.groupby(level=[0,1]).size().values[0] // 2
+            nwgt = wgts[wgts.isyst == isyst].wgt.groupby(level=[0,1]).size().values[0]
+            nsigma = nwgt // 2
             for isigma in range(nsigma):
                 s_ps = wgts[wgts.isyst == isyst].wgt.groupby(level=[0,1]).nth(2*isigma)
                 s_ps.name = (s, "ps%i" % (isigma+1))
                 s_ms = wgts[wgts.isyst == isyst].wgt.groupby(level=[0,1]).nth(2*isigma+1)
                 s_ms.name = (s, "ms%i" % (isigma+1))
- 
+
                 this_systs.append(s_ps.droplevel(2))
                 this_systs.append(s_ms.droplevel(2))
-            # CV for Gundam
-            if nsigma > 0:
+
+            # check if we also saved the 0-sigma weight. This is conventionally put last
+            if nwgt % 2 != 0:
+                s_cv = wgts[wgts.isyst == isyst].wgt.groupby(level=[0,1]).nth(nwgt-1)
+                s_cv.name = (s, "cv")
+                this_systs.append(s_cv.droplevel(2))
+            # otherwise, assume it's one
+            else:
                 this_systs.append(pd.Series(1, index=this_systs[-1].index, name=(s, "cv")))
 
         elif wgt_types[isyst] == 0: # multisim
@@ -57,21 +77,43 @@ def getsyst(f, systematics, nuind, multisim_nuniv=250):
             this_wgts = this_wgts.pivot_table(values="wgt", index=["entry", "inu"], columns="iwgt")
             this_wgts.columns = pd.MultiIndex.from_tuples([(s, "univ_%i"% i) for i in range(len(this_wgts.columns))])
 
-            for c in this_wgts.columns:
-                this_systs.append(this_wgts[c])
+            if slim:
+                for i in range(multisim_nuniv):
+                    col = (s, f"univ_{i}")
+                    if col in this_wgts.columns:
+                        systs_slim[(slimname, f"univ_{i}")] = (
+                            systs_slim[(slimname, f"univ_{i}")].values * this_wgts[col]
+                        )
+            else:
+                for c in this_wgts.columns:
+                    this_systs.append(this_wgts[c])
 
         else:
             raise Exception("Cannot decode systematic uncertainty: %s" % s)
-
+        
         for syst in this_systs:
+            # print("HI3", syst)
             systs.append(syst)
 
-    systs = pd.DataFrame(systs).T
+    # print("HI")
+    if slim:
+        s_idx = systs_slim.index.get_indexer(nuidx)
+        systs_slim.loc[s_idx < 0, :] = 1.0
+        systs_slim.index = nuind.index
+        if systs:
+            extras = pd.DataFrame(systs).T
+            e_idx = extras.index.get_indexer(nuidx)
+            extras_match = extras.iloc[e_idx]
+            extras_match.loc[e_idx < 0, :] = 1.0
+            extras_match.index = nuind.index
+            return pd.concat([systs_slim, extras_match], axis=1)
+        return systs_slim
 
-    s_idx = systs.index.get_indexer(nuidx)
-    systs_match = systs.iloc[s_idx]
-    systs_match.loc[s_idx < 0, :] = 1.
-    systs_match.index = nuind.index
-
-    return systs_match
+    else:
+        systs = pd.DataFrame(systs).T
+        s_idx = systs.index.get_indexer(nuidx)
+        systs_match = systs.iloc[s_idx]
+        systs_match.loc[s_idx < 0, :] = 1.
+        systs_match.index = nuind.index
+        return systs_match
 

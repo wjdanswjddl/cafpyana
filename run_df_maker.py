@@ -1,6 +1,10 @@
 #!/usr/bin/env python3 
-import os,sys,time
+import os
+import sys
+import time
+import shlex
 import datetime
+import pathlib
 #from TimeTools import *
 import argparse
 import tables
@@ -26,6 +30,12 @@ Examples:
 
   -- Note!!
   Output df files are sent to /pnfs/<exp>/scratch/users/<User>/cafpyana_out in Grid mode
+
+  -- Knob-group configs (GENIE)
+  When using configs that read GENIE_KNOB_GROUP from the environment, set it in the shell before
+  invoking run_df_maker; it is forwarded into each grid worker so single-group jobs (HDF keys
+  evt, mcnu, hdr) work under -ngrid. Flux multisim uses a single evt table (sel_mup-fluxwgts-knobgroups.py);
+  FLUX_GROUP is not used.
 """,
     formatter_class=argparse.RawTextHelpFormatter  # Ensures line breaks are preserved
 )
@@ -33,31 +43,53 @@ parser.add_argument('-c', dest='config', default="", help="Path to the data fram
 parser.add_argument('-o', dest='output', default="", help="output data frame name prefix")
 parser.add_argument('-i', dest='inputfiles', default="", help="input root file path, you can submit multiple files using comma, i.e.) -i input_0.root,input_1.root")
 parser.add_argument('-l', dest='inputfilelist', default="", help="a file of list for input root files")
+parser.add_argument('-ncpu', dest='NCPU', default=-1, type=int, help="Number of CPUs to run on. Default is set to number on server.")
 parser.add_argument('-ngrid', dest='NGridJobs', default=0, type=int, help="Number of grid jobs. Default = 0, no grid submission.")
 parser.add_argument('-nfile', dest='NFiles', default=0, type=int, help="Number of files to run. Default = 0, run all input files.")
 parser.add_argument('-split', dest='SplitSize', default=1.0, type=float, help="Split size in GB before writing to HDF5. Default = 1.0 GB.")
 
 args = parser.parse_args()
 
-def run_pool(output, inputs):
+def run_pool(output, inputs, nproc):
     os.nice(10)
     ntuples = NTupleGlob(inputs, None)
 
-    dfss = ntuples.dataframes(nproc="auto", fs=DFS)
-    output = output + ".df"
+    # if PREPROCESS doesn't exist, set it to None
+    global PREPROCESS
+    try:
+        PREPROCESS
+    except:
+        PREPROCESS = []
+
+    dfss = ntuples.dataframes(nproc=nproc, args=ARGS, fs=DFS, preprocess=PREPROCESS)
+    output = pathlib.Path(output).with_suffix('.df')
     k_idx = 0
     split_margin = args.SplitSize
     with pd.HDFStore(output) as hdf_pd:
+        NAMES.append("histpotdf")
+        NAMES.append("histgenevtdf")
         size_counters = {k: 0 for k in NAMES}
         df_buffers = {k: [] for k in NAMES}
 
         for dfs in dfss:
-            for k, df in zip(reversed(NAMES), reversed(dfs)):
+            this_NAMES = NAMES
+            if len(dfs) == 2: ## no or empty recTree
+                this_NAMES = ["histpotdf", "histgenevtdf"]
+
+            for k, df in zip(reversed(this_NAMES), reversed(dfs)):
                 this_key = k + "_" + str(k_idx)
-                size_bytes = df.memory_usage(deep=True).sum()
+                size_bytes = df.memory_usage(deep=True).sum() if df is not None else 0
                 size_gb = size_bytes / (1024**3)
-                size_counters[k] += size_gb
-                df_buffers[k].append(df)  # accumulate
+                if len(dfs) == 2: ## no or empty recTree
+                    size_counters["histpotdf"] += size_gb
+                    df_buffers["histpotdf"].append(df)
+
+                    size_counters["histgenevtdf"] += size_gb
+                    df_buffers["histgenevtdf"].append(df)
+                else:
+                    size_counters[k] += size_gb
+                    if df is not None:
+                        df_buffers[k].append(df)  # accumulate
 
                 #print(f"{k}_{k_idx}: added {size_gb:.4f} GB (total {size_counters[k]:.4f} GB)")
 
@@ -77,8 +109,8 @@ def run_pool(output, inputs):
                         del concat_df
                 # Reset counters and buffers
                 k_idx += 1
-                size_counters = {k: 0 for k in NAMES}
-                df_buffers = {k: [] for k in NAMES}
+                size_counters = {k: 0 for k in this_NAMES}
+                df_buffers = {k: [] for k in this_NAMES}
 
         for k, buffer in df_buffers.items():
             if buffer:
@@ -121,20 +153,27 @@ def run_grid(inputfiles):
         flistForEachJob.append( [] )
 
     for i_line in range(0,len(inputfiles)):
-        flistForEachJob[i_line%ngrid].append(inputfiles[i])
+        flistForEachJob[i_line%ngrid].append(inputfiles[i_line])
 
     for i_flist in range(0,len(flistForEachJob)):
         flist = flistForEachJob[i_flist]
         out = open(MasterJobDir + '/run_%s.sh'%(i_flist),'w')
         out.write('#!/bin/bash\n')
-        cmd = 'python run_df_maker.py -c ' + args.config + ' -o ' + args.output + '_%d'%i_flist + '.df -i'
+        # Worker jobs do not inherit the submit-shell environment; configs that branch on e.g.
+        # GENIE_KNOB_GROUP must see the same values as the submit host (FLUX_GROUP unused for flux df).
+        for _env in ("GENIE_KNOB_GROUP", "FLUX_GROUP"):
+            _v = os.environ.get(_env, "").strip()
+            if _v:
+                out.write("export %s=%s\n" % (_env, shlex.quote(_v)))
+        cmd = 'python run_df_maker.py -c ' + args.config + ' -o ' + args.output + '_%d'%i_flist + '.df -ncpu 7 -i'
         for i_f in range(0,len(flist)):
             out.write('echo "[run_%s.sh] input %d : %s"\n'%(i_flist, i_f, flist[i_f]))
             if i_f == 0:
-                cmd += ' ' + flist[i_f]
+                cmd += ' ' + flist[i_f].split('/')[-1]
             else: 
-                cmd += ',' + flist[i_f]
-            #out.write('xrdcp ' + flist[i_f] + ' .\n') ## -- for checking auth
+                cmd += ',' + flist[i_f].split('/')[-1]
+            out.write('xrdcp ' + flist[i_f] + ' .\n') ## -- for checking auth
+        out.write('ls -alh\n')
         out.write(cmd)
         out.close()
 
@@ -153,16 +192,18 @@ def run_grid(inputfiles):
 
     submitCMD = '''jobsub_submit \\
 -G sbnd \\
---auth-methods="token,proxy" \\
+--auth-methods="token" \\
 -e LC_ALL=C \\
 --role=Analysis \\
 --resource-provides="usage_model=DEDICATED,OPPORTUNISTIC" \\
---lines '+FERMIHTC_AutoRelease=True' --lines '+FERMIHTC_GraceMemory=1000' --lines '+FERMIHTC_GraceLifetime=3600' \\
+--lines '+FERMIHTC_AutoRelease=True' --lines '+FERMIHTC_GraceMemory=5000' --lines '+FERMIHTC_GraceLifetime=3600' \\
 --append_condor_requirements='(TARGET.HAS_SINGULARITY=?=true)' \\
 --tar_file_name "dropbox://$(pwd)/bin_dir.tar" \\
 -N %d \\
---disk 100GB \\
---expected-lifetime 10h \\
+--disk 10GB \\
+--cpu 7 \\
+--memory 10GB \\
+--expected-lifetime 3h \\
 "file://$(pwd)/grid_executable.sh" \\
 "%s" \\
 "%s"'''%(ngrid,OutputDir,args.output)
@@ -203,12 +244,12 @@ if __name__ == "__main__":
                 
         ### check if it is grid mode for pool mode
         if args.NGridJobs == 0:
-            print("Runing Pool mode");
+            print("Running Pool mode");
             exec(open(args.config).read())
-            run_pool(args.output, InputSamples)
+            run_pool(args.output, InputSamples, "auto" if args.NCPU < 0 else args.NCPU)
 
         elif args.NGridJobs > 0:
-            print("Runing Grid mode");
+            print("Running Grid mode");
             run_grid(InputSamples)
             
         else:
