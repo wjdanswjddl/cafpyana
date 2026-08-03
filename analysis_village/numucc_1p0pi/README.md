@@ -78,9 +78,6 @@ Exposure and flux:
 Event selection and PID:
 
 - `event_selection.ipynb` — production event selection (batched workflow).
-- `event_selection-from_2prong.ipynb` — narrative cut flow and efficiency plots from the 2-prong stage.
-- `event_selection_stage_counts.ipynb` — per-stage slice counts from chunk outputs.
-- `PID.ipynb` — μ/p χ² PID performance.
 
 Data/MC comparison and validation:
 
