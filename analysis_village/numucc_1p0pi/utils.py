@@ -8,7 +8,7 @@ import statsmodels.api as sm
 import pickle
 
 import sys
-sys.path.append('../../')
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 from pyanalib.split_df_helpers import *
 from pyanalib.stat_helpers import *
 from pyanalib.covariance import *
@@ -30,7 +30,6 @@ from analysis_village.numucc_1p0pi.syst_disk_layout import (
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-import matplotlib as mpl
 from matplotlib.legend import Legend
 plt.style.use(os.path.join(os.path.dirname(os.path.abspath(__file__)), "notebooks", "presentation.mplstyle"))
 cmap = mpl.cm.viridis
@@ -43,6 +42,7 @@ dpi = 300
 fig_ext = ".png"
 
 
+# ====== systematics disk: root resolution ======
 def _fail_syst_disk(msg: str) -> None:
     """Emit a high-visibility error and abort (no silent fallbacks)."""
     banner = "=" * 72
@@ -273,6 +273,7 @@ _CATEGORY_SYST_SUMMARY_CACHE = {}
 _DEFAULT_SYST_DISK_ROOT = "/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final"
 
 
+# ====== category-summary & GENIE-SB covariance loaders ======
 def resolve_category_syst_summary_path(
     category_syst_summary_path=None,
     syst_disk_root=None,
@@ -388,6 +389,7 @@ def load_genie_sb_bkgd_rate_cov_frac(var_config, genie_sb_cov_mat_pkl=None):
     return cov
 
 
+# ====== overlay-plot helpers: syst bands, legend fractions, chi2 ======
 def _overlay_signal_mc_hist(mc_df, var_config, signal_truth_fv="per_tpc"):
     """Per-bin MC signal (CC 1p0pi in FV) counts for background subtraction."""
     vardf, _ = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
@@ -577,6 +579,7 @@ def _resolve_overlay_syst_cov_frac(
         return None
 
 
+# ====== legacy on-the-fly multisim fractional uncertainty ======
 def get_frac_unc(mc_evt_df=None, intime_evt_df=None, offbeam_evt_df=None, var_config=None):
 
     # nu mc unc
@@ -626,6 +629,7 @@ def get_frac_unc(mc_evt_df=None, intime_evt_df=None, offbeam_evt_df=None, var_co
 
 
 #  ====== calculation functions ======
+# ====== general helpers: formatting, arrays, event clipping ======
 def get_pot_str(tot_pot):
     pot_str = "{:.2e}".format(tot_pot).replace("e+0", "e").replace("e+", "e")\
         .replace("e", " $\\times 10^{") + "}$"
@@ -718,6 +722,7 @@ def get_eff_err(success,total):  # success/total
     return err
 
 
+# ====== GENIE universe-weight access ======
 def _multicol_first_nonempty_leaf(col) -> str:
     """First non-empty segment of a possibly padded MultiIndex column tuple."""
     if not isinstance(col, tuple):
@@ -769,6 +774,7 @@ def _genie_weight_series(syst_type: str, weight_block: pd.DataFrame, uidx: int) 
         return genie_univ_weight_series(weight_block, uidx)
 
 
+# ====== response matrix & multisim universe rates ======
 def smearing_reco_over_truth(reco_vs_true):
     """Per-bin ratio of reco- to truth-projected smearing matrix."""
     smear = np.asarray(reco_vs_true, dtype=float)
@@ -813,18 +819,6 @@ def _xsec_efficiency_per_bin(ret, w_evt_univ, w_nu_univ, bins):
         signal_allmc,
         out=np.zeros_like(signal_sel, dtype=float),
         where=signal_allmc != 0,
-    )
-
-
-def efficiency_ratio_to_cv(univ_effs, cv_effs):
-    """Per-bin efficiency relative to the reference (universe 0) efficiency."""
-    univ = np.asarray(univ_effs, dtype=float)
-    cv = np.asarray(cv_effs, dtype=float)
-    return np.divide(
-        univ,
-        cv,
-        out=np.ones_like(univ, dtype=float),
-        where=cv != 0,
     )
 
 
@@ -1037,17 +1031,6 @@ def get_univ_rates(cov_type="rate",
     return univ_events, cv_events
 
 
-# Previous version (same math; only the docstring below was added later):
-# def get_response_matrix(reco_vs_true, eff):
-#     denom = reco_vs_true.T.sum(axis=0)
-#     num = reco_vs_true.T
-#     response = np.divide(
-#         num * eff, denom,
-#         out=np.zeros_like(num, dtype=float),  # fill with 0 where invalid
-#         where=denom != 0
-#     )
-#     return response
-
 
 def get_response_matrix(reco_vs_true, 
                         eff):
@@ -1225,494 +1208,6 @@ def bar_plot(breakdown_type="topology",
 
     ret_dict = {"perc_list": perc_list}
     return ret_dict
-
-
-# # ==== histograms ====
-# def overlay_hists(breakdown_type="topology",
-#                   mc_df=None,
-#                   data_df=None,
-#                   intime_df=None,
-#                   dirt_df=None,
-#                   var_config="",
-#                   plot_labels=["", "", ""],
-#                   ax_ylim_ratio=1.5,
-#                   ratio = False,
-#                   density = False,
-#                   syst = None, # fractional cov matrix
-#                   textchi2 = False,
-#                   vline = None,
-#                   textloc=[0.05, 0.55],
-#                   approval="internal",
-#                   plot=True,
-#                   save_fig=False, 
-#                   save_name=None): 
-
-#     # ==== prepare dfs for plotting ====
-
-#     # MC
-#     if mc_df is not None:
-
-#         # TODO: uncomment this to append dirt_df to mc_df
-#         # if dirt_df is not None:
-#         #     dirt_df_ = dirt_df.copy()
-#         #     # append to mc_df, bump up __ntuple index so that they are unique
-#         #     ntuple_vals = mc_df.index.get_level_values(0)
-#         #     ntuple_offset = ntuple_vals.max()+1
-#         #     names = dirt_df_.index.names
-#         #     # __ntuple should be at level 0
-#         #     if "__ntuple" in names:
-#         #         idx_loc = names.index("__ntuple")
-#         #     else:
-#         #         idx_loc = 0
-#         #     new_tuples = []
-#         #     for tup in dirt_df_.index:
-#         #         tup = list(tup)
-#         #         tup[idx_loc] = tup[idx_loc] + ntuple_offset
-#         #         new_tuples.append(tuple(tup))
-#         #     dirt_df_.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
-
-#         #     mc_df = pd.concat([mc_df, dirt_df])
-        
-#         vardf, _        = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
-
-#         # breakdown MC events into truth categories
-#         if breakdown_type == "pdg":
-#             # trk breakdown
-#             labels = pdg_labels
-#             colors = pdg_colors
-#             cuts = get_pdg_category(mc_df, ret_cuts=True)
-
-#         elif breakdown_type == "topology":
-#             labels = topology_labels
-#             colors = topology_colors
-#             cuts = get_topo_category(mc_df, ret_cuts=True)
-
-#         elif breakdown_type == "genie":
-#             labels = genie_mode_labels
-#             colors = genie_mode_colors
-#             cuts = get_genie_category(mc_df, ret_cuts=True)
-
-#         elif breakdown_type == "genie_sb":
-#             labels = genie_sb_mode_labels
-#             colors = genie_sb_mode_colors
-#             cuts = get_genie_sb_category(mc_df, ret_cuts=True)
-#             # hatches for marking S/B on plot
-#             hatches = [None] * len(labels)
-#             for i in range(5, len(labels), 2):
-#                 hatches[i] = '////'
-#         else:
-#             raise ValueError("Invalid breakdown_type: %s, please choose between [topology, genie, or genie_sb]" % breakdown_type)
-#         var_categ = [vardf[i] for i in cuts]
-#         weights_categ = [list(mc_df.loc[cuts[i], 'pot_weight']) for i in range(len(cuts))] 
-
-#         # MC stat err
-#         each_mc_hist_data = []
-#         each_mc_hist_err2 = []  # sum of squared weights for error
-#         for v, w in zip(var_categ, weights_categ):
-#             hist_vals, _ = np.histogram(v, weights=w, bins=var_config.bins)
-#             hist_err2, _ = np.histogram(v, weights=np.square(w), bins=var_config.bins)
-#             each_mc_hist_data.append(hist_vals)
-#             each_mc_hist_err2.append(hist_err2)
-#         total_mc = np.sum(each_mc_hist_data, axis=0)
-#         total_mc_err2 = np.sum(each_mc_hist_err2, axis=0)
-#         mc_stat_err = np.sqrt(total_mc_err2)
-
-#         # if topology breakdown, add background CV
-#         if breakdown_type == "topology":
-#             total_mc_bkgd = total_mc - each_mc_hist_data[-1]
-#         else:
-#             total_mc_bkgd = None
-
-#     else:
-#         vardf = None
-#         var_categ = None
-#         total_mc = None
-#         print("No MC data provided")
-
- 
-#     # Intime cosmics
-#     if intime_df is not None:
-#         vardf_intime, _ = get_clipped_evts(intime_df, var_config.var_evt_reco_col, var_config.bins)
-#         total_intime, _ = np.histogram(vardf_intime, bins=var_config.bins, weights=intime_df.pot_weight)
-#         # var_categ = [vardf_intime] + var_categ
-#         # weights_categ = [list(intime_df.pot_weight)] + weights_categ
-#         # colors = colors + ["silver"]
-#         # labels = labels + ["In-time\nCosmic"]
-
-#         # add to the cosmic item in existing list
-#         var_categ[0] = pd.concat([vardf_intime, var_categ[0]])
-#         weights_categ[0] = list(intime_df.pot_weight) + list(weights_categ[0])
-        
-#         total_mc = total_mc + total_intime
-
-#     else:
-#         vardf_intime = None
-#         print("No intime cosmics provided")
-
-
-#     # Dirt cosmics
-#     if dirt_df is not None:
-#         vardf_dirt, _ = get_clipped_evts(dirt_df, var_config.var_evt_reco_col, var_config.bins)
-#         total_dirt, _ = np.histogram(vardf_dirt, bins=var_config.bins, weights=dirt_df.pot_weight)
-#         var_categ = [vardf_dirt] + var_categ
-#         weights_categ = [list(dirt_df.pot_weight)] + weights_categ
-#         colors = colors + ["black"]
-#         labels = labels + ["Low E\nDirt"]
-#         total_mc = total_mc + total_dirt
-
-#     else:
-#         vardf_dirt = None
-#         print("No dirt cosmics provided")
-
-
-#    # Data
-#     if data_df is not None:
-#         vardf_data, _   = get_clipped_evts(data_df, var_config.var_evt_reco_col, var_config.bins)
-#         total_data, _ = np.histogram(vardf_data, bins=var_config.bins, weights=data_df.pot_weight)
-#         sum_data = np.sum(total_data)
-#         data_eylow, data_eyhigh = return_data_stat_err(total_data)
-
-#         # data/MC
-#         if total_mc is not None:
-#             data_ratio = total_data / total_mc
-#             data_ratio_eylow = data_eylow / total_mc
-#             data_ratio_eyhigh = data_eyhigh / total_mc
-#             data_ratio = np.nan_to_num(data_ratio, nan=-999.)
-#             data_ratio_eylow = np.nan_to_num(data_ratio_eylow, nan=0.)
-#             data_ratio_eyhigh = np.nan_to_num(data_ratio_eyhigh, nan=0.)
-        
-#     else:
-#         vardf_data = None
-#         total_data = None
-#         print("No data data provided")
-
-
-
-#     # if density is True, area normalize to the data
-#     if mc_df is not None and data_df is not None and density == True:
-#         mc_area = np.sum(total_mc)
-
-#         if intime_df is not None:
-#             intime_area = np.sum(total_intime)
-#             mc_area = mc_area + intime_area
-
-#         if dirt_df is not None:
-#             dirt_area = np.sum(total_dirt)
-#             mc_area = mc_area + dirt_area
-
-#         data_area = np.sum(total_data)
-#         density_factor = data_area / mc_area
-
-#         weights_categ = [np.array(w) * density_factor for w in weights_categ]
-
-
-#     # the order of cuts from get_*_category is reversed from the order of labels and colors
-#     colors, labels = colors[::-1], labels[::-1]
-
-#     # ========================================================
-
-#     # ==== plot template ====
-#     if ratio:
-#         fig, axs = plt.subplots(2, 1, figsize=(8.5, 8.5), 
-#                                sharex=True, gridspec_kw={'height_ratios': [4, 1]})
-#         ax, ax_r = axs[0], axs[1]
-#         fig.subplots_adjust(hspace=0.1)
-#         ax_r.axhline(1.0, color='red', linestyle='--', linewidth=1)
-#         ax_r.set_ylim(0.4, 1.6)
-#         ax_r.set_xlabel(plot_labels[0])
-#         ax_r.set_ylabel("Data/MC")
-#         ax_r.grid(True)
-#         ax_r.grid(which='minor', linestyle=':', linewidth=0.5, color='gray', alpha=0.5)
-#         ax_r.minorticks_on()
-
-#     else:
-#         fig, ax = plt.subplots(figsize=(8.5, 7))
-#         ax.set_xlabel(plot_labels[0])
-
-#     # common formatting
-#     ax.set_xlim(var_config.bins[0], var_config.bins[-1])
-#     ax.set_ylabel(plot_labels[1])
-#     ax.set_title(plot_labels[2])
-
-#     # ==== Plot histograms ====
-
-#     # == rate panel ==
-#     # MC
-#     if var_categ is not None:
-#         mc_stack, _, _ = ax.hist(var_categ,
-#                                  weights=weights_categ,
-#                                  bins=var_config.bins,
-#                                  stacked=True,
-#                                  color=colors,
-#                                  label=labels,
-#                                  linewidth=0,
-#                                  edgecolor='none',
-#                                  histtype='stepfilled')
-
-#         breakdown_accum = [np.sum(this_mode) for this_mode in mc_stack]
-#         breakdown_fractions = [breakdown_accum[0]] + [(breakdown_accum[i+1] - breakdown_accum[i]) for i in range(len(breakdown_accum) - 1)]
-#         breakdown_fractions = [frac / breakdown_accum[-1] for frac in breakdown_fractions]
-
-#         if breakdown_type == "genie_sb":
-#             # hatch background portion
-#             bottom = np.zeros(len(var_config.bins) - 1)
-#             for i, (v, w, h) in enumerate(zip(var_categ, weights_categ, hatches)):
-#                 hist_vals, _ = np.histogram(v, weights=w, bins=var_config.bins)
-#                 ax.bar(
-#                     var_config.bin_centers,
-#                     hist_vals,
-#                     width=np.diff(var_config.bins),
-#                     bottom=bottom,
-#                     color='none',
-#                     hatch=h,
-#                     edgecolor='white',
-#                     linewidth=0.0,
-#                     align='center'
-#                 )
-#                 bottom += hist_vals
-
-#     if syst is not None: # list of syst uncertainties 
-#         mc_stat_err_frac = mc_stat_err / total_mc
-#         syst_err_frac = np.sqrt(np.diag(syst))
-#         syst_err = np.sqrt(mc_stat_err_frac**2 + syst_err_frac**2) # fractional error
-#         syst_err = syst_err * total_mc
-
-#         ax.bar(
-#             var_config.bin_centers,
-#             2 * syst_err,
-#             width=np.diff(var_config.bins),
-#             bottom=total_mc - syst_err,
-#             facecolor='none',             # transparent fill
-#             hatch='xxx',                 # hatch pattern similar to ROOT's 3004
-#             linewidth=0.0,
-#             edgecolor='dimgray',            # outline color of the hatching
-#             label='Syst. Unc.'
-#         )
-
-#         if data_df is not None:
-#             data_stat_cov_frac = np.diag( (0.5*(data_eyhigh + data_eylow) / total_data ) ** 2)
-#             mc_stat_cov_frac = np.diag(mc_stat_err_frac**2)
-#             combined_cov_frac = syst + data_stat_cov_frac + mc_stat_cov_frac
-#             # combined_cov_frac = data_stat_cov_frac
-#             combined_cov = cov_from_fraccov(combined_cov_frac, total_mc)
-#             # only calculated chi2 with nonzero bins
-#             nonzero_bins = (total_data > 0)
-#             chi2_val, p_val = get_chi2(total_data[nonzero_bins], total_mc[nonzero_bins], combined_cov[nonzero_bins, :][:, nonzero_bins])
- 
-#     else:
-#         print("no syst provided")
-
-#     # Data
-#     if vardf_data is not None:
-#         ax.errorbar(var_config.bin_centers, 
-#                     total_data, 
-#                     yerr=np.vstack((data_eylow, data_eyhigh)),
-#                     color='black', 
-#                     fmt='o', markersize=5, capsize=3, linewidth=1.5,
-#                     label='Data')
-
-#     # == ratio panel ==
-#     if ratio:
-#         # MC 
-#         if syst is not None:
-#             mc_content_ratio = total_mc / total_mc # dummy
-#             mc_stat_err_ratio = syst_err / total_mc
-#             mc_stat_err_ratio = np.nan_to_num(mc_stat_err_ratio, nan=0.)
-#             ax_r.bar(
-#                 var_config.bin_centers,
-#                 2*mc_stat_err_ratio,
-#                 width=np.diff(var_config.bins),
-#                 bottom=mc_content_ratio - mc_stat_err_ratio,
-#                 facecolor='none',
-#                 edgecolor='dimgray',
-#                 hatch='xxx',
-#                 linewidth=0.0,
-#                 label='Syst. Unc.'
-#             )
-#         else:
-#             pass
-
-#         # data/MC 
-#         if data_df is not None:
-#             ax_r.errorbar(var_config.bin_centers, data_ratio, 
-#                             yerr=np.vstack((data_ratio_eylow, data_ratio_eyhigh)),
-#                             fmt='o', color='black',
-#                             markersize=5, capsize=3, linewidth=1.5)
-
-#     # ===============================
-
-#     # ==== Legend ====
-#     # legend order: data, mc, syst
-#     handles, labels_orig = ax.get_legend_handles_labels()
-#     ordered_handles = []
-#     ordered_labels = []
-
-#     if data_df is not None:
-#         data_handle_index = labels_orig.index('Data')
-#         data_handle = handles[data_handle_index]
-#         ordered_handles.extend([data_handle])
-#         data_text = 'Data ({:.0f})'.format(sum_data)
-#         # if textchi2 and syst is not None:
-#         #     data_text += f" \n$\chi^2$/ndof = {chi2_val:.2f}/{len(var_config.bins)-1}\np-value = {p_val:.2f}"
-#         ordered_labels.extend([data_text])
-
-#     if mc_df is not None:
-#         if breakdown_type == "genie_sb":
-#             # collapse S and B into a single combined legend
-#             for i in range(len(genie_mode_colors)):
-#                 ordered_handles.append(Patch(facecolor=genie_mode_colors[i], edgecolor='none'))
-
-#             legend_labels = []
-#             i, n = 0, len(labels)
-#             while i < n:
-#                 # assume paired S/B in the order of MC legend entries
-#                 label_base = labels[i]
-#                 if (i + 1 < n) and (labels[i + 1] == label_base): # paired S/B
-#                     frac1 = breakdown_fractions[i]
-#                     frac2 = breakdown_fractions[i+1]
-#                     legend_label = f"{label_base} ({frac2*100:.1f}%/{frac1*100:.1f}%)"
-#                     i += 2
-#                 else: # single
-#                     frac1 = breakdown_fractions[i]
-#                     legend_label = f"{label_base} ({frac1*100:.1f}%)"
-#                     i += 1
-#                 legend_labels.append(legend_label)
-#             ordered_labels.extend(legend_labels[::-1])
-
-#         else:
-#             if data_df is not None:
-#                 mc_handles = [h for i, h in enumerate(handles) if i != data_handle_index and 'Unc.' not in labels_orig[i]]
-#             else:
-#                 mc_handles = [h for i, h in enumerate(handles) if 'Unc.' not in labels_orig[i]]
-#             mc_labels = [f"{label} ({frac*100:.1f}%)"
-#                                 for label, frac in zip(labels, breakdown_fractions)]
-#             ordered_handles.extend(mc_handles)
-#             ordered_labels.extend(mc_labels[::-1]) # note the reverse order of mc_labels
-
-
-#     if syst is not None:
-#         unc_handle = [h for i, h in enumerate(handles) if 'Unc.' in labels_orig[i]]
-#         unc_label = [l for l in labels_orig if 'Unc.' in l]
-#         ordered_handles.extend(unc_handle)
-#         ordered_labels.extend(unc_label)
-
-#     # adjust fontsize so that legend fits in the figure
-#     fontsize = 11.3
-#     ncol = 2
-#     if breakdown_type == "genie_sb":
-#         textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
-#         fontsize = fontsize
-#         ncol = 2
-
-#         # separate legend box with S / B hatches
-#         example_signal = Patch(facecolor="black", edgecolor='white', label='Signal')
-#         example_background = Patch(facecolor="black", edgecolor='white', hatch='////', linewidth=0, label='Background')
-#         # if textloc_x < 0.5:
-#         #     box_ax = ax.inset_axes([0.17, 0.65, 0.13, 0.13], transform=ax.transAxes)
-#         # else:
-#         box_ax = ax.inset_axes([0.625, 0.66, 0.13, 0.13], transform=ax.transAxes)
-#         box_ax.axis('off')
-#         mini_legend = Legend(
-#             box_ax,
-#             handles=[example_signal, example_background],
-#             labels=['Signal', 'Background'],
-#             loc='center',
-#             fontsize=fontsize,
-#             frameon=False,
-#             borderpad=0.7,
-#             handlelength=2.1,
-#             handleheight=0.9,
-#             ncol=1,
-#             fancybox=True,
-#             framealpha=1.0
-#         )
-#         box_ax.add_artist(mini_legend)
-
-#     ax.legend(
-#         ordered_handles,
-#         ordered_labels,
-#         loc='upper left',
-#         # loc='upper center',
-#         fontsize=fontsize,
-#         frameon=False,
-#         ncol=ncol,
-#         bbox_to_anchor=(0.05, 0.9, 0.8, 0.1),
-#         mode='expand'
-#     )
-
-#     # ===============================
-
-#     # ==== plot additions ====
-
-#     # y-axis limit
-#     ax.set_ylim(0., ax_ylim_ratio* np.max(total_mc))
-
-#     # vertical lines
-#     if vline is not None:
-#         for v in vline:
-#             ymax = ax.get_ylim()[1]
-#             ax.vlines(x=v[0], ymin=0, ymax=ymax*0.75, color='red', linestyle='--')
-#             # Plot arrow if v[1] is specified (0: left, 1: right)
-#             if len(v) > 1:
-#                 direction = v[1]
-#                 arrow_params = {
-#                     'y': ymax * 0.4,
-#                     'dx': 0.18 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable length
-#                     'width': 0.025 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable width
-#                     'color': 'red',
-#                     'head_width': 0.04 * (ax.get_ylim()[1] - ax.get_ylim()[0]),  # adjustable head width
-#                     'head_length': 0.03 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable head length
-#                     'length_includes_head': True
-#                 }
-#                 if direction == 0:
-#                     # Left arrow
-#                     ax.arrow(v[0], arrow_params['y'], -arrow_params['dx'], 0, 
-#                              width=arrow_params['width'],
-#                              color=arrow_params['color'],
-#                              head_width=arrow_params['head_width'],
-#                              head_length=arrow_params['head_length'],
-#                              length_includes_head=arrow_params['length_includes_head'],
-#                              clip_on=True)
-#                 elif direction == 1:
-#                     # Right arrow
-#                     ax.arrow(v[0], arrow_params['y'], arrow_params['dx'], 0, 
-#                              width=arrow_params['width'],
-#                              color=arrow_params['color'],
-#                              head_width=arrow_params['head_width'],
-#                              head_length=arrow_params['head_length'],
-#                              length_includes_head=arrow_params['length_includes_head'],
-#                              clip_on=True)
-
-#     # textboxes
-#     textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
-#     textloc_y = textloc[1]
-
-#     if textchi2 and syst is not None:
-#         add_chi2_text(chi2_val, p_val, len(var_config.bins)-1, textloc_x, textloc_y+0.08, textloc_ha)
-
-#     add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
-
-#     if breakdown_type != "pdg":
-#         add_genie_version_text(textloc_x, textloc_y-0.06, textloc_ha)
-
-#     if var_config.var_save_name == "integrated":
-#         format_singlebin_plot()
-
-#     # ===============================
-
-#     # == save figure ==
-#     if save_fig:
-#         plt.savefig(save_name+fig_ext, bbox_inches="tight", dpi=dpi)
-
-#     if plot == True:
-#         plt.show()
-#     else:
-#         plt.close()
-
-#     return {"cuts": cuts, 
-#             "total_mc": total_mc, 
-#             "total_mc_bkgd": total_mc_bkgd,
-#             "total_data": total_data}
 
 
 # ==== histograms (precomputed-histograms path) ====
@@ -2353,748 +1848,8 @@ def overlay_hists_from_histdata(histdata,
             "ndof_shape": ndof_shape}
 
 
-# ==== histograms ====
-# def overlay_hists(breakdown_type="topology",
-#                   mc_df=None,
-#                   data_df=None,
-#                   intime_df=None,
-#                   dirt_df=None,
-#                   var_config="",
-#                   plot_labels=["", "", ""],
-#                   ax_ylim_ratio=1.5,
-#                   ratio = False,
-#                   density = False,
-#                   syst = None, # fractional cov matrix; None -> category_syst_summary.npz
-#                   syst_kind="xsec",
-#                   syst_disk_root=None,
-#                   category_syst_summary_path=None,
-#                   load_syst_from_summary=True,
-#                   show_bkgd_syst_band=False,
-#                   bkgd_syst_frac_cov=None,
-#                   genie_sb_cov_mat_pkl=None,
-#                   bkgd_syst_band_color="darkorange",
-#                   syst_decomp = False,
-#                   textchi2 = False,
-#                   vline = None,
-#                   textloc=[0.05, 0.55],
-#                   approval="internal",
-#                   plot=True,
-#                   save_fig=False, 
-#                   save_name=None,
-#                   histdata=None,
-#                   cosmic_estimate="intime",
-#                   show_cosmic_model_unc=True,
-#                   verbose_hist=False,
-#                   signal_truth_fv="per_tpc",
-#                   legend_percentages=None):
 
-#     # If precomputed histogram contents are provided, dispatch to the
-#     # histdata-based renderer so that the chunked / aggregated framework
-#     # produces the SAME plot as calling overlay_hists with raw dataframes.
-#     if histdata is not None:
-#         return overlay_hists_from_histdata(
-#             histdata,
-#             var_config=var_config,
-#             plot_labels=plot_labels,
-#             ax_ylim_ratio=ax_ylim_ratio,
-#             ratio=ratio,
-#             density=density,
-#             syst=syst,
-#             syst_kind=syst_kind,
-#             syst_disk_root=syst_disk_root,
-#             category_syst_summary_path=category_syst_summary_path,
-#             load_syst_from_summary=load_syst_from_summary,
-#             show_bkgd_syst_band=show_bkgd_syst_band,
-#             bkgd_syst_frac_cov=bkgd_syst_frac_cov,
-#             genie_sb_cov_mat_pkl=genie_sb_cov_mat_pkl,
-#             bkgd_syst_band_color=bkgd_syst_band_color,
-#             syst_decomp=syst_decomp,
-#             textchi2=textchi2,
-#             vline=vline,
-#             textloc=textloc,
-#             approval=approval,
-#             plot=plot,
-#             save_fig=save_fig,
-#             save_name=save_name,
-#             cosmic_estimate=cosmic_estimate,
-#             show_cosmic_model_unc=show_cosmic_model_unc,
-#             verbose_hist=verbose_hist,
-#             legend_percentages=legend_percentages,
-#         )
-
-#     # ==== prepare dfs for plotting ====
-
-#     # MC
-#     if mc_df is not None:
-
-#         # TODO: uncomment this to append dirt_df to mc_df
-#         # if dirt_df is not None:
-#         #     dirt_df_ = dirt_df.copy()
-#         #     # append to mc_df, bump up __ntuple index so that they are unique
-#         #     ntuple_vals = mc_df.index.get_level_values(0)
-#         #     ntuple_offset = ntuple_vals.max()+1
-#         #     names = dirt_df_.index.names
-#         #     # __ntuple should be at level 0
-#         #     if "__ntuple" in names:
-#         #         idx_loc = names.index("__ntuple")
-#         #     else:
-#         #         idx_loc = 0
-#         #     new_tuples = []
-#         #     for tup in dirt_df_.index:
-#         #         tup = list(tup)
-#         #         tup[idx_loc] = tup[idx_loc] + ntuple_offset
-#         #         new_tuples.append(tuple(tup))
-#         #     dirt_df_.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
-
-#         #     mc_df = pd.concat([mc_df, dirt_df])
-        
-#         vardf, wgtdf    = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
-
-#         # breakdown MC events into truth categories
-#         if breakdown_type == "pdg":
-#             # trk breakdown
-#             labels = pdg_labels
-#             colors = pdg_colors
-#             cuts = get_pdg_category(mc_df, ret_cuts=True)
-#             # print(cuts)
-
-#         elif breakdown_type == "topology":
-#             labels = topology_labels
-#             colors = topology_colors
-#             cuts = get_topo_category(
-#                 mc_df, ret_cuts=True, signal_truth_fv=signal_truth_fv
-#             )
-
-#         elif breakdown_type == "genie":
-#             labels = genie_mode_labels
-#             colors = genie_mode_colors
-#             cuts = get_genie_category(mc_df, ret_cuts=True)
-
-#         elif breakdown_type == "genie_sb":
-#             labels = genie_sb_mode_labels
-#             colors = genie_sb_mode_colors
-#             cuts = get_genie_sb_category(mc_df, ret_cuts=True)
-#             # hatches for marking S/B on plot
-#             hatches = [None] * len(labels)
-#             for i in range(5, len(labels), 2):
-#                 hatches[i] = '////'
-#         else:
-#             raise ValueError("Invalid breakdown_type: %s, please choose between [topology, genie, or genie_sb]" % breakdown_type)
-#         var_categ = []
-#         weights_categ = []
-#         for cut in cuts:
-#             v, w = _var_weights_for_cut(vardf, wgtdf, cut)
-#             var_categ.append(v)
-#             weights_categ.append(w)
-
-#         # MC stat err
-#         each_mc_hist_data = []
-#         each_mc_hist_err2 = []  # sum of squared weights for error
-#         for v, w in zip(var_categ, weights_categ):
-#             hist_vals, _ = np.histogram(v, weights=w, bins=var_config.bins)
-#             hist_err2, _ = np.histogram(v, weights=np.square(w), bins=var_config.bins)
-#             each_mc_hist_data.append(hist_vals)
-#             each_mc_hist_err2.append(hist_err2)
-#         total_mc = np.sum(each_mc_hist_data, axis=0)
-#         total_mc_err2 = np.sum(each_mc_hist_err2, axis=0)
-#         mc_stat_err = np.sqrt(total_mc_err2)
-#         total_mc_bkgd = None
-
-#     else:
-#         vardf = None
-#         var_categ = None
-#         total_mc = None
-#         total_mc_bkgd = None
-#         print("No MC data provided")
-
- 
-#     # Intime cosmics
-#     if intime_df is not None:
-#         vardf_intime, wgtdf_intime = get_clipped_evts(
-#             intime_df, var_config.var_evt_reco_col, var_config.bins
-#         )
-#         total_intime, _ = np.histogram(
-#             vardf_intime, bins=var_config.bins, weights=wgtdf_intime
-#         )
-#         # add to the cosmic item in existing list
-#         var_categ[0] = np.concatenate(
-#             [_as_1d_float_array(vardf_intime), _as_1d_float_array(var_categ[0])]
-#         )
-#         weights_categ[0] = np.concatenate(
-#             [_as_1d_float_array(wgtdf_intime), _as_1d_float_array(weights_categ[0])]
-#         )
-        
-#         total_mc = total_mc + total_intime
-
-#     else:
-#         vardf_intime = None
-#         print("No intime cosmics provided")
-
-
-#     # Dirt cosmics
-#     if dirt_df is not None:
-#         vardf_dirt, _ = get_clipped_evts(dirt_df, var_config.var_evt_reco_col, var_config.bins)
-#         total_dirt, _ = np.histogram(vardf_dirt, bins=var_config.bins, weights=dirt_df.pot_weight)
-#         var_categ = [vardf_dirt] + var_categ
-#         weights_categ = [list(dirt_df.pot_weight)] + weights_categ
-#         colors = colors + ["black"]
-#         labels = labels + ["Low E\nDirt"]
-#         total_mc = total_mc + total_dirt
-
-#     else:
-#         vardf_dirt = None
-#         # print("No dirt cosmics provided")
-
-
-#    # Data
-#     if data_df is not None:
-#         vardf_data, _   = get_clipped_evts(data_df, var_config.var_evt_reco_col, var_config.bins)
-#         total_data, _ = np.histogram(vardf_data, bins=var_config.bins, weights=data_df.pot_weight)
-#         sum_data = np.sum(total_data)
-#         data_eylow, data_eyhigh = return_data_stat_err(total_data)
-
-#         # data/MC
-#         if total_mc is not None:
-#             data_ratio = total_data / total_mc
-#             data_ratio_eylow = data_eylow / total_mc
-#             data_ratio_eyhigh = data_eyhigh / total_mc
-#             data_ratio = np.nan_to_num(data_ratio, nan=-999.)
-#             data_ratio_eylow = np.nan_to_num(data_ratio_eylow, nan=0.)
-#             data_ratio_eyhigh = np.nan_to_num(data_ratio_eyhigh, nan=0.)
-        
-#     else:
-#         vardf_data = None
-#         total_data = None
-#         print("No data data provided")
-
-
-
-#     density_factor = 1.0
-#     # if density is True, area normalize to the data
-#     if mc_df is not None and data_df is not None and density == True:
-#         mc_area = np.sum(total_mc)
-
-#         if intime_df is not None:
-#             intime_area = np.sum(total_intime)
-#             mc_area = mc_area + intime_area
-
-#         if dirt_df is not None:
-#             dirt_area = np.sum(total_dirt)
-#             mc_area = mc_area + dirt_area
-
-#         data_area = np.sum(total_data)
-#         density_factor = data_area / mc_area
-
-#         weights_categ = [np.array(w) * density_factor for w in weights_categ]
-
-#     # print("HI")
-
-#     if mc_df is not None and total_mc is not None:
-#         hist_signal = _overlay_signal_mc_hist(mc_df, var_config, signal_truth_fv=signal_truth_fv)
-#         if density:
-#             hist_signal = hist_signal * density_factor
-#         total_mc_bkgd = np.asarray(total_mc, dtype=float) - hist_signal
-
-#     # the order of cuts from get_*_category is reversed from the order of labels and colors
-#     colors, labels = colors[::-1], labels[::-1]
-
-#     # ========================================================
-
-#     # ==== plot template ====
-#     if ratio:
-#         fig, axs = plt.subplots(2, 1, figsize=(8.5, 8.5), 
-#                                sharex=True, gridspec_kw={'height_ratios': [4, 1]})
-#         ax, ax_r = axs[0], axs[1]
-#         fig.subplots_adjust(hspace=0.1)
-#         ax_r.axhline(1.0, color='red', linestyle='--', linewidth=1)
-#         # ax_r.set_ylim(0.5, 1.5)
-#         ax_r.set_ylim(0., 2.)
-#         ax_r.set_xlabel(plot_labels[0], fontsize=20)
-#         ax_r.set_ylabel("Data/MC", fontsize=20)
-#         ax_r.grid(True)
-#         ax_r.grid(which='minor', linestyle=':', linewidth=0.5, color='gray', alpha=0.5)
-#         ax_r.minorticks_on()
-#         ax_r.tick_params(axis='both', which='major', labelsize=15)
-#         ax_r.tick_params(axis='both', which='minor', labelsize=13)
-
-#     else:
-#         fig, ax = plt.subplots(figsize=(8.5, 7))
-#         ax.set_xlabel(plot_labels[0], fontsize=20)
-
-#     # common formatting
-#     ax.set_xlim(var_config.bins[0], var_config.bins[-1])
-#     ax.set_ylabel(plot_labels[1], fontsize=20)
-#     ax.set_title(plot_labels[2], fontsize=20)
-#     ax.tick_params(axis='both', which='major', labelsize=15)
-#     ax.tick_params(axis='both', which='minor', labelsize=13)
-
-#     # ==== Plot histograms ====
-
-#     # == rate panel ==
-#     # MC
-#     if var_categ is not None:
-#         mc_stack, _, _ = ax.hist(var_categ,
-#                                  weights=weights_categ,
-#                                  bins=var_config.bins,
-#                                  stacked=True,
-#                                  color=colors,
-#                                  label=labels,
-#                                  linewidth=0,
-#                                  edgecolor='none',
-#                                  histtype='stepfilled')
-
-#         breakdown_accum = [np.sum(this_mode) for this_mode in mc_stack]
-#         breakdown_fractions = [breakdown_accum[0]] + [(breakdown_accum[i+1] - breakdown_accum[i]) for i in range(len(breakdown_accum) - 1)]
-#         breakdown_fractions = [frac / breakdown_accum[-1] for frac in breakdown_fractions]
-
-#         if breakdown_type == "genie_sb":
-#             # hatch background portion
-#             bottom = np.zeros(len(var_config.bins) - 1)
-#             for i, (v, w, h) in enumerate(zip(var_categ, weights_categ, hatches)):
-#                 hist_vals, _ = np.histogram(v, weights=w, bins=var_config.bins)
-#                 ax.bar(
-#                     var_config.bin_centers,
-#                     hist_vals,
-#                     width=np.diff(var_config.bins),
-#                     bottom=bottom,
-#                     color='none',
-#                     hatch=h,
-#                     edgecolor='white',
-#                     linewidth=0.0,
-#                     align='center'
-#                 )
-#                 bottom += hist_vals
-
-#         breakdown_fractions = _overlay_resolve_legend_fractions(
-#             breakdown_fractions, legend_percentages
-#         )
-
-#     chi2_val = None
-#     chi2_reduced = None
-#     p_val = None
-#     ndof = None
-#     chi2_pull = None
-#     bkgd_syst_err = None
-
-#     syst_explicit = syst is not None
-#     syst = _resolve_overlay_syst_cov_frac(
-#         var_config,
-#         syst,
-#         syst_kind=syst_kind,
-#         syst_disk_root=syst_disk_root,
-#         category_syst_summary_path=category_syst_summary_path,
-#         load_syst_from_summary=load_syst_from_summary,
-#     )
-#     # syst = "cosmics"
-
-#     if syst is not None: # list of syst uncertainties 
-
-#         # # TODO: diff between data and mc as additional systematic
-#         # # syst_diff = total_data - total_mc
-#         # # syst_diff_cov = np.cov(np.array([total_data, total_mc]).T)
-
-#         # add_poisson_mc_stat = _overlay_add_poisson_mc_stat_to_band(
-#         #     syst_explicit, load_syst_from_summary
-#         # )
-
-#         # # decompose into shape and norm components
-#         # cov_norm, cov_mixed, cov_shape = Matrix_Decomp(total_mc, syst * (total_mc**2))
-#         # syst_err_norm = np.sqrt(np.abs(np.diag(cov_norm)))
-#         # syst_err_mixed = np.sqrt(np.abs(np.diag(cov_mixed)))
-#         # syst_err_shape = np.sqrt(np.abs(np.diag(cov_shape)))
-
-#         # syst_err = _overlay_syst_sigma(
-#         #     total_mc, mc_stat_err, syst, add_poisson_mc_stat=add_poisson_mc_stat
-#         # )
-
-#         syst_err = np.sqrt(np.diag(syst)) * total_mc #* 0.3
-
-#         if syst_decomp == False:
-#             ax.bar(
-#                 var_config.bin_centers,
-#                 2 * syst_err,
-#                 width=np.diff(var_config.bins),
-#                 bottom=total_mc - syst_err,
-#                 facecolor='none',             # transparent fill
-#                 hatch='xxx',                 # hatch pattern similar to ROOT's 3004
-#                 linewidth=0.0,
-#                 edgecolor='dimgray',            # outline color of the hatching
-#                 label='Syst. Unc.'
-#             )
-
-#         if show_bkgd_syst_band and total_mc_bkgd is not None:
-#             bkgd_frac = bkgd_syst_frac_cov
-#             if bkgd_frac is None:
-#                 bkgd_frac = load_genie_sb_bkgd_rate_cov_frac(
-#                     var_config, genie_sb_cov_mat_pkl
-#                 )
-#             bkgd_syst_err = _overlay_bkgd_syst_sigma(total_mc_bkgd, bkgd_frac)
-#             _overlay_draw_bkgd_syst_band(
-#                 ax,
-#                 var_config.bin_centers,
-#                 var_config.bins,
-#                 total_mc,
-#                 bkgd_syst_err,
-#                 edgecolor=bkgd_syst_band_color,
-#                 label="Bkgd. GENIE unc.",
-#             )
-
-#         if syst_decomp == True:
-
-#             ax.bar(
-#                 var_config.bin_centers,
-#                 2*syst_err_shape,
-#                 width=np.diff(var_config.bins),
-#                 bottom=total_mc - syst_err_shape,
-#                 facecolor='red',
-#                 edgecolor='red',
-#                 alpha=0.3,
-#                 # hatch='xxx',
-#                 linewidth=0.0,
-#                 label='Syst. Unc. (Shape)'
-#             )
-
-#             ax.bar(
-#                 var_config.bin_centers,
-#                 2*syst_err_mixed,
-#                 width=np.diff(var_config.bins),
-#                 bottom=total_mc - syst_err_mixed,
-#                 facecolor='none',
-#                 edgecolor='green',
-#                 hatch='////',
-#                 linewidth=0.0,
-#                 label='Syst. Unc. (Mixed)'
-#             )
-
-#             ax.bar(
-#                 var_config.bin_centers,
-#                 2*syst_err_norm,
-#                 width=np.diff(var_config.bins),
-#                 bottom=total_mc - syst_err_norm,
-#                 facecolor='dimgray',
-#                 edgecolor='dimgray',
-#                 alpha=0.3,
-#                 # hatch='xxx',
-#                 linewidth=0.0,
-#                 label='Syst. Unc. (Norm)'
-#             )
-
-
-
-#         if data_df is not None:
-#             chi2_val, chi2_reduced, p_val, ndof, chi2_pull = _overlay_compute_chi2(
-#                 total_data, total_mc, syst, data_eylow, data_eyhigh
-#             )
- 
-#     else:
-#         print("no syst provided")
-
-#     # Data
-#     if vardf_data is not None:
-#         ax.errorbar(var_config.bin_centers, 
-#                     total_data, 
-#                     yerr=np.vstack((data_eylow, data_eyhigh)),
-#                     color='black', 
-#                     fmt='o', markersize=5, capsize=3, linewidth=1.5,
-#                     label='Data')
-
-#     # == ratio panel ==
-#     if ratio:
-#         # MC 
-#         if syst is not None:
-#             if syst_decomp == False:
-#                 mc_content_ratio = total_mc / total_mc # dummy
-#                 mc_stat_err_ratio = syst_err / total_mc
-#                 mc_stat_err_ratio = np.nan_to_num(mc_stat_err_ratio, nan=0.)
-#                 ax_r.bar(
-#                     var_config.bin_centers,
-#                     2*mc_stat_err_ratio,
-#                     width=np.diff(var_config.bins),
-#                     bottom=mc_content_ratio - mc_stat_err_ratio,
-#                     facecolor='none',
-#                     edgecolor='dimgray',
-#                     hatch='xxx',
-#                     linewidth=0.0,
-#                     label='Syst. Unc.'
-#                 )
-#                 if bkgd_syst_err is not None:
-#                     mc_content_ratio = np.ones_like(total_mc)
-#                     bkgd_err_ratio = np.where(
-#                         total_mc != 0, bkgd_syst_err / total_mc, 0.0
-#                     )
-#                     bkgd_err_ratio = np.nan_to_num(bkgd_err_ratio, nan=0.0)
-#                     ax_r.bar(
-#                         var_config.bin_centers,
-#                         2 * bkgd_err_ratio,
-#                         width=np.diff(var_config.bins),
-#                         bottom=mc_content_ratio - bkgd_err_ratio,
-#                         facecolor="none",
-#                         edgecolor=bkgd_syst_band_color,
-#                         hatch="+++",
-#                         linewidth=0.0,
-#                         label="Bkgd. GENIE unc.",
-#                     )
-
-#             if syst_decomp == True:
-#                 mc_content_ratio = total_mc / total_mc # dummy
-#                 mc_stat_err_ratio_norm = syst_err_norm / total_mc
-#                 mc_stat_err_ratio_mixed = syst_err_mixed / total_mc
-#                 # print("norm: ", mc_stat_err_ratio_norm)
-#                 mc_stat_err_ratio_shape = syst_err_shape / total_mc
-#                 # print("shape: ", mc_stat_err_ratio_shape)
-#                 mc_stat_err_ratio_norm = np.nan_to_num(mc_stat_err_ratio_norm, nan=0.)
-#                 mc_stat_err_ratio_mixed = np.nan_to_num(mc_stat_err_ratio_mixed, nan=0.)
-#                 mc_stat_err_ratio_shape = np.nan_to_num(mc_stat_err_ratio_shape, nan=0.)
-
-#                 ax_r.bar(
-#                     var_config.bin_centers,
-#                     2*mc_stat_err_ratio_shape,
-#                     width=np.diff(var_config.bins),
-#                     bottom=mc_content_ratio - mc_stat_err_ratio_shape,
-#                     facecolor='red',
-#                     edgecolor='red',
-#                     alpha=0.3,
-#                     # hatch='xxx',
-#                     linewidth=0.0,
-#                     label='Syst. Unc. (Shape)'
-#                 )
-
-#                 ax_r.bar(
-#                     var_config.bin_centers,
-#                     2*mc_stat_err_ratio_mixed,
-#                     width=np.diff(var_config.bins),
-#                     bottom=mc_content_ratio - mc_stat_err_ratio_mixed,
-#                     facecolor='none',
-#                     edgecolor='green',
-#                     hatch='////',
-#                     linewidth=0.0,
-#                     label='Syst. Unc. (Mixed)'
-#                 )
-
-#                 ax_r.bar(
-#                     var_config.bin_centers,
-#                     2*mc_stat_err_ratio_norm,
-#                     width=np.diff(var_config.bins),
-#                     bottom=mc_content_ratio - mc_stat_err_ratio_norm,
-#                     alpha=0.3,
-#                     facecolor='dimgray',
-#                     edgecolor='dimgray',
-#                     # hatch='xxx',
-#                     linewidth=0.0,
-#                     label='Syst. Unc. (Norm)'
-#                 )
-
-
-#         else:
-#             pass
-
-#         # data/MC 
-#         if data_df is not None:
-#             ax_r.errorbar(var_config.bin_centers, data_ratio, 
-#                             yerr=np.vstack((data_ratio_eylow, data_ratio_eyhigh)),
-#                             fmt='o', color='black',
-#                             markersize=5, capsize=3, linewidth=1.5)
-
-#     # ===============================
-
-#     # ==== Legend ====
-#     # legend order: data, mc, syst
-#     handles, labels_orig = ax.get_legend_handles_labels()
-#     ordered_handles = []
-#     ordered_labels = []
-
-#     if data_df is not None:
-#         data_handle_index = labels_orig.index('Data')
-#         data_handle = handles[data_handle_index]
-#         ordered_handles.extend([data_handle])
-#         data_text = 'Data ({:.0f})'.format(sum_data)
-#         ordered_labels.extend([data_text])
-
-#     if mc_df is not None:
-#         if breakdown_type == "genie_sb":
-#             # collapse S and B into a single combined legend
-#             for i in range(len(genie_mode_colors)):
-#                 ordered_handles.append(Patch(facecolor=genie_mode_colors[i], edgecolor='none'))
-
-#             legend_labels = []
-#             i, n = 0, len(labels)
-#             while i < n:
-#                 # assume paired S/B in the order of MC legend entries
-#                 label_base = labels[i]
-#                 if (i + 1 < n) and (labels[i + 1] == label_base): # paired S/B
-#                     frac1 = breakdown_fractions[i]
-#                     frac2 = breakdown_fractions[i+1]
-#                     legend_label = f"{label_base} ({frac2*100:.1f}%/{frac1*100:.1f}%)"
-#                     i += 2
-#                 else: # single
-#                     frac1 = breakdown_fractions[i]
-#                     legend_label = f"{label_base} ({frac1*100:.1f}%)"
-#                     i += 1
-#                 legend_labels.append(legend_label)
-#             ordered_labels.extend(legend_labels[::-1])
-
-#         else:
-#             if data_df is not None:
-#                 mc_handles = [h for i, h in enumerate(handles) if i != data_handle_index and 'Unc.' not in labels_orig[i]]
-#             else:
-#                 mc_handles = [h for i, h in enumerate(handles) if 'Unc.' not in labels_orig[i]]
-
-#             mc_labels = [f"{label} ({frac*100:.1f}%)"
-#                                 for label, frac in zip(labels, breakdown_fractions)]
-#             ordered_handles.extend(mc_handles)
-#             ordered_labels.extend(mc_labels[::-1]) # note the reverse order of mc_labels
-
-
-#     if syst is not None:
-#         unc_handle = [h for i, h in enumerate(handles) if 'Unc.' in labels_orig[i]]
-#         unc_label = [l for l in labels_orig if 'Unc.' in l]
-#         ordered_handles.extend(unc_handle)
-#         ordered_labels.extend(unc_label)
-
-#     # adjust fontsize so that legend fits in the figure
-#     fontsize = 11.3
-#     ncol = 3
-#     if breakdown_type == "genie_sb":
-#         textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
-#         fontsize = fontsize
-#         ncol = 2
-
-#         # separate legend box with S / B hatches
-#         example_signal = Patch(facecolor="black", edgecolor='white', label='Signal')
-#         example_background = Patch(facecolor="black", edgecolor='white', hatch='////', linewidth=0, label='Background')
-#         # if textloc_x < 0.5:
-#         #     box_ax = ax.inset_axes([0.17, 0.65, 0.13, 0.13], transform=ax.transAxes)
-#         # else:
-#         box_ax = ax.inset_axes([0.625, 0.66, 0.13, 0.13], transform=ax.transAxes)
-#         box_ax.axis('off')
-#         mini_legend = Legend(
-#             box_ax,
-#             handles=[example_signal, example_background],
-#             labels=['Signal', 'Background'],
-#             loc='center',
-#             fontsize=fontsize,
-#             frameon=False,
-#             borderpad=0.7,
-#             handlelength=2.1,
-#             handleheight=0.9,
-#             ncol=1,
-#             fancybox=True,
-#             framealpha=1.0
-#         )
-#         box_ax.add_artist(mini_legend)
-
-#         ax.legend(
-#             ordered_handles,
-#             ordered_labels,
-#             loc='upper left',
-#             # loc='upper center',
-#             fontsize=fontsize,
-#             frameon=False,
-#             ncol=ncol,
-#             bbox_to_anchor=(0.05, 0.9, 0.8, 0.1),
-#             mode='expand'
-#         )
-
-#     else:
-#         ax.legend(
-#             ordered_handles,
-#             ordered_labels,
-#             loc='upper left',
-#             # loc='upper center',
-#             fontsize=fontsize,
-#             frameon=False,
-#             ncol=ncol,
-#         )
-
-#     # ax_r.legend(fontsize=9, ncol=2)
-
-#     # ===============================
-
-#     # ==== plot additions ====
-
-#     # y-axis limit
-#     ax.set_ylim(0., ax_ylim_ratio* np.max(total_mc))
-#     # ax.set_yscale("log")
-
-#     # vertical lines
-#     if vline is not None:
-#         for v in vline:
-#             ymax = ax.get_ylim()[1]
-#             ax.vlines(x=v[0], ymin=0, ymax=ymax*0.75, color='red', linestyle='--')
-#             # Plot arrow if v[1] is specified (0: left, 1: right)
-#             if len(v) > 1:
-#                 direction = v[1]
-#                 arrow_params = {
-#                     'y': ymax * 0.4,
-#                     'dx': 0.18 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable length
-#                     'width': 0.01 * (ax.get_ylim()[1] - ax.get_ylim()[0]),  # adjustable width
-#                     'color': 'red',
-#                     'head_width': 0.04 * (ax.get_ylim()[1] - ax.get_ylim()[0]),  # adjustable head width
-#                     'head_length': 0.03 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable head length
-#                     'length_includes_head': True
-#                 }
-#                 if direction == 0:
-#                     # Left arrow
-#                     ax.arrow(v[0], arrow_params['y'], -arrow_params['dx'], 0, 
-#                              width=arrow_params['width'],
-#                              color=arrow_params['color'],
-#                              head_width=arrow_params['head_width'],
-#                              head_length=arrow_params['head_length'],
-#                              length_includes_head=arrow_params['length_includes_head'],
-#                              clip_on=True)
-#                 elif direction == 1:
-#                     # Right arrow
-#                     ax.arrow(v[0], arrow_params['y'], arrow_params['dx'], 0, 
-#                              width=arrow_params['width'],
-#                              color=arrow_params['color'],
-#                              head_width=arrow_params['head_width'],
-#                              head_length=arrow_params['head_length'],
-#                              length_includes_head=arrow_params['length_includes_head'],
-#                              clip_on=True)
-
-#     # textboxes
-#     textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
-#     textloc_y = textloc[1]
-
-#     if textchi2 and chi2_val is not None:
-#         add_chi2_text(chi2_val, p_val, ndof, textloc_x, textloc_y + 0.08, textloc_ha)
-
-#     fig.subplots_adjust(top=0.9)
-#     add_approval_text(approval, 0.1, 1.07, "left")
-#     add_pot_text("8.8 $\\times 10^{19}$ POT", 0.99, 1.06, "right", fontsize=16)
-
-#     if breakdown_type != "pdg":
-#         add_genie_version_text(textloc_x, 0.5, textloc_ha)
-
-#     if var_config.var_save_name == "integrated":
-#         format_singlebin_plot()
-
-
-#     # ===============================
-
-#     # == save figure ==
-#     if save_fig:
-#         plt.savefig(save_name+fig_ext, bbox_inches="tight", dpi=dpi)
-
-#     if plot == True:
-#         plt.show()
-#     else:
-#         plt.close()
-
-#     return {"breakdown_type": breakdown_type,
-#             "var_name": var_config.var_save_name,
-#             "bins": var_config.bins,
-#             # "cuts": cuts, 
-#             "mc_stack": mc_stack,
-#             "total_mc": total_mc, 
-#             "total_mc_bkgd": total_mc_bkgd,
-#             "total_data": total_data,
-#             "chi2_val": chi2_val,
-#             "p_val": p_val,
-#             "ndof": ndof,
-#             "chi2_pull": chi2_pull}
-
-
+# ==== histograms (raw-dataframe path) ====
 def overlay_hists(breakdown_type="topology",
                   mc_df=None,
                   data_df=None,
@@ -3328,13 +2083,13 @@ def overlay_hists(breakdown_type="topology",
 
         weights_categ = [np.array(w) * density_factor for w in weights_categ]
 
-    # print("HI")
-
-    # if mc_df is not None and total_mc is not None:
-    #     hist_signal = _overlay_signal_mc_hist(mc_df, var_config, signal_truth_fv=signal_truth_fv)
-    #     if density:
-    #         hist_signal = hist_signal * density_factor
-    #     total_mc_bkgd = np.asarray(total_mc, dtype=float) - hist_signal
+    # Background-only MC spectrum, needed for the optional background systematic
+    # band (show_bkgd_syst_band). Mirrors the histdata path.
+    if mc_df is not None and total_mc is not None:
+        hist_signal = _overlay_signal_mc_hist(mc_df, var_config, signal_truth_fv=signal_truth_fv)
+        if density:
+            hist_signal = hist_signal * density_factor
+        total_mc_bkgd = np.asarray(total_mc, dtype=float) - hist_signal
 
     # the order of cuts from get_*_category is reversed from the order of labels and colors
     colors, labels = colors[::-1], labels[::-1]
@@ -3431,38 +2186,26 @@ def overlay_hists(breakdown_type="topology",
 
     if syst is not None: # list of syst uncertainties 
 
-        # # TODO: diff between data and mc as additional systematic
-        # # syst_diff = total_data - total_mc
-        # # syst_diff_cov = np.cov(np.array([total_data, total_mc]).T)
-
-        # add_poisson_mc_stat = _overlay_add_poisson_mc_stat_to_band(
-        #     syst_explicit, load_syst_from_summary
-        # )
-
-        # # decompose into shape and norm components
-        # cov_norm, cov_mixed, cov_shape = Matrix_Decomp(total_mc, syst * (total_mc**2))
-        # syst_err_norm = np.sqrt(np.abs(np.diag(cov_norm)))
-        # syst_err_mixed = np.sqrt(np.abs(np.diag(cov_mixed)))
-        # syst_err_shape = np.sqrt(np.abs(np.diag(cov_shape)))
-
-        # syst_err = _overlay_syst_sigma(
-        #     total_mc, mc_stat_err, syst, add_poisson_mc_stat=add_poisson_mc_stat
-        # )
-
         syst_err = np.sqrt(np.diag(syst)) * total_mc 
 
-        if syst_decomp == False:
-            ax.bar(
-                var_config.bin_centers,
-                2 * syst_err,
-                width=np.diff(var_config.bins),
-                bottom=total_mc - syst_err,
-                facecolor='none',             # transparent fill
-                hatch='xxx',                 # hatch pattern similar to ROOT's 3004
-                linewidth=0.0,
-                edgecolor='dimgray',            # outline color of the hatching
-                label='Syst. Unc.'
+        if syst_decomp:
+            # The shape/mixed/norm decomposition bands (Matrix_Decomp) were removed
+            # as dead code; see git history if this display is ever needed again.
+            raise NotImplementedError(
+                "syst_decomp=True is no longer supported in overlay_hists"
             )
+
+        ax.bar(
+            var_config.bin_centers,
+            2 * syst_err,
+            width=np.diff(var_config.bins),
+            bottom=total_mc - syst_err,
+            facecolor='none',             # transparent fill
+            hatch='xxx',                 # hatch pattern similar to ROOT's 3004
+            linewidth=0.0,
+            edgecolor='dimgray',            # outline color of the hatching
+            label='Syst. Unc.'
+        )
 
         if show_bkgd_syst_band and total_mc_bkgd is not None:
             bkgd_frac = bkgd_syst_frac_cov
@@ -3480,48 +2223,6 @@ def overlay_hists(breakdown_type="topology",
                 edgecolor=bkgd_syst_band_color,
                 label="Bkgd. GENIE unc.",
             )
-
-        if syst_decomp == True:
-
-            ax.bar(
-                var_config.bin_centers,
-                2*syst_err_shape,
-                width=np.diff(var_config.bins),
-                bottom=total_mc - syst_err_shape,
-                facecolor='red',
-                edgecolor='red',
-                alpha=0.3,
-                # hatch='xxx',
-                linewidth=0.0,
-                label='Syst. Unc. (Shape)'
-            )
-
-            ax.bar(
-                var_config.bin_centers,
-                2*syst_err_mixed,
-                width=np.diff(var_config.bins),
-                bottom=total_mc - syst_err_mixed,
-                facecolor='none',
-                edgecolor='green',
-                hatch='////',
-                linewidth=0.0,
-                label='Syst. Unc. (Mixed)'
-            )
-
-            ax.bar(
-                var_config.bin_centers,
-                2*syst_err_norm,
-                width=np.diff(var_config.bins),
-                bottom=total_mc - syst_err_norm,
-                facecolor='dimgray',
-                edgecolor='dimgray',
-                alpha=0.3,
-                # hatch='xxx',
-                linewidth=0.0,
-                label='Syst. Unc. (Norm)'
-            )
-
-
 
         if data_df is not None:
             chi2_val, chi2_reduced, p_val, ndof, chi2_pull, chi2_shape_val, p_val_shape, ndof_shape = _overlay_compute_chi2(
@@ -3576,56 +2277,6 @@ def overlay_hists(breakdown_type="topology",
                         linewidth=0.0,
                         label="Bkgd. GENIE unc.",
                     )
-
-            if syst_decomp == True:
-                mc_content_ratio = total_mc / total_mc # dummy
-                mc_stat_err_ratio_norm = syst_err_norm / total_mc
-                mc_stat_err_ratio_mixed = syst_err_mixed / total_mc
-                # print("norm: ", mc_stat_err_ratio_norm)
-                mc_stat_err_ratio_shape = syst_err_shape / total_mc
-                # print("shape: ", mc_stat_err_ratio_shape)
-                mc_stat_err_ratio_norm = np.nan_to_num(mc_stat_err_ratio_norm, nan=0.)
-                mc_stat_err_ratio_mixed = np.nan_to_num(mc_stat_err_ratio_mixed, nan=0.)
-                mc_stat_err_ratio_shape = np.nan_to_num(mc_stat_err_ratio_shape, nan=0.)
-
-                ax_r.bar(
-                    var_config.bin_centers,
-                    2*mc_stat_err_ratio_shape,
-                    width=np.diff(var_config.bins),
-                    bottom=mc_content_ratio - mc_stat_err_ratio_shape,
-                    facecolor='red',
-                    edgecolor='red',
-                    alpha=0.3,
-                    # hatch='xxx',
-                    linewidth=0.0,
-                    label='Syst. Unc. (Shape)'
-                )
-
-                ax_r.bar(
-                    var_config.bin_centers,
-                    2*mc_stat_err_ratio_mixed,
-                    width=np.diff(var_config.bins),
-                    bottom=mc_content_ratio - mc_stat_err_ratio_mixed,
-                    facecolor='none',
-                    edgecolor='green',
-                    hatch='////',
-                    linewidth=0.0,
-                    label='Syst. Unc. (Mixed)'
-                )
-
-                ax_r.bar(
-                    var_config.bin_centers,
-                    2*mc_stat_err_ratio_norm,
-                    width=np.diff(var_config.bins),
-                    bottom=mc_content_ratio - mc_stat_err_ratio_norm,
-                    alpha=0.3,
-                    facecolor='dimgray',
-                    edgecolor='dimgray',
-                    # hatch='xxx',
-                    linewidth=0.0,
-                    label='Syst. Unc. (Norm)'
-                )
-
 
         else:
             pass
@@ -3854,6 +2505,7 @@ def overlay_hists(breakdown_type="topology",
 
 
 
+# ==== specialized 1D plots: pulls, efficiency, universes ====
 def plot_chi2_pull(chi2_pull,
                    var_config,
                    chi2_val=None,
@@ -4075,6 +2727,7 @@ def plot_univ_hists(
         plt.close()
 
 
+# ==== unfolded-result display ====
 def _covariance_per_bin_width(cov, bin_widths):
     """If ``x_i = y_i / bw_i``, propagate ``Cov(y)`` to ``Cov(x)`` with ``D = diag(1/bw)``."""
     invbw = 1.0 / np.clip(np.asarray(bin_widths, dtype=float), 1e-300, None)
@@ -4330,164 +2983,7 @@ def plot_unfolded_result(unfold,
         plt.close()
 
 
-def variation_hists(evtdfs=None, var_name=None, breakdown_type=None,
-                    nevts_list=None,
-                    datadf=None,
-                    bins=None,
-                    var_colors=None, var_labels=None,
-                    plot_labels=["", "", ""],
-                    vline = None,
-                    textloc=[0.05, 0.55],
-                    approval="internal",
-                    plot=True,
-                    save_fig=False, save_name=None): 
-
-    bin_centers = 0.5 * (bins[:-1] + bins[1:])
-
-    if evtdfs is not None:
-        n_vars = len(evtdfs)
-    elif nevts_list is not None:
-        n_vars = len(nevts_list)
-    else:
-        raise ValueError("Either evtdfs or nevts_list must be provided")
-
-    # get distribution from dfs
-    if evtdfs is not None:
-        vardfs, wgtdfs = [], []
-        nevts_list = []
-        mc_stat_err_list = []
-        for df in evtdfs:
-            vardf, wgtdf = get_clipped_evts(df, var_name, bins)
-            vardfs.append(vardf)
-            wgtdfs.append(wgtdf)
-
-            nevts, _ = np.histogram(vardf, bins=bins, weights=wgtdf)
-            total_mc_err2, _ = np.histogram(vardf, bins=bins, weights=wgtdf**2)
-            mc_stat_err = np.sqrt(total_mc_err2)
-            nevts_list.append(nevts)
-            mc_stat_err_list.append(mc_stat_err)
-
-        if breakdown_type is not None:
-            # plot breakdown for the first variation (CV)
-            if breakdown_type == "topology":
-                labels = topology_labels[::-1]
-                colors = topology_colors[::-1]
-                cuts = get_topo_category(evtdfs[0], ret_cuts=True)
-
-            elif breakdown_type == "genie":
-                labels = genie_mode_labels
-                colors = genie_mode_colors
-                cuts = get_genie_category(evtdfs[0], ret_cuts=True)
-
-
-    if datadf is not None:
-        vardf_data, wgtdf_data = get_clipped_evts(datadf, var_name, bins)
-        total_data, _ = np.histogram(vardf_data, bins=bins, weights=wgtdf_data)
-        data_eylow, data_eyhigh = return_data_stat_err(total_data)
-
-    # ===== plot =====
-    fig, axs = plt.subplots(2, 1, figsize=(7.5, 7), 
-                            sharex=True, gridspec_kw={'height_ratios': [4, 1]})
-
-    fig.subplots_adjust(hspace=0.05)
-    ax = axs[0]
-    ax_r = axs[1]
-
-    for sidx in range(n_vars):
-        if sidx == 0:
-            if breakdown_type is not None:
-                vardf, wgtdf = get_clipped_evts(evtdfs[0], var_name, bins)
-                vardf_categ = [vardf[i] for i in cuts]
-                weights_categ = [list(evtdfs[0].loc[cuts[i], 'pot_weight']) for i in range(len(cuts))]
-                mc_stack, _, _ = ax.hist(vardf_categ,
-                                        weights=weights_categ,
-                                        bins=bins,
-                                        stacked=True,
-                                        color=colors,
-                                        label=labels,
-                                        linewidth=0,
-                                        edgecolor='none',
-                                        histtype='stepfilled')
-                continue
-
-        ax.hist(bin_centers,
-                weights=nevts_list[sidx],
-                bins=bins, 
-                histtype="step" , 
-                color=var_colors[sidx], 
-                label=var_labels[sidx])
-
-    if datadf is not None:
-        ax.errorbar(bin_centers, 
-                    total_data, 
-                    yerr=np.vstack((data_eylow, data_eyhigh)),
-                    color='black', 
-                    fmt='o', markersize=5, capsize=3, linewidth=1.5,
-                    label='Data')
-
-
-    ax.set_ylabel(plot_labels[1])
-    ax.set_title(plot_labels[2])
-    ax.set_xlim(bins[0], bins[-1])
-
-    # ==== var/CV ratio panel
-    for sidx in range(n_vars):
-        if sidx == 0:
-            continue
-        # Avoid division by zero: ignore bins where denominator is 0
-        ratio = np.full_like(nevts_list[0], np.nan, dtype=float)
-        nonzero_mask = nevts_list[0] != 0
-        ratio[nonzero_mask] = nevts_list[sidx][nonzero_mask] / nevts_list[0][nonzero_mask]
-        # this_err = np.sqrt(
-        #     (mc_stat_err_list[0] / nevts_list[0])**2 + 
-        #     (mc_stat_err_list[sidx] / nevts_list[sidx])**2
-        # )
-        # Only plot nonzero, non-nan elements in the ratio
-        valid_mask = (~np.isnan(ratio)) & (ratio != 0)
-        ax_r.hist(bin_centers[valid_mask], bins=bins, weights=ratio[valid_mask], linewidth=1, histtype="step", color=var_colors[sidx])
-
-    ax_r.axhline(1.0, color='red', linestyle='--', linewidth=1)
-    ax_r.set_xlim(bins[0], bins[-1])
-    ax_r.set_ylim(0.9, 1.1)
-    ax_r.set_xlabel(plot_labels[0])
-    ax_r.set_ylabel("Variation / CV")
-    ax_r.grid(True)
-    ax_r.minorticks_on()
-    ax_r.grid(which='minor', linestyle=':', linewidth=0.5, color='gray', alpha=0.5)
-
-    # ==== plot additions
-    # vertical lines on main panel
-    if vline is not None:
-        for v in vline:
-            ymax = ax.get_ylim()[1]
-            ax.vlines(x=v, ymin=0, ymax=ymax*0.75, color='red', linestyle='--')
-
-    # approval rank
-    textloc_x, textloc_ha = get_textloc_x(nevts_list[0], bins, textloc)
-    textloc_y = textloc[1]
-    add_approval_text(approval, textloc_x, textloc_y, textloc_ha)
-    ax.legend(loc="best")
-
-    # == save figure ==
-    if save_fig:
-        plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
-
-    if plot == True:
-        plt.show()
-    else:
-        plt.close()
-
-    return nevts_list
-
-# def signal_cut(df, detector=DETECTOR):
-#     # print("DETECTOR: ", detector)
-#     # signal_cut =  (df.mc.nmu_220MeVc == 1) & (df.mc.np_300MeVc == 1) & (df.mc.npi_70MeVc == 0) & (df.mc.npi0 == 0) &\
-#     #                 (np.sqrt(df.mc.mu.genp.x**2 + df.mc.mu.genp.y**2 + df.mc.mu.genp.z**2) < 1) &\
-#     #                 (np.sqrt(df.mc.p.genp.x**2 + df.mc.p.genp.y**2 + df.mc.p.genp.z**2) < 1) &\
-#     #                     InFV(df.mc.mu.start, det=detector) & InFV(df.mc.p.start, det=detector) 
-#     # return df[signal_cut]
-#     return df[IsNuInFV_NumuCC_1p0pi(df, detector=detector)]
-
+# ==== signal histogram builders ====
 def signal_cut(df, detector=DETECTOR, signal_truth_fv="per_tpc"):
     return df[IsNuInFV_NumuCC_1p0pi(df, detector=detector, signal_truth_fv=signal_truth_fv)]
 
@@ -4775,6 +3271,7 @@ def plot_heatmap(matrix,
 ####
 # Exposure Accounting
 
+# ====== flux, detector geometry, and cross-section normalization ======
 def get_integrated_flux(fluxfile, plot=False):
     # flux file, units: /m^2/10^6 POT 
     # 50 MeV bins
