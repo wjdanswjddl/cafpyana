@@ -78,7 +78,6 @@ class EventSelectionBatchedConfig:
     aggregate_only: bool = False
     skip_aggregate: bool = False
     cosmic_estimate: str = "intime"
-    hide_cosmic_model_unc: bool = False
     f_offbeam_frac: float = 0.08
     save_fig: bool = True
     show_fig: bool = False
@@ -396,8 +395,6 @@ def run_aggregate(cfg: EventSelectionBatchedConfig, batches_dir: Path | str | No
         pot_str=pot_str,
         save_fig=cfg.save_fig,
         show_fig=cfg.show_fig,
-        cosmic_estimate=cfg.cosmic_estimate,
-        show_cosmic_model_unc=not cfg.hide_cosmic_model_unc,
         syst_disk_root=syst_disk_arg,
     )
     agg.render_summary_breakdown_plot(

@@ -107,9 +107,7 @@ def parse_args():
     p.add_argument("--data_pot", type=float, default=None,
                    help="Override data POT for legend (default: sum of chunk_pot from data pickles)")
     p.add_argument("--cosmic_estimate", choices=("intime", "offbeam"), default="intime",
-                   help="Which cosmic sample drives the stacked cosmic component")
-    p.add_argument("--hide_cosmic_model_unc", action="store_true",
-                   help="Do not shade intime-vs-offbeam bin-wise spread")
+                   help="Which cosmic sample drives the summary bar-plot breakdown (intime default)")
     p.add_argument("--f_offbeam_frac", type=float, default=0.08,
                    help="Offbeam-coincident-with-BNB fraction used in cosmic gates scaling")
     p.add_argument("--skip_global_exposure", action="store_true",
@@ -179,8 +177,6 @@ def render_overlay_plots(
     pot_str: str,
     save_fig: bool,
     show_fig: bool,
-    cosmic_estimate: str,
-    show_cosmic_model_unc: bool,
     syst_disk_root: str | None = None,
 ):
     """Render every plot stored in ``merged['histdata']``."""
@@ -220,11 +216,13 @@ def render_overlay_plots(
         kwargs.setdefault("save_name", save_name)
         kwargs.setdefault("plot", show_fig)
         kwargs["plot_labels"] = plot_labels
-        kwargs.setdefault("cosmic_estimate", cosmic_estimate)
-        kwargs.setdefault("show_cosmic_model_unc", show_cosmic_model_unc)
         kwargs.setdefault("verbose_hist", (ps.name_suffix or "") == "final")
         # Match ``selected_events.ipynb``: combined syst as hatched band (not norm/shape/mixed fill).
         kwargs.setdefault("syst_decomp", False)
+        # Drop retired overlay kwargs if any pipeline PlotSpec still sets them.
+        kwargs.pop("cosmic_estimate", None)
+        kwargs.pop("show_cosmic_model_unc", None)
+        kwargs.pop("legend_percentages", None)
 
         # Pre-saved fractional covariance on the syst disk (GENIE / flux / …).
         if kwargs.get("syst") is None and syst_disk_root is not None:
@@ -576,8 +574,6 @@ def main():
     pot_str = get_pot_str(data_pot)
     print(f"[aggregate] data_pot (legend)={data_pot:.3e} -> POT label={pot_str}")
 
-    show_cosmic_unc = not args.hide_cosmic_model_unc
-
     # ---- render (syst bands only from pre-saved disk covariances)
     from analysis_village.numucc_1p0pi.utils import _DEFAULT_SYST_DISK_ROOT
     syst_disk_root = (
@@ -589,8 +585,6 @@ def main():
     render_overlay_plots(
         merged, plot_label_map={}, save_fig_dir=save_fig_dir,
         pot_str=pot_str, save_fig=args.save_fig, show_fig=args.show_fig,
-        cosmic_estimate=args.cosmic_estimate,
-        show_cosmic_model_unc=show_cosmic_unc,
         syst_disk_root=syst_disk_root,
     )
     render_summary_breakdown_plot(

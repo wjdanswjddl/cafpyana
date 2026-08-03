@@ -409,24 +409,6 @@ def _overlay_bkgd_syst_sigma(total_mc_bkgd, bkgd_frac_cov):
         return np.sqrt(frac_diag) * total_mc_bkgd
 
 
-def _overlay_resolve_legend_fractions(breakdown_fractions, legend_percentages):
-    """Use explicit legend percentages (0–100) when provided; else auto fractions (0–1)."""
-    if legend_percentages is None:
-        return breakdown_fractions
-    if breakdown_fractions is None:
-        raise ValueError(
-            "legend_percentages was provided but no MC breakdown fractions were computed"
-        )
-    fracs = np.asarray(legend_percentages, dtype=float) / 100.0
-    n_categ = len(breakdown_fractions)
-    if len(fracs) != n_categ:
-        raise ValueError(
-            "legend_percentages length %d != number of MC categories %d"
-            % (len(fracs), n_categ)
-        )
-    return list(fracs)
-
-
 def _overlay_draw_bkgd_syst_band(
     ax,
     bin_centers,
@@ -1210,10 +1192,7 @@ def overlay_hists_from_histdata(histdata,
                                 plot=True,
                                 save_fig=False,
                                 save_name=None,
-                                cosmic_estimate="intime",
-                                show_cosmic_model_unc=True,
-                                verbose_hist=False,
-                                legend_percentages=None):
+                                verbose_hist=False):
     """Render an overlay histogram plot from precomputed histograms.
 
     The plot output is bit-for-bit identical to overlay_hists(...) with raw
@@ -1224,19 +1203,10 @@ def overlay_hists_from_histdata(histdata,
     histdata : OverlayHistData
         Container with breakdown_type, bins, per-category MC histograms,
         intime/dirt/data histograms, and corresponding sum-of-weights^2
-        arrays (for stat errors).
+        arrays (for stat errors). Cosmic contribution uses intime when present,
+        else offbeam.
     var_config : VariableConfig
         Carries bins, labels, var_save_name (for "integrated" formatting).
-    cosmic_estimate : {'intime', 'offbeam'}
-        Which fully-scaled cosmic histogram is merged into the MC cosmic slice.
-        Requires the corresponding ``histdata.has_*`` flag.
-    show_cosmic_model_unc : bool
-        Accepted for API compatibility with ``overlay_hists``; the intime/offbeam
-        uncertainty band is **not** drawn (only the merged cosmic estimate is used).
-    legend_percentages : sequence of float or None
-        Optional per-category percentages (0–100) for legend labels, in the same
-        order as ``labels`` / ``breakdown_fractions``. When set, overrides the
-        fractions computed from the MC stack integrals.
     Other arguments behave identically to overlay_hists().
     """
 
@@ -1301,22 +1271,14 @@ def overlay_hists_from_histdata(histdata,
         weights_categ = None
         total_mc_bkgd = None
 
-    if cosmic_estimate not in ("intime", "offbeam"):
-        raise ValueError("cosmic_estimate must be 'intime' or 'offbeam'")
-
+    # Cosmic estimate: prefer intime, fall back to offbeam.
     cosmic_hist_bins = None
-    if cosmic_estimate == "intime" and histdata.has_intime:
+    if histdata.has_intime:
         cosmic_hist_bins = histdata.intime_hist.astype(float)
-    elif cosmic_estimate == "offbeam" and getattr(histdata, "has_offbeam", False):
+    elif getattr(histdata, "has_offbeam", False):
         cosmic_hist_bins = histdata.offbeam_hist.astype(float)
 
-    if cosmic_hist_bins is None:
-        if histdata.has_intime:
-            cosmic_hist_bins = histdata.intime_hist.astype(float)
-        elif getattr(histdata, "has_offbeam", False):
-            cosmic_hist_bins = histdata.offbeam_hist.astype(float)
-
-    # Merge scaled intime/offbeam cosmic estimate into MC category 0 (same as
+    # Merge scaled cosmic estimate into MC category 0 (same as
     # ``overlay_hists``: concat events). For pre-binned histograms, **add** bin
     # contents — do not duplicate ``bin_centers`` (that doubles fake samples per
     # bin and breaks stacking / legend fraction accounting).
@@ -1473,10 +1435,6 @@ def overlay_hists_from_histdata(histdata,
                 breakdown_fractions = [li / tot_int for li in layer_integrals]
             else:
                 breakdown_fractions = [0.0] * len(layer_integrals)
-
-    breakdown_fractions = _overlay_resolve_legend_fractions(
-        breakdown_fractions, legend_percentages
-    )
 
     chi2_val = None
     chi2_reduced = None
@@ -1832,11 +1790,8 @@ def overlay_hists(breakdown_type="topology",
                   save_fig=False, 
                   save_name=None,
                   histdata=None,
-                  cosmic_estimate="intime",
-                  show_cosmic_model_unc=True,
                   verbose_hist=False,
-                  signal_truth_fv="per_tpc",
-                  legend_percentages=None):
+                  signal_truth_fv="per_tpc"):
 
     # If precomputed histogram contents are provided, dispatch to the
     # histdata-based renderer so that the chunked / aggregated framework
@@ -1866,10 +1821,7 @@ def overlay_hists(breakdown_type="topology",
             plot=plot,
             save_fig=save_fig,
             save_name=save_name,
-            cosmic_estimate=cosmic_estimate,
-            show_cosmic_model_unc=show_cosmic_model_unc,
             verbose_hist=verbose_hist,
-            legend_percentages=legend_percentages,
         )
 
     # ==== prepare dfs for plotting ====
@@ -1877,26 +1829,25 @@ def overlay_hists(breakdown_type="topology",
     # MC
     if mc_df is not None:
 
-        # TODO: uncomment this to append dirt_df to mc_df
-        # if dirt_df is not None:
-        #     dirt_df_ = dirt_df.copy()
-        #     # append to mc_df, bump up __ntuple index so that they are unique
-        #     ntuple_vals = mc_df.index.get_level_values(0)
-        #     ntuple_offset = ntuple_vals.max()+1
-        #     names = dirt_df_.index.names
-        #     # __ntuple should be at level 0
-        #     if "__ntuple" in names:
-        #         idx_loc = names.index("__ntuple")
-        #     else:
-        #         idx_loc = 0
-        #     new_tuples = []
-        #     for tup in dirt_df_.index:
-        #         tup = list(tup)
-        #         tup[idx_loc] = tup[idx_loc] + ntuple_offset
-        #         new_tuples.append(tuple(tup))
-        #     dirt_df_.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
+        if dirt_df is not None:
+            dirt_df_ = dirt_df.copy()
+            # append to mc_df, bump up __ntuple index so that they are unique
+            ntuple_vals = mc_df.index.get_level_values(0)
+            ntuple_offset = ntuple_vals.max()+1
+            names = dirt_df_.index.names
+            # __ntuple should be at level 0
+            if "__ntuple" in names:
+                idx_loc = names.index("__ntuple")
+            else:
+                idx_loc = 0
+            new_tuples = []
+            for tup in dirt_df_.index:
+                tup = list(tup)
+                tup[idx_loc] = tup[idx_loc] + ntuple_offset
+                new_tuples.append(tuple(tup))
+            dirt_df_.index = pd.MultiIndex.from_tuples(new_tuples, names=names)
 
-        #     mc_df = pd.concat([mc_df, dirt_df])
+            mc_df = pd.concat([mc_df, dirt_df])
         
         vardf, wgtdf    = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
 
@@ -2113,10 +2064,6 @@ def overlay_hists(breakdown_type="topology",
                     align='center'
                 )
                 bottom += hist_vals
-
-        breakdown_fractions = _overlay_resolve_legend_fractions(
-            breakdown_fractions, legend_percentages
-        )
 
     chi2_val = None
     chi2_reduced = None
