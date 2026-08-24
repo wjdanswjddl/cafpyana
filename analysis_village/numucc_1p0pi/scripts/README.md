@@ -52,6 +52,8 @@ Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `d
 - **`syst_detvar_chunk.py`** → **`syst_detvar_aggregate.py`** (driver: `run_syst_detvar_chunked.sh`): WireMod / calorimetry / E-field unisim covariances from DetVar CAF `.df` files.
 - **`wiremod_match_common_events.py`** (driver: `run_match_detvars.sh`): match common events between CV and WireMod samples.
 - **`sce_match_common_events.py`** (driver: `run_match_sce.sh`): same for 0x/2x SCE samples.
+- **`dent_match_common_events.py`** (driver: `run_match_dent.sh`): match CV vs DENT at `sel_all` (primary) and `sel_mup`.
+- **`dent_compare.py`**: DENT matched histograms, comparison plots, and efficiency/purity summary under `systematics-final/DENT/`.
 
 ---
 

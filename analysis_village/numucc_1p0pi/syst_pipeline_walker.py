@@ -56,8 +56,8 @@ def _build_cut_stage_specs() -> List[CutStageVarSpec]:
         CutStageVarSpec("2prong-trackscore", VariableConfig.vtx_dist(), "trk"),
         CutStageVarSpec("2prong-vtxdist", VariableConfig.trk_len(), "trk"),
         CutStageVarSpec("2prong-vtxdist", VariableConfig.mcs_range_diff(), "trk"),
-        CutStageVarSpec("2prong-vtxdist", VariableConfig.chi2_mu(), "trk"),
-        CutStageVarSpec("2prong-vtxdist", VariableConfig.chi2_proton(), "trk"),
+        CutStageVarSpec("2prong-vtxdist", VariableConfig.chi2_avg_mu(), "trk"),
+        CutStageVarSpec("2prong-vtxdist", VariableConfig.chi2_avg_proton(), "trk"),
     ]
 
 

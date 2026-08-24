@@ -96,7 +96,7 @@ Systematics:
 - `systematics-summary.ipynb` — per-category uncertainty breakdown export.
 - `systematics-flux_asymmetry.ipynb` — flux-universe asymmetry inspection.
 - `multisigma_to_multisim.ipynb` — multisigma → multisim conversion for GENIE knobs.
-- `wiremod.ipynb` / `sce.ipynb` — WireMod and SCE matched-event detector studies.
+- `wiremod.ipynb` / `sce.ipynb` / `dent.ipynb` — WireMod, SCE, and DENT matched-event detector studies.
 - `detector_Efield_doubleanode.ipynb` — validation of the in-repo double-anode E-field map.
 - `total_uncertainty_del_Tp.ipynb` — total uncertainty example for δp_T.
 

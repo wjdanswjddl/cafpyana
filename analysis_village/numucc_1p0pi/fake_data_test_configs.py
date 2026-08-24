@@ -26,8 +26,6 @@ class FakeDataWeights:
         self.var_config = var_config
 
     def get_weights(self, test_name, **kwargs):
-        # Always start from ones (unless otherwise needed)
-        # TODO: place normalization here?
         weights_fake_data = np.ones(len(self.mc_evt_df))
         weight_fakedata_signal_truth = np.ones(len(self.mc_nu_df[self.mc_nu_df.topo_categ == 1]))
         

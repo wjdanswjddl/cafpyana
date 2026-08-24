@@ -810,8 +810,8 @@ class VariableConfig:
             r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{reco.}}}$",
             r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{true}}}$"],
             bins=np.linspace(0, 60, 61),
-            # Plane-2 calovar-updated score (calo shifts only affect *_new)
-            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon_new',  ''),
+            # Current selections store the plane-2 chi2 as `chi2_muon` (no *_new suffix).
+            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon',  ''),
             var_evt_truth_col=('', '', '', '', '', ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu}}$ ($\mathrm{cm}^2$)"
@@ -826,8 +826,8 @@ class VariableConfig:
             r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{reco.}}}$",
             r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{true}}}$"],
             bins=np.linspace(0, 60, 61),
-            var_evt_reco_col=('trk1','pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon_new',  ''),
-            var_evt_truth_col=('trk1','pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon_new',  ''),
+            var_evt_reco_col=('trk1','pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon',  ''),
+            var_evt_truth_col=('trk1','pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon',  ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu}}$ ($\mathrm{cm}^2$)"
         )
@@ -841,10 +841,47 @@ class VariableConfig:
             r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{reco.}}}$",
             r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{true}}}$"],
             bins=np.linspace(0, 350, 61),
-            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton_new',  ''),
+            # Current selections store the plane-2 chi2 as `chi2_proton` (no *_new suffix).
+            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton',  ''),
             var_evt_truth_col=('', '', '', '', '', ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p}}$ ($\mathrm{cm}^2$)"
+        )
+
+    @classmethod
+    def chi2_avg_mu(cls):
+        """Plane-averaged muon chi2 (avg over I0/I1/I2, excluding zeros) — used in PID."""
+        return cls(
+            var_save_name="chi2_avg_mu",
+            var_plot_name="$\\chi^2_{\\mu,\\mathrm{avg}}$",
+            var_labels=[
+                r"$\mathrm{\chi^{2}_{\mu,\,avg}}$",
+                r"$\mathrm{\chi^{2}_{\mu,\,avg,\,\mathrm{reco.}}}$",
+                r"$\mathrm{\chi^{2}_{\mu,\,avg,\,\mathrm{true}}}$",
+            ],
+            bins=np.linspace(0, 60, 61),
+            var_evt_reco_col=("pfp", "trk", "chi2pid", "avg", "chi2_muon", ""),
+            var_evt_truth_col=("", "", "", "", "", ""),
+            var_nu_col=("", "", ""),
+            xsec_label=r"",
+        )
+
+    @classmethod
+    def chi2_avg_proton(cls):
+        """Plane-averaged proton chi2 (avg over I0/I1/I2, excluding zeros) — used in PID."""
+        return cls(
+            var_save_name="chi2_avg_p",
+            var_plot_name="$\\chi^2_{p,\\mathrm{avg}}$",
+            var_labels=[
+                r"$\mathrm{\chi^{2}_{p,\,avg}}$",
+                r"$\mathrm{\chi^{2}_{p,\,avg,\,\mathrm{reco.}}}$",
+                r"$\mathrm{\chi^{2}_{p,\,avg,\,\mathrm{true}}}$",
+            ],
+            bins=np.linspace(0, 350, 61),
+            var_evt_reco_col=("pfp", "trk", "chi2pid", "avg", "chi2_proton", ""),
+            var_evt_truth_col=("", "", "", "", "", ""),
+            var_nu_col=("", "", ""),
+            xsec_label=r"",
         )
 
     @classmethod
@@ -856,8 +893,8 @@ class VariableConfig:
             r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{reco.}}}$",
             r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{true}}}$"],
             bins=np.linspace(0, 300, 61),
-            var_evt_reco_col=('trk1', 'pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton_new',  ''),
-            var_evt_truth_col=('trk1', 'pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton_new',  ''),
+            var_evt_reco_col=('trk1', 'pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton',  ''),
+            var_evt_truth_col=('trk1', 'pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton',  ''),
             var_nu_col=('', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p}}$ ($\mathrm{cm}^2$)"
         )
