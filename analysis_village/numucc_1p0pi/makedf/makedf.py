@@ -146,6 +146,76 @@ def make_pandora_evtdf_mup_mc_multisim(
     )
 
 
+def make_pandora_evtdf_all_mc_multisim(
+    f,
+    sel_level="all",
+    include_weights=True,
+    multisim_nuniv=1000,
+    wgt_types=None,
+    slim=False,
+    genie_systematics=None,
+    flux_systematics=None,
+    trkScoreCut=False,
+    trkDistCut=1000.0,
+    cutClearCosmic=False,
+    **trkArgs,
+):
+    """Loose ``sel_all`` selection + configurable multisim weights (matches ``sel_all-mc`` cuts)."""
+    if wgt_types is None:
+        raise ValueError(
+            "make_pandora_evtdf_all_mc_multisim requires wgt_types, e.g. ['genie']"
+        )
+    return make_pandora_evtdf(
+        f,
+        sel_level=sel_level,
+        include_weights=include_weights,
+        multisim_nuniv=multisim_nuniv,
+        wgt_types=wgt_types,
+        slim=slim,
+        genie_systematics=genie_systematics,
+        flux_systematics=flux_systematics,
+        trkScoreCut=trkScoreCut,
+        trkDistCut=trkDistCut,
+        cutClearCosmic=cutClearCosmic,
+        **trkArgs,
+    )
+
+
+def make_pandora_evtdf_all_genieslimwgts(
+    f,
+    sel_level="all",
+    include_weights=True,
+    genie_multisim_nuniv=100,
+    wgt_types=None,
+    slim=True,
+    genie_systematics=None,
+    trkScoreCut=False,
+    trkDistCut=1000.0,
+    cutClearCosmic=False,
+    **trkArgs,
+):
+    """Loose ``sel_all`` + slim GENIE weights (``mc.GENIE.univ_*`` product; see ``getsyst.slim``)."""
+    if wgt_types is None:
+        wgt_types = ["genie"]
+    if genie_systematics is None:
+        from makedf.geniesyst import regen_systematics
+
+        genie_systematics = regen_systematics
+    return make_pandora_evtdf(
+        f,
+        sel_level=sel_level,
+        include_weights=include_weights,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        wgt_types=wgt_types,
+        slim=slim,
+        genie_systematics=genie_systematics,
+        trkScoreCut=trkScoreCut,
+        trkDistCut=trkDistCut,
+        cutClearCosmic=cutClearCosmic,
+        **trkArgs,
+    )
+
+
 def make_mcnudf_mc_multisim(
     f,
     include_weights=True,
@@ -259,6 +329,117 @@ def build_genie_knobgroup_config(group_filter=None):
         DFS.append(make_mcnudf_mc_multisim)
         ARGS.append({**mcn_kw, "genie_systematics": syst})
         NAMES.append("mcnu" if single else "mcnu_%s" % name)
+
+    DFS.append(make_hdrdf)
+    ARGS.append({})
+    NAMES.append("hdr")
+
+    assert len(DFS) == len(ARGS) == len(NAMES)
+    return DFS, ARGS, NAMES
+
+
+def build_genie_slim_config_sel_all(
+    genie_systematics=None,
+    genie_multisim_nuniv=100,
+):
+    """
+    Build DFS / ARGS / NAMES for loose ``sel_all`` + **slim** GENIE weights.
+
+    Multisim knobs (CAF type 0) are multiplied universe-by-universe into
+    ``mc.GENIE.univ_*``; multisigma / morph knobs stay as separate per-knob columns
+    (see ``makedf.getsyst.getsyst(..., slim=True)`` and ``geniesyst._slim_genie_weight_columns``).
+
+    Default knob list: ``regen_systematics`` (Spring regen CAFs). Pass e.g.
+    ``gen1_systematics`` for legacy gen1 samples, or extend with Ar23p knobs on
+    respin CAFs.
+    """
+    if genie_systematics is None:
+        from makedf.geniesyst import regen_systematics
+
+        genie_systematics = regen_systematics
+
+    evt_kw = dict(
+        include_weights=True,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        wgt_types=["genie"],
+        slim=True,
+        genie_systematics=genie_systematics,
+    )
+    mcnu_kw = dict(
+        genie_systematics=genie_systematics,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        slim=True,
+    )
+
+    DFS = [
+        make_pandora_evtdf_all_genieslimwgts,
+        make_trkdf,
+        make_mcnudf_genieslimwgts,
+        make_hdrdf,
+    ]
+    ARGS = [evt_kw, {}, mcnu_kw, {}]
+    NAMES = ["evt", "trk", "mcnu", "hdr"]
+    assert len(DFS) == len(ARGS) == len(NAMES)
+    return DFS, ARGS, NAMES
+
+
+def build_genie_knobgroup_config_sel_all(group_filter=None):
+    """
+    Build DFS / ARGS / NAMES for loose ``sel_all`` + GENIE multisim by knob group.
+
+    Output layout (single group via ``GENIE_KNOB_GROUP``):
+      ``evt``, ``trk``, ``mcnu``, ``hdr`` — required by ``get_systematics_genie.py``
+      with ``--input-stage sel_all``.
+
+    Multi-group (``group_filter=None``): ``evt_<Name>``, ``mcnu_<Name>`` per group,
+    plus one shared ``trk`` and ``hdr``.
+    """
+    from makedf.geniesyst import GENIE_KNOB_GROUPS
+
+    if group_filter is not None:
+        if group_filter not in GENIE_KNOB_GROUPS:
+            raise ValueError(
+                "Unknown GENIE knob group %r; valid keys: %s"
+                % (group_filter, tuple(GENIE_KNOB_GROUPS))
+            )
+        groups = {group_filter: GENIE_KNOB_GROUPS[group_filter]}
+    else:
+        groups = GENIE_KNOB_GROUPS
+
+    single = len(groups) == 1
+    evt_kw = dict(
+        include_weights=True,
+        multisim_nuniv=200,
+        wgt_types=["genie"],
+        slim=False,
+    )
+    mcn_kw = dict(
+        include_weights=True,
+        multisim_nuniv=100,
+        genie_multisim_nuniv=100,
+        wgt_types=["genie"],
+        slim=False,
+    )
+
+    DFS, ARGS, NAMES = [], [], []
+    for name, syst in groups.items():
+        DFS.append(make_pandora_evtdf_all_mc_multisim)
+        ARGS.append({**evt_kw, "genie_systematics": syst})
+        NAMES.append("evt" if single else "evt_%s" % name)
+
+        if single:
+            DFS.append(make_trkdf)
+            ARGS.append({})
+            NAMES.append("trk")
+
+        DFS.append(make_mcnudf_mc_multisim)
+        ARGS.append({**mcn_kw, "genie_systematics": syst})
+        NAMES.append("mcnu" if single else "mcnu_%s" % name)
+
+    if not single:
+        DFS.append(make_trkdf)
+        ARGS.append({})
+        NAMES.append("trk")
 
     DFS.append(make_hdrdf)
     ARGS.append({})

@@ -71,6 +71,18 @@ def _cases():
             )
         )
 
+    out.append(("configs/numucc_1p0pi/sel_all-geniewgts-knobgroups.py", {"GENIE_KNOB_GROUP": "slim"}, "sel-all-genie-slim", True))
+    out.append(("configs/numucc_1p0pi/sel_all-geniewgts-knobgroups.py", {}, "sel-all-genie-all-groups", False))
+    for g in genie_one_offs:
+        out.append(
+            (
+                "configs/numucc_1p0pi/sel_all-geniewgts-knobgroups.py",
+                {"GENIE_KNOB_GROUP": g},
+                "sel-all-genie-group-%s" % g.lower(),
+                True,
+            )
+        )
+
     # Optional preprocess + GENIE Ar23p weights (paths inside config must exist on your machine)
     out.append(("configs/numucc_1p0pi/add_ar23p.py", {}, "add-ar23p-preprocess", False))
 

@@ -4,6 +4,11 @@ import pandas as pd
 import awkward as ak
 
 
+def _physical_wgt(values):
+    """Event reweights must be non-negative; clip before use (especially slim products)."""
+    return np.clip(np.asarray(values, dtype=np.float64), 0.0, None)
+
+
 def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="slim"):
     if "globalTree" not in f:
         return pd.DataFrame(index=nuind.index)
@@ -76,13 +81,15 @@ def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="sli
             this_wgts = this_wgts.reset_index(level=2)
             this_wgts = this_wgts.pivot_table(values="wgt", index=["entry", "inu"], columns="iwgt")
             this_wgts.columns = pd.MultiIndex.from_tuples([(s, "univ_%i"% i) for i in range(len(this_wgts.columns))])
+            this_wgts = this_wgts.apply(_physical_wgt)
 
             if slim:
                 for i in range(multisim_nuniv):
                     col = (s, f"univ_{i}")
                     if col in this_wgts.columns:
                         systs_slim[(slimname, f"univ_{i}")] = (
-                            systs_slim[(slimname, f"univ_{i}")].values * this_wgts[col]
+                            systs_slim[(slimname, f"univ_{i}")].values
+                            * this_wgts[col].values
                         )
             else:
                 for c in this_wgts.columns:
@@ -92,7 +99,8 @@ def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="sli
             raise Exception("Cannot decode systematic uncertainty: %s" % s)
         
         for syst in this_systs:
-            # print("HI3", syst)
+            if isinstance(syst, pd.Series):
+                syst = syst.clip(lower=0)
             systs.append(syst)
 
     # print("HI")
@@ -100,12 +108,14 @@ def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="sli
         s_idx = systs_slim.index.get_indexer(nuidx)
         systs_slim.loc[s_idx < 0, :] = 1.0
         systs_slim.index = nuind.index
+        systs_slim = systs_slim.apply(_physical_wgt)
         if systs:
             extras = pd.DataFrame(systs).T
             e_idx = extras.index.get_indexer(nuidx)
             extras_match = extras.iloc[e_idx]
             extras_match.loc[e_idx < 0, :] = 1.0
             extras_match.index = nuind.index
+            extras_match = extras_match.apply(_physical_wgt)
             return pd.concat([systs_slim, extras_match], axis=1)
         return systs_slim
 
@@ -115,5 +125,6 @@ def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="sli
         systs_match = systs.iloc[s_idx]
         systs_match.loc[s_idx < 0, :] = 1.
         systs_match.index = nuind.index
+        systs_match = systs_match.apply(_physical_wgt)
         return systs_match
 

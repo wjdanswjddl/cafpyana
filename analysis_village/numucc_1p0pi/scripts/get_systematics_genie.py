@@ -1004,10 +1004,10 @@ def _prefix_mcnu_columns(mc_nu_df: pd.DataFrame) -> None:
 
 
 def _annotate_topo_genie_phi(evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame) -> None:
-    # evt_df.loc[:, "topo_categ"] = get_topo_category(evt_df)
-    # mc_nu_df.loc[:, "topo_categ"] = get_topo_category(mc_nu_df)
-    # evt_df.loc[:, "genie_categ"] = get_genie_category(evt_df)
-    # mc_nu_df.loc[:, "genie_categ"] = get_genie_category(mc_nu_df)
+    evt_df.loc[:, "topo_categ"] = get_topo_category(evt_df)
+    mc_nu_df.loc[:, "topo_categ"] = get_topo_category(mc_nu_df)
+    evt_df.loc[:, "genie_categ"] = get_genie_category(evt_df)
+    mc_nu_df.loc[:, "genie_categ"] = get_genie_category(mc_nu_df)
     _attach_phi_degrees(evt_df, mc_nu_df)
 
 
@@ -1055,8 +1055,8 @@ def run_chunk_map(
             validate_genie_dataframes({"evt": mc_evt_df, "mcnu": mc_nu_df}, context=f"split {i}:")
             mc_evt_df = mc_evt_df.copy()
             mc_nu_df = mc_nu_df.copy()
-            # _prefix_mcnu_columns(mc_nu_df)
-            # mc_nu_df = ensure_mc_level_phi_mcnu(mc_nu_df)
+            _prefix_mcnu_columns(mc_nu_df)
+            mc_nu_df = ensure_mc_level_phi_mcnu(mc_nu_df)
             mc_evt_df = ensure_derived_trk_kinematics_cols(mc_evt_df)
             mc_evt_df = add_reco_cc1p0pi_tki_evtdf(mc_evt_df)
             mc_evt_df = add_truth_cc1p0pi_tki_evtdf(mc_evt_df)
@@ -1089,8 +1089,8 @@ def run_chunk_map(
         evt = evt.copy()
         trk = trk.copy()
         mcnu = mcnu.copy()
-        # _prefix_mcnu_columns(mcnu)
-        # mcnu = ensure_mc_level_phi_mcnu(mcnu)
+        _prefix_mcnu_columns(mcnu)
+        mcnu = ensure_mc_level_phi_mcnu(mcnu)
         _annotate_topo_genie_phi(evt, mcnu)
         mcnu_full = mcnu
 
