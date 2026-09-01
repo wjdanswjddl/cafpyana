@@ -33,7 +33,7 @@ def cut_clear_cosmic(df):
 
 
 def _is_gen1_or_per_tpc_det(det: str) -> bool:
-    """True when ``det`` selects Gen-1 / per-TPC reco containment (aliases)."""
+    """True when ``det`` selects Gen-1 vertex FV + per-TPC containment (aliases)."""
     return det in ("SBND_Gen1", "perTPC", "per_tpc", "Gen1")
 
 

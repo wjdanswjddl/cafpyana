@@ -94,6 +94,8 @@ from analysis_village.numucc_1p0pi.syst_pipeline_walker import (  # noqa: E402
     CUT_STAGE_RATE_ONLY_SLUGS,
     CUT_STAGE_VAR_SPECS,
     FINAL_STAGE_KEY,
+    get_var_series,
+    histogram_var,
     walk_pipeline,
 )
 from pyanalib.variable_calculator import (  # noqa: E402
@@ -179,6 +181,8 @@ def _attach_phi_degrees(mc_evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame) -> None
 
     Event frames use top-level ``mu`` / ``p`` under ``pfp.trk``; ``mcnu`` frames (after
     :func:`_prefix_mcnu_columns`) nest the same under ``mc`` → ``mc.mu`` / ``mc.p``.
+
+    No-ops when mu/p direction columns are absent (raw ``sel_all`` evt before PID).
     """
     def _fill_trk_phi(df: pd.DataFrame, *, mcnu: bool) -> None:
         if df is None or len(df) == 0:
@@ -189,14 +193,14 @@ def _attach_phi_degrees(mc_evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame) -> None
                 phi_col = head + ("phi", "")
                 dir_x = head + ("dir", "x")
                 dir_y = head + ("dir", "y")
-                df.loc[:, phi_col] = np.degrees(np.arctan2(df.loc[:, dir_x], df.loc[:, dir_y]))
-
             else:
-                head: Tuple[str, ...] = (pref,)
+                head = (pref,)
                 phi_col = head + ("pfp", "trk", "phi", "", "", "")
                 dir_x = head + ("pfp", "trk", "dir", "x", "", "")
                 dir_y = head + ("pfp", "trk", "dir", "y", "", "")
-                df.loc[:, phi_col] = np.degrees(np.arctan2(df.loc[:, dir_x], df.loc[:, dir_y]))
+            if dir_x not in df.columns or dir_y not in df.columns:
+                continue
+            df.loc[:, phi_col] = np.degrees(np.arctan2(df.loc[:, dir_x], df.loc[:, dir_y]))
 
     _fill_trk_phi(mc_evt_df, mcnu=False)
     _fill_trk_phi(mc_nu_df, mcnu=True)
@@ -760,6 +764,77 @@ XSEC_ACC_KEY = "xsec_accumulators"
 GENIE_MERGE_COMBINED_KEY = "__GENIE_group_combined__"
 
 
+def _genie_evt_univ_weight_matrix(mc_evt_df: pd.DataFrame, syst_name: SystName, n_univ: int) -> np.ndarray:
+    """Return ``(n_univ, n_evt)`` GENIE weight matrix for one knob on ``mc_evt_df``."""
+    n_evt = len(mc_evt_df)
+    out = np.ones((n_univ, n_evt), dtype=np.float64)
+    block = mc_evt_df[syst_name]
+    for u in range(n_univ):
+        w = genie_univ_weight_series(block, u)
+        out[u] = np.clip(np.asarray(w, dtype=np.float64), 0.0, 20.0)
+    return out
+
+
+def accumulate_cut_stage_rate_into_blob_root(
+    state: Mapping[str, Any],
+    mc_evt_df: pd.DataFrame,
+    mc_nu_df: pd.DataFrame,
+    blob_root: MutableMapping[str, Any],
+    var_config: VariableConfig,
+    target: str,
+    syst_names: Sequence[SystName],
+) -> None:
+    """Rate-only accumulation for cut-stage observables (evt or trk1+trk2).
+
+    Avoids :func:`get_univ_rates` / ``signal_hists``, which need final-selection truth
+    columns that do not exist on early-stage ``sel_all`` frames.
+
+    Always normalizes weights on both ``mc_evt_df`` and ``mc_nu_df`` so later final-stage
+    ``get_univ_rates`` sees the same ``univ_*`` aliases on ``mcnu``.
+    """
+    extracted = get_var_series(state, var_config, target)
+    if extracted is None:
+        return
+    values, evt_idx = extracted
+    bins = np.asarray(var_config.bins, dtype=float)
+    nb = len(bins) - 1
+    slug = var_config.var_save_name
+    rate_blk = blob_root.setdefault(RATE_ACC_KEY, {})
+    cv_h = histogram_var(values, bins)
+
+    for syst_name in syst_names:
+        knob = syst_name[1]
+        n_univ = normalize_and_infer_n_univ(mc_evt_df, mc_nu_df, syst_name)
+        wmat = _genie_evt_univ_weight_matrix(mc_evt_df, syst_name, n_univ)
+        univ_h = np.zeros((n_univ, nb), dtype=np.float64)
+        for u in range(n_univ):
+            univ_h[u] = histogram_var(values, bins, weights=wmat[u][evt_idx])
+        slot_r = rate_blk.setdefault(knob, {}).setdefault(
+            slug,
+            {"univ": np.zeros((n_univ, nb), dtype=np.float64), "cv": np.zeros(nb, dtype=np.float64)},
+        )
+        if slot_r["univ"].shape != univ_h.shape:
+            raise ValueError(
+                f"cut-stage rate shape mismatch knob={knob} slug={slug}: "
+                f"{slot_r['univ'].shape} vs {univ_h.shape}"
+            )
+        slot_r["univ"] += univ_h
+        slot_r["cv"] += cv_h
+
+
+def accumulate_trk_rate_into_blob_root(
+    state: Mapping[str, Any],
+    mc_evt_df: pd.DataFrame,
+    blob_root: MutableMapping[str, Any],
+    var_config: VariableConfig,
+    syst_names: Sequence[SystName],
+) -> None:
+    """Backward-compatible alias for track-level cut-stage rate accumulation."""
+    accumulate_cut_stage_rate_into_blob_root(
+        state, mc_evt_df, mc_evt_df, blob_root, var_config, "trk", syst_names
+    )
+
+
 def accumulate_chunk_into_blob_root(
     mc_evt_df: pd.DataFrame,
     mc_nu_df: pd.DataFrame,
@@ -1102,17 +1177,26 @@ def run_chunk_map(
             pe, pn = _align_evt_mcnu(post_evt, mcnu_full)
             if len(pe) == 0:
                 continue
+            # Keep walker state in sync with the mcnu-aligned evt (trk1/trk2 + weights).
+            post_state = dict(post_state)
+            post_state["evt"] = pe
             for spec in cut_by_stage.get(stage_key, ()):
-                accumulate_chunk_into_blob_root(
+                accumulate_cut_stage_rate_into_blob_root(
+                    post_state,
                     pe,
                     pn,
                     blob_root,
-                    [spec.var_config],
+                    spec.var_config,
+                    spec.target,
                     syst_names,
-                    bkgd_subtract=bkgd_subtract,
-                    skip_xsec_slugs=skip_xsec_cut,
                 )
             if stage_key == FINAL_STAGE_KEY:
+                pe = ensure_derived_trk_kinematics_cols(pe)
+                pe = add_reco_cc1p0pi_tki_evtdf(pe)
+                pe = add_truth_cc1p0pi_tki_evtdf(pe)
+                pn = add_mc_cc1p0pi_tki_mcnu(pn)
+                _attach_phi_degrees(pe, pn)
+                post_state["evt"] = pe
                 for vc in final_only_vcs:
                     accumulate_chunk_into_blob_root(
                         pe,
@@ -1265,8 +1349,8 @@ def parse_chunk_cli(argv: Optional[Sequence[str]] = None):
     pm.add_argument(
         "--genie-group",
         required=True,
-        choices=list(GENIE_GROUP_ORDER),
-        help="Knob group / sample layout (must match dataset_locations GENIE_GROUP_GLOBS).",
+        help="Knob group / sample layout (must match dataset_locations GENIE_GROUP_GLOBS / "
+        "GENIE_GROUP_KNOBS; includes ``slim`` for sel_all slim bundles).",
     )
     pm.add_argument(
         "--input-stage",
@@ -1294,7 +1378,6 @@ def parse_chunk_cli(argv: Optional[Sequence[str]] = None):
     rg.add_argument(
         "--genie-group",
         required=True,
-        choices=list(GENIE_GROUP_ORDER),
         help="Must match the chunk-map --genie-group / pickle prefix.",
     )
     rg.add_argument(
@@ -1325,6 +1408,11 @@ def main_cli_chunk(argv: Optional[Sequence[str]] = None) -> None:
         if args.knobs:
             knobs = [x.strip() for x in args.knobs.split(",") if x.strip()]
         else:
+            if group not in GENIE_GROUP_KNOBS:
+                raise SystemExit(
+                    "[chunk-map] unknown genie group %r; known: %s"
+                    % (group, tuple(GENIE_GROUP_KNOBS))
+                )
             knobs = list(GENIE_GROUP_KNOBS[group])
         if not knobs:
             raise SystemExit("[chunk-map] no knobs for group %s" % group)

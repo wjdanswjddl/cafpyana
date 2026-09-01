@@ -5,12 +5,30 @@ sys.path.append('../../')
 from makedf.util import *
 
 
-DETECTOR = "SBND_Gen1"
-# DETECTOR = "SBND"
+DETECTOR = "perTPC"
+# Accepted aliases for the same reco fiducial (see ``makedf.selections``):
+# SBND_Gen1, per_tpc, Gen1
+
+# ``make_trkdf`` hit InFV, chi2 PID, and per-track ``is_contained`` (not event-level per-TPC).
+TRK_CALO_DET = "SBND_nohighyz"
 
 # Cathode inset (cm) for per-TPC x-fiducial; matches reco helpers in
 # ``makedf.selections.event_contained_per_tpc`` and selected-events drivers.
 PER_TPC_INCATHODE_CM = 10
+
+# Tags that select Gen-1 vertex FV + per-TPC track containment in reco cuts.
+PER_TPC_DET_ALIASES = ("SBND_Gen1", "perTPC", "per_tpc", "Gen1")
+
+
+def is_per_tpc_det(det: str) -> bool:
+    return det in PER_TPC_DET_ALIASES
+
+
+def in_fv(position_df, detector=DETECTOR):
+    """Truth/reco position check for the configured analysis detector tag."""
+    if is_per_tpc_det(detector):
+        return InFV(position_df, det="SBND_Gen1")
+    return InFV(position_df, det=detector)
 
 # ==== definitions for event categories ===-
 
@@ -20,11 +38,11 @@ def IsNu(df):
 def IsCosmic(df):
     return ~IsNu(df)
 
-def IsNuOutFV(df):
-    return IsNu(df) & ~InFV(df.mc.position, det=DETECTOR)
+def IsNuOutFV(df, detector=DETECTOR):
+    return IsNu(df) & ~in_fv(df.mc.position, detector=detector)
 
-def IsNuInFV(df):
-    return IsNu(df) & InFV(df.mc.position, det=DETECTOR)
+def IsNuInFV(df, detector=DETECTOR):
+    return IsNu(df) & in_fv(df.mc.position, detector=detector)
 
 def IsNuInFV_NuOther(df):
     return IsNuInFV(df) & (df.mc.iscc == 1) & (df.mc.pdg != 14)
@@ -158,20 +176,20 @@ def IsNu(df):
     return ~df.mc.pdg.isna()
 
 
-def IsSignal(df): # definition                                                                                                                                                                                                                                                                         
-    is_fv = InFV(df.mc.position, det=DETECTOR)
+def IsSignal(df, detector=DETECTOR): # definition                                                                                                                                                                                                                                                                         
+    is_fv = in_fv(df.mc.position, detector=detector)
     is_1mu1p0pi = (df.mc.nmu_220MeVc == 1) & (df.mc.npi_70MeVc == 0) & (df.mc.np_300MeVc == 1) & (df.mc.npi0 == 0) & (df.mc.mu.totp < 1) & (df.mc.p.totp < 1) # & (df.np_20MeVc == 1) : add with stubs
     return is_fv & is_1mu1p0pi
 
 
-def Is1muNp0pi(df): # definition                                                                                                                                                                                                                                                                         
-    is_fv = InFV(df.mc.position, det=DETECTOR)
+def Is1muNp0pi(df, detector=DETECTOR): # definition                                                                                                                                                                                                                                                                         
+    is_fv = in_fv(df.mc.position, detector=detector)
     is_1mu1p0pi = (df.mc.nmu_220MeVc == 1) & (df.mc.npi_70MeVc == 0) & (df.mc.np_300MeVc > 1) & (df.mc.npi0 == 0) & (df.mc.mu.totp < 1) & (df.mc.p.totp < 1) #& (df.mu.genE > 0.25) # & (df.np_20MeVc == 1) : add with stubs
     return is_fv & is_1mu1p0pi
 
 
-def Is1muNcpi(df): # definition                                                                                                                                                                                                                                                                         
-    is_fv = InFV(df.mc.position, det=DETECTOR)
+def Is1muNcpi(df, detector=DETECTOR): # definition                                                                                                                                                                                                                                                                         
+    is_fv = in_fv(df.mc.position, detector=detector)
     is_1mu1p0pi = (df.mc.nmu_220MeVc == 1) & (df.mc.npi_70MeVc > 0) & (df.mc.npi0 == 0) #& (df.mu.genE > 0.25) # & (df.np_20MeVc == 1) : add with stubs
     return is_fv & is_1mu1p0pi
 

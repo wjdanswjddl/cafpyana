@@ -268,11 +268,11 @@ def build_pipeline() -> List[Stage]:
     ))
 
     # ------------------------------------------------------------------
-    # Stage 2: vertex in fiducial volume
+    # Stage 2: vertex in Gen-1 fiducial volume (per-TPC analysis)
     # ------------------------------------------------------------------
     stages.append(Stage(
         key="vertex_in_fv",
-        label="Vertex in fiducial volume",
+        label="Vertex in Gen-1 fiducial volume",
         cut=_apply_to_evt_with_det(cut_vertex_in_fv),
         plots=[
             PlotSpec(
@@ -333,11 +333,11 @@ def build_pipeline() -> List[Stage]:
     ))
 
     # ------------------------------------------------------------------
-    # Stage 5: both PFPs contained
+    # Stage 5: both PFPs per-TPC contained
     # ------------------------------------------------------------------
     stages.append(Stage(
         key="2prong-contained",
-        label="Both PFPs contained",
+        label="Both PFPs per-TPC contained",
         cut=_apply_to_evt_with_det(cut_2prong_contained),
         plots=[
             PlotSpec(

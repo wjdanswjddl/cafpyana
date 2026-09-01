@@ -7,10 +7,9 @@ from makedf.makedf import *
 from makedf.constants import *
 
 from analysis_village.numucc_1p0pi.makedf.selections import *
+from analysis_village.numucc_1p0pi.categories import DETECTOR, TRK_CALO_DET, in_fv
 from makedf.geniesyst import *
 from makedf.bnbsyst import *
-
-DETECTOR = "SBND_nohighyz"
 
 def make_spine_evtdf(f):
     # load slices and particles
@@ -50,8 +49,8 @@ def make_spine_evtdf(f):
     # require both muon and proton to be present
     df = df[~np.isnan(df.mu.pid) & ~np.isnan(df.p.pid)]
 
-    # require fiducial verex
-    df = df[InFV(df.vertex, 50)]
+    # require fiducial vertex (Gen-1 FV when DETECTOR is perTPC)
+    df = df[in_fv(df.vertex, detector=DETECTOR)]
 
     return df
 
@@ -497,7 +496,7 @@ def make_pandora_evtdf_all_updatecalo(f, sel_level="all", include_weights=False,
     return df
 
 def make_trkdf_updatecalo(f, trkScoreCut=False, trkDistCut=100., updatecalo=True, **trkArgs):
-    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    df = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     return df
 
 def make_pandora_evtdf_mup_updatecalo_ccal_p(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -507,7 +506,7 @@ def make_pandora_evtdf_mup_updatecalo_ccal_p(f, sel_level="mup", include_weights
     return df
 
 def make_trkdf_updatecalo_ccal_p(f, trkScoreCut=False, trkDistCut=100., updatecalo="ccal_p", **trkArgs):
-    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    df = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     return df
 
 def make_pandora_evtdf_mup_updatecalo_ccal_m(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -517,7 +516,7 @@ def make_pandora_evtdf_mup_updatecalo_ccal_m(f, sel_level="mup", include_weights
     return df
 
 def make_trkdf_updatecalo_ccal_m(f, trkScoreCut=False, trkDistCut=100., updatecalo="ccal_m", **trkArgs):
-    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    df = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     return df
 
 def make_pandora_evtdf_mup_updatecalo_alpha_p(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -527,7 +526,7 @@ def make_pandora_evtdf_mup_updatecalo_alpha_p(f, sel_level="mup", include_weight
     return df
 
 def make_trkdf_updatecalo_alpha_p(f, trkScoreCut=False, trkDistCut=100., updatecalo="alpha_p", **trkArgs):
-    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    df = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     return df
 
 def make_pandora_evtdf_mup_updatecalo_alpha_m(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -537,7 +536,7 @@ def make_pandora_evtdf_mup_updatecalo_alpha_m(f, sel_level="mup", include_weight
     return df
 
 def make_trkdf_updatecalo_alpha_m(f, trkScoreCut=False, trkDistCut=100., updatecalo="alpha_m", **trkArgs):
-    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    df = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     return df
 
 def make_pandora_evtdf_mup_updatecalo_beta_p(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -547,7 +546,7 @@ def make_pandora_evtdf_mup_updatecalo_beta_p(f, sel_level="mup", include_weights
     return df
 
 def make_trkdf_updatecalo_beta_p(f, trkScoreCut=False, trkDistCut=100., updatecalo="beta_p", **trkArgs):
-    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    df = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     return df
 
 def make_pandora_evtdf_mup_updatecalo_beta_m(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -557,7 +556,7 @@ def make_pandora_evtdf_mup_updatecalo_beta_m(f, sel_level="mup", include_weights
     return df
 
 def make_trkdf_updatecalo_beta_m(f, trkScoreCut=False, trkDistCut=100., updatecalo="beta_m", **trkArgs):
-    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    df = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     return df
 
 def make_pandora_evtdf_mup_updatecalo_R_p(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -567,7 +566,7 @@ def make_pandora_evtdf_mup_updatecalo_R_p(f, sel_level="mup", include_weights=Fa
     return df
 
 def make_trkdf_updatecalo_R_p(f, trkScoreCut=False, trkDistCut=100., updatecalo="R_p", **trkArgs):
-    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    df = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     return df
 
 def make_pandora_evtdf_mup_updatecalo_R_m(f, sel_level="mup", include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True, 
@@ -577,7 +576,7 @@ def make_pandora_evtdf_mup_updatecalo_R_m(f, sel_level="mup", include_weights=Fa
     return df
 
 def make_trkdf_updatecalo_R_m(f, trkScoreCut=False, trkDistCut=100., updatecalo="R_m", **trkArgs):
-    df = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
+    df = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
     return df
 
 # for SystVar samples
@@ -642,33 +641,21 @@ def make_pandora_evtdf(f, sel_level="all",
         return df
 
     # TODO: read from caf
-    # SBND Gen 1 analysis
-    DETECTOR = "SBND_Gen1"
-
-    # event selection cuts
-    # slice cuts
-    nu_score_th = 0.45
-    save_ntrks = 2
-
-    # track cuts
-    trackscore_th = 0.5
-    vtxdist_th = 1.2
-
-    # muon candidate cuts
-    mu_chi2mu_th = 30
-    mu_chi2p_th = 100
-    mu_len_th = 50
-    qual_th = 0.2
-
-    # proton candidate cuts
-    p_chi2p_th = 90
-    p_len_th = 0
-
-    # track kinematics cuts
-    mu_Plo_th = 0.22
-    mu_Phi_th = 1
-    p_Plo_th = 0.3
-    p_Phi_th = 1
+    # event selection cuts (from ``makedf.selections``)
+    nu_score_th = NU_SCORE_TH
+    save_ntrks = SAVE_NTRKS
+    trackscore_th = TRACKSCORE_TH
+    vtxdist_th = VTXDIST_TH
+    mu_chi2mu_th = MU_CHI2MU_TH
+    mu_chi2p_th = MU_CHI2P_TH
+    mu_len_th = MU_LEN_TH
+    qual_th = QUAL_TH
+    p_chi2p_th = P_CHI2P_TH
+    p_len_th = P_LEN_TH
+    mu_Plo_th = MU_PLO_TH
+    mu_Phi_th = MU_PHI_TH
+    p_Plo_th = P_PLO_TH
+    p_Phi_th = P_PHI_TH
 
     mcdf = make_mcnudf(f, include_weights=include_weights, multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim, genie_systematics=genie_systematics, flux_systematics=flux_systematics)
 
@@ -702,7 +689,7 @@ def make_pandora_evtdf(f, sel_level="all",
     if sel_level == "nu":
         return truth_match(slcdf, mcdf)
 
-    trkdf = make_trkdf(f, det=DETECTOR, scoreCut=trkScoreCut, updatecalo=updatecalo, updateefield=updateefield, **trkArgs)
+    trkdf = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, updateefield=updateefield, **trkArgs)
     trkdf = get_valid_trks(trkdf)
     trkdf = match_trkdf_to_slcdf(trkdf, slcdf)
     evtdf = get_trk_info(slcdf, trkdf, save_ntrks)

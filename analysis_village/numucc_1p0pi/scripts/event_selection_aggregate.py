@@ -178,6 +178,7 @@ def render_overlay_plots(
     save_fig: bool,
     show_fig: bool,
     syst_disk_root: str | None = None,
+    syst_cov_loader=None,
 ):
     """Render every plot stored in ``merged['histdata']``."""
     # We need the pipeline definition to recover the per-plot kwargs and labels.
@@ -224,7 +225,11 @@ def render_overlay_plots(
         kwargs.pop("show_cosmic_model_unc", None)
         kwargs.pop("legend_percentages", None)
 
-        # Pre-saved fractional covariance on the syst disk (GENIE / flux / …).
+        # Pre-saved fractional covariance (custom loader, syst disk, or none).
+        if kwargs.get("syst") is None and syst_cov_loader is not None:
+            cov_custom = syst_cov_loader(ps, stage_key)
+            if cov_custom is not None and np.any(cov_custom):
+                kwargs["syst"] = cov_custom
         if kwargs.get("syst") is None and syst_disk_root is not None:
             _, cov_disk = get_syst_unc(
                 ps.var_config,

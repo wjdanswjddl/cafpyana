@@ -849,40 +849,66 @@ class VariableConfig:
         )
 
     @classmethod
-    def chi2_avg_mu(cls):
-        """Plane-averaged muon chi2 (avg over I0/I1/I2, excluding zeros) — used in PID."""
+    def chi2_plane_mu(cls, plane: str):
+        """Muon chi2 on plane ``I0`` / ``I1`` / ``I2`` / ``avg`` (track-level column)."""
+        plane = str(plane)
+        if plane not in ("I0", "I1", "I2", "avg"):
+            raise ValueError("chi2 plane must be I0/I1/I2/avg, got %r" % plane)
+        lab = r"\mathrm{avg}" if plane == "avg" else plane
+        if plane == "avg":
+            save = "chi2_avg_mu"
+        else:
+            save = f"chi2_mu_{plane}"
         return cls(
-            var_save_name="chi2_avg_mu",
-            var_plot_name="$\\chi^2_{\\mu,\\mathrm{avg}}$",
+            var_save_name=save,
+            var_plot_name=f"$\\chi^2_{{\\mu,{plane}}}$",
             var_labels=[
-                r"$\mathrm{\chi^{2}_{\mu,\,avg}}$",
-                r"$\mathrm{\chi^{2}_{\mu,\,avg,\,\mathrm{reco.}}}$",
-                r"$\mathrm{\chi^{2}_{\mu,\,avg,\,\mathrm{true}}}$",
+                rf"$\mathrm{{\chi^{{2}}_{{\mu,\,{lab}}}}}$",
+                rf"$\mathrm{{\chi^{{2}}_{{\mu,\,{lab},\,\mathrm{{reco.}}}}}}$",
+                rf"$\mathrm{{\chi^{{2}}_{{\mu,\,{lab},\,\mathrm{{true}}}}}}$",
             ],
             bins=np.linspace(0, 60, 61),
-            var_evt_reco_col=("pfp", "trk", "chi2pid", "avg", "chi2_muon", ""),
+            var_evt_reco_col=("pfp", "trk", "chi2pid", plane, "chi2_muon", ""),
             var_evt_truth_col=("", "", "", "", "", ""),
             var_nu_col=("", "", ""),
             xsec_label=r"",
         )
 
     @classmethod
-    def chi2_avg_proton(cls):
-        """Plane-averaged proton chi2 (avg over I0/I1/I2, excluding zeros) — used in PID."""
+    def chi2_plane_proton(cls, plane: str):
+        """Proton chi2 on plane ``I0`` / ``I1`` / ``I2`` / ``avg`` (track-level column)."""
+        plane = str(plane)
+        if plane not in ("I0", "I1", "I2", "avg"):
+            raise ValueError("chi2 plane must be I0/I1/I2/avg, got %r" % plane)
+        lab = r"\mathrm{avg}" if plane == "avg" else plane
+        if plane == "avg":
+            save = "chi2_avg_p"
+        else:
+            save = f"chi2_p_{plane}"
         return cls(
-            var_save_name="chi2_avg_p",
-            var_plot_name="$\\chi^2_{p,\\mathrm{avg}}$",
+            var_save_name=save,
+            var_plot_name=f"$\\chi^2_{{p,{plane}}}$",
             var_labels=[
-                r"$\mathrm{\chi^{2}_{p,\,avg}}$",
-                r"$\mathrm{\chi^{2}_{p,\,avg,\,\mathrm{reco.}}}$",
-                r"$\mathrm{\chi^{2}_{p,\,avg,\,\mathrm{true}}}$",
+                rf"$\mathrm{{\chi^{{2}}_{{p,\,{lab}}}}}$",
+                rf"$\mathrm{{\chi^{{2}}_{{p,\,{lab},\,\mathrm{{reco.}}}}}}$",
+                rf"$\mathrm{{\chi^{{2}}_{{p,\,{lab},\,\mathrm{{true}}}}}}$",
             ],
             bins=np.linspace(0, 350, 61),
-            var_evt_reco_col=("pfp", "trk", "chi2pid", "avg", "chi2_proton", ""),
+            var_evt_reco_col=("pfp", "trk", "chi2pid", plane, "chi2_proton", ""),
             var_evt_truth_col=("", "", "", "", "", ""),
             var_nu_col=("", "", ""),
             xsec_label=r"",
         )
+
+    @classmethod
+    def chi2_avg_mu(cls):
+        """Plane-averaged muon chi2 (avg over I0/I1/I2, excluding zeros) — used in PID."""
+        return cls.chi2_plane_mu("avg")
+
+    @classmethod
+    def chi2_avg_proton(cls):
+        """Plane-averaged proton chi2 (avg over I0/I1/I2, excluding zeros) — used in PID."""
+        return cls.chi2_plane_proton("avg")
 
     @classmethod
     def chi2_proton_trk1(cls):

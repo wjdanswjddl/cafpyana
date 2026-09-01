@@ -47,18 +47,63 @@ class CutStageVarSpec(NamedTuple):
     target: str
 
 
+# Chi2 is attached at ``2prong-vtxdist`` and remains available through final selection.
+CHI2_CUT_STAGES: Tuple[str, ...] = ("2prong-vtxdist", "2prong-muX", "2prong-mup")
+CHI2_PLANES: Tuple[str, ...] = ("I0", "I1", "I2", "avg")
+
+
+def clone_var_config(vc: VariableConfig, *, var_save_name: str) -> VariableConfig:
+    """Copy a ``VariableConfig`` with a distinct ``var_save_name`` (stage / plane tags)."""
+    return VariableConfig(
+        var_save_name=var_save_name,
+        var_plot_name=vc.var_plot_name,
+        var_labels=list(vc.var_labels),
+        bins=np.asarray(vc.bins, dtype=float).copy(),
+        var_evt_reco_col=vc.var_evt_reco_col,
+        var_evt_truth_col=vc.var_evt_truth_col,
+        var_nu_col=vc.var_nu_col,
+        xsec_label=vc.xsec_label,
+        category_syst_var_save_name=getattr(vc, "category_syst_var_save_name", None),
+    )
+
+
+def _stage_tagged_vc(vc: VariableConfig, stage_key: str) -> VariableConfig:
+    """Unique slug so the same observable can be saved at multiple selection steps."""
+    return clone_var_config(vc, var_save_name=f"{vc.var_save_name}__at_{stage_key}")
+
+
 def _build_cut_stage_specs() -> List[CutStageVarSpec]:
-    """Cut-stage histograms mirror the PlotSpec list in build_pipeline()."""
-    return [
+    """Cut-stage histograms mirror ``build_pipeline()`` plots + chi2 plane×stage grid.
+
+    Chi2 is stored once per ``(plane, species, stage)`` with save names like
+    ``chi2_mu_I0__at_2prong-vtxdist`` / ``chi2_avg_p__at_2prong-mup`` so covariances
+    from different selection steps never collide.
+    """
+    specs: List[CutStageVarSpec] = [
         CutStageVarSpec("vertex_in_fv", VariableConfig.nu_score(), "evt"),
         CutStageVarSpec("nu_score", VariableConfig.n_trks(), "evt"),
         CutStageVarSpec("2prong-contained", VariableConfig.track_score(), "trk"),
         CutStageVarSpec("2prong-trackscore", VariableConfig.vtx_dist(), "trk"),
         CutStageVarSpec("2prong-vtxdist", VariableConfig.trk_len(), "trk"),
         CutStageVarSpec("2prong-vtxdist", VariableConfig.mcs_range_diff(), "trk"),
-        CutStageVarSpec("2prong-vtxdist", VariableConfig.chi2_avg_mu(), "trk"),
-        CutStageVarSpec("2prong-vtxdist", VariableConfig.chi2_avg_proton(), "trk"),
     ]
+    for stage_key in CHI2_CUT_STAGES:
+        for plane in CHI2_PLANES:
+            specs.append(
+                CutStageVarSpec(
+                    stage_key,
+                    _stage_tagged_vc(VariableConfig.chi2_plane_mu(plane), stage_key),
+                    "trk",
+                )
+            )
+            specs.append(
+                CutStageVarSpec(
+                    stage_key,
+                    _stage_tagged_vc(VariableConfig.chi2_plane_proton(plane), stage_key),
+                    "trk",
+                )
+            )
+    return specs
 
 
 CUT_STAGE_VAR_SPECS: Tuple[CutStageVarSpec, ...] = tuple(_build_cut_stage_specs())

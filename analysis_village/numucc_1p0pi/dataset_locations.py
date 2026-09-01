@@ -167,9 +167,23 @@ GENIE_GROUP_GLOBS: Dict[str, str] = {
     "Ar23p": str(SPRING_GEN1_ROOT / "2026_05_12_010953__sel_mup-wgts_genie_Ar23p/merged_perTPC/*.df"),
 }
 
-# Loose ``sel_all``-style MC + GENIE weights (evt / trk / hdr / mcnu). Fill when running
-# ``get_systematics_genie.py chunk-map --input-stage sel_all``; empty groups are skipped.
-GENIE_GROUP_GLOBS_SEL_ALL: Dict[str, str] = {}
+# Loose ``sel_all``-style MC + GENIE weights (evt / trk / hdr / mcnu).
+# Scratch paths from 2026-08-30/31 sel_all GENIE productions. Ar23p dfs were empty
+# at wiring time (skipped); DIS not produced yet.
+_SEL_ALL_DFS = Path("/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs")
+GENIE_GROUP_GLOBS_SEL_ALL: Dict[str, str] = {
+    "slim": str(_SEL_ALL_DFS / "2026_08_30_232437__sel_all-wgts_genie_slim/*.df"),
+    "CCQE": str(_SEL_ALL_DFS / "2026_08_31_001657__sel_all-wgts_genie_CCQE/*.df"),
+    "MEC": str(_SEL_ALL_DFS / "2026_08_31_004212__sel_all-wgts_genie_MEC/*.df"),
+    "RES": str(_SEL_ALL_DFS / "2026_08_31_011858__sel_all-wgts_genie_RES/*.df"),
+    "nonRES": str(_SEL_ALL_DFS / "2026_08_31_012312__sel_all-wgts_genie_nonRES/*.df"),
+    "Other": str(_SEL_ALL_DFS / "2026_08_31_022313__sel_all-wgts_genie_Other/*.df"),
+}
+
+
+def slim_genie_knobs() -> List[str]:
+    """Knobs present in slim ``sel_all`` bundles: product ``GENIE`` + leftover ±σ / morph."""
+    return ["GENIE"] + [k for k in regen_systematics if "multisim" not in k]
 
 
 GENIE_GROUP_KNOBS: Dict[str, List[str]] = dict(
@@ -186,6 +200,7 @@ GENIE_GROUP_KNOBS: Dict[str, List[str]] = dict(
         ],
     )
 )
+GENIE_GROUP_KNOBS["slim"] = slim_genie_knobs()
 
 
 def iter_detvar_chunk_jobs(
