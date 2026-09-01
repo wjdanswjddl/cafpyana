@@ -103,9 +103,9 @@
 #    -l $list \
 #    -o sel_mup-mc-GiBUU -ngrid 100
 
-#list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list"
+list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list"
 #list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/aurora_MCP2026A_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_DENT_caf_flat_caf_sbnd_xrootd.list"
-list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10/mc_MCP2025B_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_CV_caf_flat_caf_sbnd_xrootd.list"
+#list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10/mc_MCP2025B_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_CV_caf_flat_caf_sbnd_xrootd.list"
 #python run_df_maker.py \
 #    -c configs/numucc_1p0pi/sel_all-mc.py \
 #    -l $list \
@@ -114,4 +114,4 @@ list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10
 python run_df_maker.py \
     -c configs/numucc_1p0pi/sel_mup.py \
     -l $list \
-    -o sel_mup-mc-CV-fvfix-chi2fix -ngrid 1000
+    -o sel_mup-mc-fvfix-chi2fix-real -ngrid 2000
