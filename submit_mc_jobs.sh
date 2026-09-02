@@ -114,4 +114,4 @@ list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09
 python run_df_maker.py \
     -c configs/numucc_1p0pi/sel_mup.py \
     -l $list \
-    -o sel_mup-mc-fvfix-chi2fix-real -ngrid 2000
+    -o sel_mup-mc-fvfix -ngrid 2000

@@ -15,7 +15,7 @@ SAVE_NTRKS    = 2
 TRACKSCORE_TH = 0.5
 VTXDIST_TH    = 1.2
 # pid cuts
-MU_CHI2MU_TH  = 30
+MU_CHI2MU_TH  = 25
 MU_CHI2P_TH   = 100
 MU_LEN_TH     = 50
 QUAL_TH       = 0.2
