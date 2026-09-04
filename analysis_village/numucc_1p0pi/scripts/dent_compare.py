@@ -37,6 +37,7 @@ import pandas as pd
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
+warnings.filterwarnings("ignore", category=pd.errors.SettingWithCopyWarning)
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 _SCRIPT_DIR = path.dirname(path.abspath(__file__))

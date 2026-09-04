@@ -30,9 +30,25 @@
 #
 #
 ## SCE
+#. ~/get_token.sh
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10/mc_MCP2025B_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_0xSCE_caf_flat_caf_sbnd_xrootd.list -o sel_all-mc-BNB_cosmics-0xSCE -ngrid 2000
+#. ~/get_token.sh
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10/mc_MCP2025B_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_2xSCE_caf_flat_caf_sbn_xrootd.list -o sel_all-mc-BNB_cosmics-2xSCE -ngrid 2000
+#. ~/get_token.sh
+#python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10/mc_MCP2025B_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_CV_caf_flat_caf_sbnd_xrootd.list -o sel_mup-mc-BNB_cosmics-CV -ngrid 2000
+
+list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/CV_highstats_xrootd.list"
 . ~/get_token.sh
-python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10/mc_MCP2025B_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_0xSCE_caf_flat_caf_sbnd_xrootd.list -o sel_all-mc-BNB_cosmics-0xSCE -ngrid 2000
+python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l $list -o sel_all-mc-BNB_cosmics-detvar_CV -ngrid 3000
+
+list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/DENT_highstats_xrootd.list"
 . ~/get_token.sh
-python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10/mc_MCP2025B_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_2xSCE_caf_flat_caf_sbn_xrootd.list -o sel_all-mc-BNB_cosmics-2xSCE -ngrid 2000
+python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l $list -o sel_all-mc-BNB_cosmics-detvar_DENT -ngrid 3000
+
+list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/CV_highstats_xrootd.list"
 . ~/get_token.sh
-python run_df_maker.py -c configs/numucc_1p0pi/sel_all-mc.py -l /exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10/mc_MCP2025B_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_CV_caf_flat_caf_sbnd_xrootd.list -o sel_mup-mc-BNB_cosmics-CV -ngrid 2000
+python run_df_maker.py -c configs/numucc_1p0pi/sel_mup.py -l $list -o sel_mup-BNB_cosmics-detvar_CV -ngrid 2000
+
+list="/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/DENT/DENT_highstats_xrootd.list"
+. ~/get_token.sh
+python run_df_maker.py -c configs/numucc_1p0pi/sel_mup.py -l $list -o sel_mup-BNB_cosmics-detvar_DENT -ngrid 2000

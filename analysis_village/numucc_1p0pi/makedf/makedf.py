@@ -280,6 +280,39 @@ def build_flux_knobgroup_config(group_filter=None):
     return DFS, ARGS, NAMES
 
 
+def build_flux_knobgroup_config_sel_all(group_filter=None):
+    """
+    Build DFS / ARGS / NAMES for loose ``sel_all`` + BNB flux multisim.
+
+    HDF keys evt, trk, hdr — required by ``syst_multisim_chunk.py`` with
+    ``--input-stage sel_all``. Same weight knobs as ``build_flux_knobgroup_config``.
+
+    group_filter: deprecated; if set, raises ValueError (see mup flux builder).
+    """
+    if group_filter is not None:
+        raise ValueError(
+            "group_filter / FLUX_GROUP is no longer supported for flux df configs: "
+            "all BNB flux multisim knobs are written to a single evt table. "
+            "Unset FLUX_GROUP, or use a dedicated sel_all-wgts_flux_*.py config."
+        )
+
+    from makedf.bnbsyst import regen_systematics
+
+    evt_kw = dict(
+        include_weights=True,
+        wgt_types=["bnb"],
+        slim=False,
+        multisim_nuniv=1000,
+        flux_systematics=regen_systematics,
+    )
+
+    DFS = [make_pandora_evtdf_all_mc_multisim, make_trkdf, make_hdrdf]
+    ARGS = [evt_kw, {}, {}]
+    NAMES = ["evt", "trk", "hdr"]
+    assert len(DFS) == len(ARGS) == len(NAMES)
+    return DFS, ARGS, NAMES
+
+
 # --- GENIE knob groups: registry-driven configs (see build_genie_knobgroup_config) ---
 
 
