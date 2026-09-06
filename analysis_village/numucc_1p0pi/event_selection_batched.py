@@ -85,6 +85,10 @@ class EventSelectionBatchedConfig:
     syst_tag: str = ""
     samples: Sequence[str] = SAMPLES
     max_files_per_sample: int | None = None
+    # Notebook-style inputs (preferred when set). Else fall back to EVENT_SELECTION_GLOBS.
+    base_dir: Path | str | None = None
+    sample_dirs: Dict[str, str] | None = None
+    filename_str: str = "sel_all"
     trace: bool = False
     python_executable: str = field(default_factory=lambda: sys.executable)
 
@@ -122,7 +126,7 @@ def survey_files(
     samples: Sequence[str] = SAMPLES,
     max_files_per_sample: int | None = None,
 ) -> List[FileRecord]:
-    """List input ``.df`` files with on-disk sizes."""
+    """List input ``.df`` files with on-disk sizes from ``EVENT_SELECTION_GLOBS``."""
     records: List[FileRecord] = []
     for sample in samples:
         if sample not in EVENT_SELECTION_GLOBS:
@@ -130,6 +134,43 @@ def survey_files(
                 f"unknown sample {sample!r}; choose from {tuple(EVENT_SELECTION_GLOBS)}"
             )
         paths = list(iter_event_selection_df_paths(sample))
+        if max_files_per_sample is not None:
+            paths = paths[: max(0, int(max_files_per_sample))]
+        for p in paths:
+            if not os.path.isfile(p):
+                continue
+            records.append(
+                FileRecord(sample=sample, path=p, size_bytes=os.path.getsize(p))
+            )
+    return records
+
+
+def survey_files_from_dirs(
+    base_dir: Path | str,
+    sample_dirs: Dict[str, str],
+    *,
+    samples: Sequence[str] | None = None,
+    max_files_per_sample: int | None = None,
+    filename_str: str = "sel_all",
+) -> List[FileRecord]:
+    """List ``.df`` files under notebook-style ``base_dir/<subdir>/*<filename_str>*.df``.
+
+    ``sample_dirs`` maps sample name → subdirectory under ``base_dir`` (same layout
+    as the event-selection notebook config cell).
+    """
+    import glob
+
+    base_dir = Path(base_dir)
+    sample_order = list(samples) if samples is not None else list(sample_dirs.keys())
+    records: List[FileRecord] = []
+    for sample in sample_order:
+        if sample not in sample_dirs:
+            raise KeyError(
+                f"sample {sample!r} missing from sample_dirs; have {tuple(sample_dirs)}"
+            )
+        search_dir = base_dir / sample_dirs[sample]
+        pattern = str(search_dir / f"*{filename_str}*.df")
+        paths = sorted(glob.glob(pattern))
         if max_files_per_sample is not None:
             paths = paths[: max(0, int(max_files_per_sample))]
         for p in paths:
@@ -226,9 +267,12 @@ def print_survey_summary(records: Sequence[FileRecord], jobs: Sequence[BatchJob]
         by_sample.setdefault(r.sample, []).append(r)
     for sample, recs in sorted(by_sample.items()):
         tot = sum(r.size_bytes for r in recs)
+        loc = EVENT_SELECTION_GLOBS.get(sample) if sample in EVENT_SELECTION_GLOBS else None
+        if loc is None and recs:
+            loc = str(Path(recs[0].path).parent)
         print(
             f"[batched] sample={sample}  files={len(recs)}  total={tot / (1024**3):.2f} GiB  "
-            f"glob={EVENT_SELECTION_GLOBS[sample]}",
+            f"loc={loc}",
             flush=True,
         )
     print(f"[batched] {len(jobs)} job(s) under size budget", flush=True)
@@ -241,10 +285,28 @@ def print_survey_summary(records: Sequence[FileRecord], jobs: Sequence[BatchJob]
         print(f"  ... and {len(jobs) - 12} more", flush=True)
 
 
+def survey_files_for_config(cfg: EventSelectionBatchedConfig) -> List[FileRecord]:
+    """Resolve input files from notebook dirs if set, else ``EVENT_SELECTION_GLOBS``."""
+    if cfg.base_dir is not None and cfg.sample_dirs:
+        return survey_files_from_dirs(
+            cfg.base_dir,
+            cfg.sample_dirs,
+            samples=cfg.samples,
+            max_files_per_sample=cfg.max_files_per_sample,
+            filename_str=cfg.filename_str,
+        )
+    return survey_files(cfg.samples, cfg.max_files_per_sample)
+
+
 def discover_jobs(cfg: EventSelectionBatchedConfig) -> Tuple[List[FileRecord], List[BatchJob], Path]:
     work, _, _ = cfg.resolve_paths()
-    records = survey_files(cfg.samples, cfg.max_files_per_sample)
+    records = survey_files_for_config(cfg)
     if not records:
+        if cfg.base_dir is not None and cfg.sample_dirs:
+            raise RuntimeError(
+                f"No input .df files under base_dir={cfg.base_dir!r} "
+                f"sample_dirs={cfg.sample_dirs!r} (filename_str={cfg.filename_str!r})"
+            )
         raise RuntimeError("No input .df files matched EVENT_SELECTION_GLOBS")
     jobs = group_files_into_jobs(records, max_bytes=cfg.max_job_bytes)
     manifest_path = write_manifest(work, records, jobs, max_job_bytes=cfg.max_job_bytes)
@@ -308,7 +370,7 @@ def run_map(
     if jobs is None:
         _, jobs, manifest_path = discover_jobs(cfg)
     else:
-        records = survey_files(cfg.samples, cfg.max_files_per_sample)
+        records = survey_files_for_config(cfg)
         manifest_path = write_manifest(work, records, jobs, max_job_bytes=cfg.max_job_bytes)
 
     batch_paths: Dict[str, List[str]] = {s: [] for s in cfg.samples}
@@ -375,7 +437,7 @@ def run_aggregate(cfg: EventSelectionBatchedConfig, batches_dir: Path | str | No
             flush=True,
         )
 
-    totals = agg.accumulate_exposure_totals_from_dir(str(batches_dir))
+    totals = agg.accumulate_exposure_totals(chunk_groups)
     exposure_scales = agg.apply_global_exposure_scales(
         merged, totals, f_offbeam_coincident=cfg.f_offbeam_frac
     )

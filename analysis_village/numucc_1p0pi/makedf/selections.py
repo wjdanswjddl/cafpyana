@@ -4,10 +4,11 @@ from pyanalib.variable_calculator import *
 from pyanalib.pandas_helpers import *
 from makedf.constants import *
 from makedf.util import *
-from analysis_village.numucc_1p0pi.categories import PER_TPC_INCATHODE_CM
+from analysis_village.numucc_1p0pi.categories import DETECTOR, PER_TPC_INCATHODE_CM
 
 
 # ==== events selection cuts ====
+# Canonical thresholds — cut helpers below default to these constants.
 # slice cuts
 NU_SCORE_TH   = 0.45
 SAVE_NTRKS    = 2
@@ -19,6 +20,7 @@ MU_CHI2MU_TH  = 25
 MU_CHI2P_TH   = 100
 MU_LEN_TH     = 50
 QUAL_TH       = 0.2
+P_CHI2MU_TH   = -1   # unused / disabled in standard mu+p PID
 P_CHI2P_TH    = 90
 P_LEN_TH      = 0
 # kinematic cuts
@@ -75,12 +77,12 @@ def event_contained_per_tpc(df, incathode=PER_TPC_INCATHODE_CM):
     return all_in_fv & (all_in_tpc1 | all_in_tpc2)
 
 
-def cut_vertex_in_fv(df, det="SBND"):
+def cut_vertex_in_fv(df, det=DETECTOR):
     if _is_gen1_or_per_tpc_det(det):
         return vertex_in_gen1_fv(df)
     return df[InFV(df.slc.vertex, det=det)]
 
-def cut_nu_score(df, th=0.5):
+def cut_nu_score(df, th=NU_SCORE_TH):
     return df[df.slc.nu_score > th]
 
 def get_valid_trks(df):
@@ -176,7 +178,7 @@ def _drop_merged_trk_blocks(evtdf: pd.DataFrame) -> pd.DataFrame:
     return evtdf.loc[:, keep]
 
 
-def get_trk_info(evtdf, trkdf, save_ntrks=3):
+def get_trk_info(evtdf, trkdf, save_ntrks=SAVE_NTRKS):
     if trkdf is None or len(trkdf) == 0:
         return evtdf
     good_trks = cut_good_trks(trkdf).copy()
@@ -219,7 +221,7 @@ def cut_2prong(df):
     # return df[(df.n_good_trks == 2) & (df.n_trks <= 3)]
     return df[(df.n_good_trks == 2)]
 
-def cut_2prong_contained(df, det="SBND"):
+def cut_2prong_contained(df, det=DETECTOR):
     if df is None or len(df) == 0:
         return df
     if not evt_has_trk1_trk2(df):
@@ -234,19 +236,21 @@ def cut_2prong_contained(df, det="SBND"):
         & InFV(df.trk2.pfp.trk.end, det=det)
     ]
 
-def cut_2prong_trackscore(df, trackscore_th=0.5):
+def cut_2prong_trackscore(df, trackscore_th=TRACKSCORE_TH):
     if df is None or len(df) == 0 or not evt_has_trk1_trk2(df):
         return df.iloc[0:0] if df is not None else df
     return df[(df.trk1.pfp.trackScore > trackscore_th) & (df.trk2.pfp.trackScore > trackscore_th)]
 
-def cut_2prong_vtxdist(df, vtxdist_th=1.5):
+def cut_2prong_vtxdist(df, vtxdist_th=VTXDIST_TH):
     if df is None or len(df) == 0 or not evt_has_trk1_trk2(df):
         return df.iloc[0:0] if df is not None else df
     return df[(df.trk1.pfp.pfochar.vtxdist < vtxdist_th) & (df.trk2.pfp.pfochar.vtxdist < vtxdist_th)]
 
-def get_mu_p_candidate(df, 
-                       mu_chi2mu_th=30, mu_chi2p_th=100, mu_len_th=50, qual_th=0.25,
-                       p_chi2mu_th=30, p_chi2p_th=90, p_len_th=0, score_tag=""):
+def get_mu_p_candidate(df,
+                       mu_chi2mu_th=MU_CHI2MU_TH, mu_chi2p_th=MU_CHI2P_TH,
+                       mu_len_th=MU_LEN_TH, qual_th=QUAL_TH,
+                       p_chi2mu_th=P_CHI2MU_TH, p_chi2p_th=P_CHI2P_TH,
+                       p_len_th=P_LEN_TH, score_tag=""):
 
     if df is None or len(df) == 0:
         return df
@@ -303,12 +307,12 @@ def cut_has_p(df):
         return df.iloc[0:0] if df is not None else df
     return df[~np.isnan(df.p.pfp.trk.producer)]
 
-def cut_mu_kinematics(df, mu_Plo_th=0.22, mu_Phi_th= 1):
+def cut_mu_kinematics(df, mu_Plo_th=MU_PLO_TH, mu_Phi_th=MU_PHI_TH):
     if df is None or len(df) == 0 or not evt_has_block(df, "mu"):
         return df.iloc[0:0] if df is not None else df
     return df[(df.mu.pfp.trk.rangeP.p_muon > mu_Plo_th) & (df.mu.pfp.trk.rangeP.p_muon < mu_Phi_th)]
 
-def cut_p_kinematics(df, p_Plo_th=0.3, p_Phi_th= 1):
+def cut_p_kinematics(df, p_Plo_th=P_PLO_TH, p_Phi_th=P_PHI_TH):
     if df is None or len(df) == 0 or not evt_has_block(df, "p"):
         return df.iloc[0:0] if df is not None else df
     return df[(df.p.pfp.trk.rangeP.p_proton > p_Plo_th) & (df.p.pfp.trk.rangeP.p_proton < p_Phi_th)]

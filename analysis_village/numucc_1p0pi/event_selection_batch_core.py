@@ -181,9 +181,14 @@ def load_and_concat_df_files(
     df_files: Sequence[str],
     keys2load: Sequence[str],
     *,
+    sample: str,
     max_splits_per_file: int | None = None,
 ) -> Tuple[Dict[str, pd.DataFrame], List[Dict[str, Any]]]:
-    """Load and concatenate multiple HDF ``.df`` files (notebook-style index remapping)."""
+    """Load and concatenate multiple HDF ``.df`` files (legacy ``dfs_from_dir`` style).
+
+    Remaps ``__ntuple`` across files so concatenated indices stay unique, matching
+    ``pyanalib.split_df_helpers_new.dfs_from_dir``.
+    """
     if not df_files:
         raise ValueError("df_files is empty")
     df_lists: Dict[str, List[pd.DataFrame]] = {k: [] for k in keys2load}
@@ -194,6 +199,7 @@ def load_and_concat_df_files(
         n_splits = get_n_split(df_file)
         cap = n_splits if max_splits_per_file is None else min(n_splits, max_splits_per_file)
         file_dfs = load_dfs(df_file, list(keys2load), n_max_concat=cap)
+        hdr_df = file_dfs.get("hdr")
         per_file_meta.append(file_hdr_meta(sample, hdr_df, df_file))
 
         unique_ntuples = _unique_ntuple_values_across_keys(file_dfs, keys2load)
@@ -220,9 +226,16 @@ def run_batch_selection(
     use_mc_genweight: bool = False,
     mc_univ_syst_tags: Sequence[str] = (),
     max_splits_per_file: int | None = None,
+    concat_load: bool = True,
     pipeline_trace=None,
 ) -> Dict[str, Any]:
-    """Load a file batch, run the notebook pipeline, write one pickle."""
+    """Load a file batch, run the notebook pipeline, write one pickle.
+
+    When ``concat_load`` is True (default) and there is more than one input file,
+    files are concatenated first (legacy ``dfs_from_dir`` / ``n_max_concat`` style)
+    and the selection pipeline runs once on the combined frames — much faster than
+    per-file load → run cycles.
+    """
     keys = ["evt", "trk", "hdr"]
     load_mcnu = sample == "mc" and any(hdf_has_mcnu(f) for f in df_files)
     keys_load = keys + (["mcnu"] if load_mcnu else [])
@@ -237,38 +250,70 @@ def run_batch_selection(
     per_file_meta: List[Dict[str, Any]] = []
     n_evt_total = 0
 
-    for df_file in df_files:
-        n_splits = get_n_split(df_file)
-        cap = n_splits if max_splits_per_file is None else min(n_splits, max_splits_per_file)
-        file_keys = keys_load
-        file_dfs = load_dfs(df_file, file_keys, n_max_concat=cap)
-
-        hdr_df = file_dfs.get("hdr")
-        per_file_meta.append(file_hdr_meta(sample, hdr_df, df_file))
-        accumulate_hdr_meta(
-            sample,
-            hdr_df,
-            chunk_pot,
-            chunk_gates_bnb,
-            chunk_cosmic_gates_intime,
-            chunk_cosmic_gates_offbeam,
+    use_concat = bool(concat_load) and len(df_files) > 1
+    if use_concat:
+        file_dfs, per_file_meta = load_and_concat_df_files(
+            df_files,
+            keys_load,
+            sample=sample,
+            max_splits_per_file=max_splits_per_file,
         )
+        for meta in per_file_meta:
+            chunk_pot[0] += float(meta.get("pot", 0.0))
+            if sample == "data":
+                chunk_gates_bnb[0] += float(meta.get("gates_bnb", 0.0))
+            elif sample == "intime":
+                chunk_cosmic_gates_intime[0] += float(meta.get("cosmic_gates_intime", 0.0))
+            elif sample == "offbeam":
+                chunk_cosmic_gates_offbeam[0] += float(meta.get("cosmic_gates_offbeam", 0.0))
 
         evt_df = file_dfs["evt"]
         trk_df = file_dfs["trk"]
+        hdr_df = file_dfs.get("hdr")
         mcnu_df = file_dfs.get("mcnu") if load_mcnu else None
 
         attach_intrinsic_weights(evt_df, trk_df, sample, use_mc_genweight)
         evt_df, mcnu_df = ensure_phi_and_kinematics_cols(evt_df, trk_df, mcnu_df)
-        n_evt_total += int(len(evt_df))
+        n_evt_total = int(len(evt_df))
 
         runner.run(
             {"evt": evt_df, "trk": trk_df, "hdr": hdr_df, "mcnu": mcnu_df},
             pipeline_trace=pipeline_trace,
         )
-
         del file_dfs, evt_df, trk_df, hdr_df, mcnu_df
         gc.collect()
+    else:
+        for df_file in df_files:
+            n_splits = get_n_split(df_file)
+            cap = n_splits if max_splits_per_file is None else min(n_splits, max_splits_per_file)
+            file_dfs = load_dfs(df_file, keys_load, n_max_concat=cap)
+
+            hdr_df = file_dfs.get("hdr")
+            per_file_meta.append(file_hdr_meta(sample, hdr_df, df_file))
+            accumulate_hdr_meta(
+                sample,
+                hdr_df,
+                chunk_pot,
+                chunk_gates_bnb,
+                chunk_cosmic_gates_intime,
+                chunk_cosmic_gates_offbeam,
+            )
+
+            evt_df = file_dfs["evt"]
+            trk_df = file_dfs["trk"]
+            mcnu_df = file_dfs.get("mcnu") if load_mcnu else None
+
+            attach_intrinsic_weights(evt_df, trk_df, sample, use_mc_genweight)
+            evt_df, mcnu_df = ensure_phi_and_kinematics_cols(evt_df, trk_df, mcnu_df)
+            n_evt_total += int(len(evt_df))
+
+            runner.run(
+                {"evt": evt_df, "trk": trk_df, "hdr": hdr_df, "mcnu": mcnu_df},
+                pipeline_trace=pipeline_trace,
+            )
+
+            del file_dfs, evt_df, trk_df, hdr_df, mcnu_df
+            gc.collect()
 
     meta = {
         "weight_scheme": "intrinsic",
@@ -284,6 +329,7 @@ def run_batch_selection(
         "chunk_cosmic_gates_offbeam": chunk_cosmic_gates_offbeam[0],
         "n_evt": n_evt_total,
         "n_files": len(df_files),
+        "concat_load": use_concat,
         "workflow": "batched_notebook",
         "mc_efficiency_enabled": load_mcnu,
     }

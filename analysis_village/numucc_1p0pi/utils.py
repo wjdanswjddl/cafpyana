@@ -390,8 +390,27 @@ def load_genie_sb_bkgd_rate_cov_frac(var_config, genie_sb_cov_mat_pkl=None):
 
 
 # ====== overlay-plot helpers: syst bands, legend fractions, chi2 ======
+def _df_has_event_mc_truth(df) -> bool:
+    """True when ``df`` has an event-level ``mc`` block (needed for topology/signal)."""
+    if df is None or len(getattr(df, "columns", [])) == 0:
+        return False
+    cols = df.columns
+    if isinstance(cols, pd.MultiIndex):
+        return "mc" in cols.get_level_values(0)
+    return "mc" in cols
+
+
 def _overlay_signal_mc_hist(mc_df, var_config, signal_truth_fv="per_tpc"):
-    """Per-bin MC signal (CC 1p0pi in FV) counts for background subtraction."""
+    """Per-bin MC signal (CC 1p0pi in FV) counts for background subtraction.
+
+    Requires an event-level dataframe with ``mc.*`` truth columns. Track-level
+    (``breakdown_type='pdg'``) frames must not call this.
+    """
+    if not _df_has_event_mc_truth(mc_df):
+        raise ValueError(
+            "_overlay_signal_mc_hist requires an event-level MC dataframe with an "
+            "'mc' column block; got a frame without event truth (e.g. track-level pdg plot)."
+        )
     vardf, _ = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
     cuts = get_topo_category(mc_df, ret_cuts=True, signal_truth_fv=signal_truth_fv)
     cut_signal = cuts[-1]
@@ -1192,7 +1211,8 @@ def overlay_hists_from_histdata(histdata,
                                 plot=True,
                                 save_fig=False,
                                 save_name=None,
-                                verbose_hist=False):
+                                verbose_hist=False,
+                                cosmic_estimate="intime"):
     """Render an overlay histogram plot from precomputed histograms.
 
     The plot output is bit-for-bit identical to overlay_hists(...) with raw
@@ -1203,8 +1223,10 @@ def overlay_hists_from_histdata(histdata,
     histdata : OverlayHistData
         Container with breakdown_type, bins, per-category MC histograms,
         intime/dirt/data histograms, and corresponding sum-of-weights^2
-        arrays (for stat errors). Cosmic contribution uses intime when present,
-        else offbeam.
+        arrays (for stat errors).
+    cosmic_estimate : {"intime", "offbeam"}
+        Which cosmic sample to stack (default ``intime``; falls back to the
+        other if the preferred sample is absent).
     var_config : VariableConfig
         Carries bins, labels, var_save_name (for "integrated" formatting).
     Other arguments behave identically to overlay_hists().
@@ -1271,12 +1293,19 @@ def overlay_hists_from_histdata(histdata,
         weights_categ = None
         total_mc_bkgd = None
 
-    # Cosmic estimate: prefer intime, fall back to offbeam.
+    # Cosmic estimate: prefer the requested sample, fall back to the other.
     cosmic_hist_bins = None
-    if histdata.has_intime:
-        cosmic_hist_bins = histdata.intime_hist.astype(float)
-    elif getattr(histdata, "has_offbeam", False):
-        cosmic_hist_bins = histdata.offbeam_hist.astype(float)
+    prefer_offbeam = str(cosmic_estimate).lower() == "offbeam"
+    if prefer_offbeam:
+        if getattr(histdata, "has_offbeam", False) and histdata.offbeam_hist is not None:
+            cosmic_hist_bins = histdata.offbeam_hist.astype(float)
+        elif histdata.has_intime and histdata.intime_hist is not None:
+            cosmic_hist_bins = histdata.intime_hist.astype(float)
+    else:
+        if histdata.has_intime and histdata.intime_hist is not None:
+            cosmic_hist_bins = histdata.intime_hist.astype(float)
+        elif getattr(histdata, "has_offbeam", False) and histdata.offbeam_hist is not None:
+            cosmic_hist_bins = histdata.offbeam_hist.astype(float)
 
     # Merge scaled cosmic estimate into MC category 0 (same as
     # ``overlay_hists``: concat events). For pre-binned histograms, **add** bin
@@ -1335,10 +1364,14 @@ def overlay_hists_from_histdata(histdata,
         total_mc = total_mc * density_factor
 
     if plot_mc_stack and histdata.has_mc and total_mc is not None:
-        hist_signal = np.asarray(each_mc_hist_data[-1], dtype=float)
-        if density:
-            hist_signal = hist_signal * density_factor
-        total_mc_bkgd = np.asarray(total_mc, dtype=float) - hist_signal
+        # Topology signal is the last stacked layer; pdg has no event-level signal.
+        if breakdown_type == "pdg":
+            total_mc_bkgd = None
+        else:
+            hist_signal = np.asarray(each_mc_hist_data[-1], dtype=float)
+            if density:
+                hist_signal = hist_signal * density_factor
+            total_mc_bkgd = np.asarray(total_mc, dtype=float) - hist_signal
 
     # the order from get_*_category is reversed from labels/colors (which are signal-first)
     colors, labels = colors[::-1], labels[::-1]
@@ -1989,8 +2022,9 @@ def overlay_hists(breakdown_type="topology",
         weights_categ = [np.array(w) * density_factor for w in weights_categ]
 
     # Background-only MC spectrum, needed for the optional background systematic
-    # band (show_bkgd_syst_band). Mirrors the histdata path.
-    if mc_df is not None and total_mc is not None:
+    # band (show_bkgd_syst_band). Requires event-level ``mc.*`` truth — skip for
+    # track-level pdg plots (concat'd trk1/trk2 have no event truth block).
+    if mc_df is not None and total_mc is not None and breakdown_type != "pdg":
         hist_signal = _overlay_signal_mc_hist(mc_df, var_config, signal_truth_fv=signal_truth_fv)
         if density:
             hist_signal = hist_signal * density_factor

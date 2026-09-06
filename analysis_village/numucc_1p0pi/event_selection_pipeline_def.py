@@ -29,7 +29,6 @@ from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
     CORE_SELECTED_EVT_VARIABLE_CONFIGS,
     with_final_selected_evt_variables,
 )
-from analysis_village.numucc_1p0pi.categories import DETECTOR
 from analysis_village.numucc_1p0pi.makedf.selections import (
     cut_clear_cosmic, cut_vertex_in_fv, cut_nu_score, cut_2prong, cut_2prong_contained,
     cut_2prong_trackscore, cut_2prong_vtxdist, cut_has_mu, cut_has_p,
@@ -69,14 +68,6 @@ def _apply_to_evt(fn: Callable[[pd.DataFrame], pd.DataFrame]) -> Callable:
     def _cut(state, sample):
         if state.get("evt") is not None:
             state["evt"] = fn(state["evt"])
-        return state
-    return _cut
-
-
-def _apply_to_evt_with_det(fn: Callable[[pd.DataFrame, str], pd.DataFrame]) -> Callable:
-    def _cut(state, sample):
-        if state.get("evt") is not None:
-            state["evt"] = fn(state["evt"], det=DETECTOR)
         return state
     return _cut
 
@@ -273,7 +264,7 @@ def build_pipeline() -> List[Stage]:
     stages.append(Stage(
         key="vertex_in_fv",
         label="Vertex in Gen-1 fiducial volume",
-        cut=_apply_to_evt_with_det(cut_vertex_in_fv),
+        cut=_apply_to_evt(cut_vertex_in_fv),
         plots=[
             PlotSpec(
                 var_config=VariableConfig.nu_score(),
@@ -292,7 +283,7 @@ def build_pipeline() -> List[Stage]:
     # ------------------------------------------------------------------
     def _nu_score_cut_then_refresh(state, sample):
         if state.get("evt") is not None:
-            state["evt"] = cut_nu_score(state["evt"], NU_SCORE_TH)
+            state["evt"] = cut_nu_score(state["evt"])
         state = _refresh_tracks_and_attach_ntrks(state, sample)
         return state
 
@@ -338,7 +329,7 @@ def build_pipeline() -> List[Stage]:
     stages.append(Stage(
         key="2prong-contained",
         label="Both PFPs per-TPC contained",
-        cut=_apply_to_evt_with_det(cut_2prong_contained),
+        cut=_apply_to_evt(cut_2prong_contained),
         plots=[
             PlotSpec(
                 var_config=VariableConfig.track_score(),
@@ -358,7 +349,7 @@ def build_pipeline() -> List[Stage]:
     stages.append(Stage(
         key="2prong-trackscore",
         label=f"Both PFPs track score > {TRACKSCORE_TH}",
-        cut=_apply_to_evt(lambda df: cut_2prong_trackscore(df, TRACKSCORE_TH)),
+        cut=_apply_to_evt(cut_2prong_trackscore),
         plots=[
             PlotSpec(
                 var_config=VariableConfig.vtx_dist(),
@@ -377,7 +368,7 @@ def build_pipeline() -> List[Stage]:
     # ------------------------------------------------------------------
     def _vtxdist_cut_and_attach_pid_cols(state, sample):
         if state.get("evt") is not None:
-            state["evt"] = cut_2prong_vtxdist(state["evt"], VTXDIST_TH)
+            state["evt"] = cut_2prong_vtxdist(state["evt"])
         # Re-match tracks to surviving slices, attach chi2/MCS on trk, merge once onto evt.
         # Do not call _refresh_tracks_and_attach_ntrks first — a second get_trk_info on evt
         # that already has trk1/trk2 suffixes columns to trk1_x and breaks .trk1 access.
@@ -467,13 +458,9 @@ def build_pipeline() -> List[Stage]:
                 "evt is missing trk1/trk2 at 2prong-muX — "
                 "get_trk_info did not attach track blocks (check trk–evt matching on this shard)"
             )
-        df = get_mu_p_candidate(
-            evt,
-            mu_chi2mu_th=MU_CHI2MU_TH, mu_chi2p_th=MU_CHI2P_TH, mu_len_th=MU_LEN_TH, qual_th=QUAL_TH,
-            p_chi2mu_th=-1, p_chi2p_th=P_CHI2P_TH, p_len_th=P_LEN_TH,
-        )
+        df = get_mu_p_candidate(evt)
         df = cut_has_mu(df)
-        df = cut_mu_kinematics(df, mu_Plo_th=MU_PLO_TH, mu_Phi_th=MU_PHI_TH)
+        df = cut_mu_kinematics(df)
         state["evt"] = df
         return state
 
@@ -494,7 +481,7 @@ def build_pipeline() -> List[Stage]:
         if evt is None or len(evt) == 0:
             return state
         df = cut_has_p(evt)
-        df = cut_p_kinematics(df, p_Plo_th=P_PLO_TH, p_Phi_th=P_PHI_TH)
+        df = cut_p_kinematics(df)
         df = _add_reco_cc1p0pi_tki_evt(df)
         state["evt"] = df
         return state

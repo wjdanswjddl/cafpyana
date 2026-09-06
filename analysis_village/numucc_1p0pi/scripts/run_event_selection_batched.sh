@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Batched event selection: group input .df files into ≤1 GiB jobs, run notebook
-# pipeline per job, aggregate histograms, render final plots.
+# Batched event selection (map → aggregate → plots).
 #
-# Map:  event_selection_batch_map.py  (one job = multiple files, sequential load)
-# Reduce: event_selection_aggregate.py (unchanged pickle format)
+# Thin wrapper around run_event_selection_batched.py (same workflow as the
+# notebook's non-interactive batched path).
 #
-# Override paths:
+# Override paths / knobs:
 #   WORK_BASE=/path/to/out bash run_event_selection_batched.sh
 #   MAX_JOB_GB=0.5 bash run_event_selection_batched.sh
+#   MAX_FILES_PER_SAMPLE=2 bash run_event_selection_batched.sh
 #   SKIP_AGGREGATE=1 bash run_event_selection_batched.sh
 #   AGGREGATE_ONLY=1 bash run_event_selection_batched.sh
 
@@ -21,64 +21,39 @@ BATCHES_DIR="${BATCHES_DIR:-${WORK_BASE}/batches}"
 PLOTS_DIR="${PLOTS_DIR:-${WORK_BASE}/plots}"
 MAX_JOB_GB="${MAX_JOB_GB:-1.0}"
 PYTHON="${PYTHON:-${REPO_ROOT}/envs/venv_py310_cafpyana/bin/python}"
-WORKERS="${WORKERS:-1}"
-SKIP_AGGREGATE="${SKIP_AGGREGATE:-0}"
-AGGREGATE_ONLY="${AGGREGATE_ONLY:-0}"
 
 mkdir -p "$WORK_BASE" "$BATCHES_DIR" "$PLOTS_DIR"
+
+ARGS=(
+  --work-base "$WORK_BASE"
+  --batches-dir "$BATCHES_DIR"
+  --plots-dir "$PLOTS_DIR"
+  --max-job-gb "$MAX_JOB_GB"
+  --save-fig
+)
+
+if [[ -n "${MAX_FILES_PER_SAMPLE:-}" ]]; then
+  ARGS+=(--max-files-per-sample "$MAX_FILES_PER_SAMPLE")
+fi
+if [[ "${AGGREGATE_ONLY:-0}" == "1" ]]; then
+  ARGS+=(--aggregate-only)
+fi
+if [[ "${SKIP_AGGREGATE:-0}" == "1" ]]; then
+  ARGS+=(--skip-aggregate)
+fi
+if [[ -n "${MC_UNIV_SYST:-}" ]]; then
+  ARGS+=(--mc-univ-syst "$MC_UNIV_SYST")
+fi
+if [[ "${USE_MC_GENWEIGHT:-0}" == "1" ]]; then
+  ARGS+=(--use-mc-genweight)
+fi
+if [[ "${TRACE:-0}" == "1" ]]; then
+  ARGS+=(--trace)
+fi
 
 echo "[batched] WORK_BASE=$WORK_BASE"
 echo "[batched] BATCHES_DIR=$BATCHES_DIR"
 echo "[batched] PLOTS_DIR=$PLOTS_DIR"
 echo "[batched] MAX_JOB_GB=$MAX_JOB_GB"
 
-if [[ "$AGGREGATE_ONLY" != "1" ]]; then
-  "$PYTHON" "$THIS_DIR/event_selection_batch_survey.py" \
-    --work_dir "$WORK_BASE" \
-    --max_job_gb "$MAX_JOB_GB"
-
-  "$PYTHON" - <<PY
-from analysis_village.numucc_1p0pi.event_selection_batched import (
-    EventSelectionBatchedConfig,
-    run_map,
-)
-import json
-from pathlib import Path
-
-work = Path("${WORK_BASE}")
-with open(work / "manifest.json") as f:
-    manifest = json.load(f)
-
-from analysis_village.numucc_1p0pi.event_selection_batched import BatchJob
-
-jobs = [
-    BatchJob(
-        sample=j["sample"],
-        job_id=j["job_id"],
-        files=j["files"],
-        total_bytes=j["total_bytes"],
-    )
-    for j in manifest["jobs"]
-]
-
-cfg = EventSelectionBatchedConfig(
-    work_base=work,
-    batches_dir=Path("${BATCHES_DIR}"),
-    max_job_bytes=int(float("${MAX_JOB_GB}") * 1024**3),
-    skip_existing_batches=True,
-)
-run_map(cfg, jobs=jobs)
-PY
-fi
-
-if [[ "$SKIP_AGGREGATE" == "1" ]]; then
-  echo "[batched] SKIP_AGGREGATE=1 — map pickles only"
-  exit 0
-fi
-
-"$PYTHON" "$THIS_DIR/event_selection_aggregate.py" \
-  --in_dir "$BATCHES_DIR" \
-  --out_dir "$PLOTS_DIR" \
-  --save_fig
-
-echo "[batched] DONE plots -> $PLOTS_DIR"
+exec "$PYTHON" "$THIS_DIR/run_event_selection_batched.py" "${ARGS[@]}"

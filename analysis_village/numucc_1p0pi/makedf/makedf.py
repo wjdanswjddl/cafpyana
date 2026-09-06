@@ -778,3 +778,586 @@ def make_pandora_evtdf(f, sel_level="all",
 
     if sel_level == "mup":
         return truth_match(evtdf, mcdf)
+
+
+# ===========================================================================
+# Systematic histogram counts (grid): selection + xsec variables per knob/univ
+# ===========================================================================
+# Instead of writing heavy weight tables and re-histogramming offline, these
+# makers walk the event-selection pipeline on the CAF and store long-format
+# bin counts under HDF key ``syst_hists`` (see ``syst_histcounts.py``).
+#
+# GENIE: rate histcounts + xsec response tensors (rate ≠ xsec — see module doc).
+# Flux / G4: rate histcounts only (multisim).
+# WireMod / DENT / intime / offbeam: CV counts only (unisim; pair samples in notebook).
+
+
+def make_var_config_snapshot(f, **_kwargs):
+    """Freeze VariableConfigs used by histcounts into HDF key ``var_configs``.
+
+    Independent of the CAF contents so every job output carries the binning
+    that was live at fill / submit time (notebook must not import the live module).
+    """
+    from analysis_village.numucc_1p0pi.syst_histcounts import histcounts_var_configs_df
+
+    return histcounts_var_configs_df()
+
+
+def make_syst_histcounts(
+    f,
+    wgt_types=None,
+    family=None,
+    multisim_nuniv=200,
+    genie_multisim_nuniv=100,
+    slim=False,
+    include_slim=True,
+    genie_systematics=None,
+    flux_systematics=None,
+    knob_names=None,
+    sample="mc",
+    do_xsec=None,
+    trkScoreCut=False,
+    trkDistCut=1000.0,
+    cutClearCosmic=False,
+    **trkArgs,
+):
+    """Load CAF with weights, run event selection, return ``syst_hists`` DataFrame.
+
+    Parameters
+    ----------
+    wgt_types : list
+        e.g. ``['genie']``, ``['bnb']``, ``['g4']``. Required for weighted modes.
+    family : str or None
+        ``GENIE`` / ``Flux`` / ``G4``. Inferred from ``wgt_types`` if omitted.
+    slim : bool
+        If True, load via ``getsyst(..., slim=True)`` (product + leftover ±σ/morph).
+    include_slim : bool
+        If True (default), also histogram slim products:
+        * ``slim_multisim`` (GENIE) / ``Flux_slim_multisim`` / ``G4_slim_multisim`` —
+          product of **true multisim** knobs only.
+        * ``slim`` (GENIE) / ``Flux_slim`` / ``G4_slim`` — slim_multisim × Gaussian
+          throws of multisigma (``ps1``) and morph (see notebook recipe).
+        Do not sum both with per-knob covs (double-counting).
+    knob_names : sequence or None
+        Restrict to these knobs under ``mc``; default = auto-detect on the frame.
+    do_xsec : bool or None
+        Store GENIE xsec tensors. Default True only for ``family=='GENIE'``.
+    """
+    from analysis_village.numucc_1p0pi.syst_histcounts import (
+        attach_family_slim_products,
+        discover_syst_names_on_df,
+        empty_histcounts_df,
+        fill_syst_histcounts,
+    )
+
+    if wgt_types is None:
+        raise ValueError("make_syst_histcounts requires wgt_types, e.g. ['genie']")
+    wgt_types = list(wgt_types)
+    if family is None:
+        if "genie" in wgt_types:
+            family = "GENIE"
+        elif "bnb" in wgt_types:
+            family = "Flux"
+        elif "g4" in wgt_types:
+            family = "G4"
+        else:
+            family = "SYST"
+    if do_xsec is None:
+        do_xsec = family.upper() == "GENIE"
+
+    evt_kw = dict(
+        include_weights=True,
+        multisim_nuniv=multisim_nuniv,
+        wgt_types=wgt_types,
+        slim=slim,
+        genie_systematics=genie_systematics,
+        flux_systematics=flux_systematics,
+        trkScoreCut=trkScoreCut,
+        trkDistCut=trkDistCut,
+        cutClearCosmic=cutClearCosmic,
+    )
+    if "genie" in wgt_types:
+        evt_kw["genie_multisim_nuniv"] = genie_multisim_nuniv
+
+    try:
+        if slim and "genie" in wgt_types:
+            evt = make_pandora_evtdf_all_genieslimwgts(
+                f,
+                genie_multisim_nuniv=genie_multisim_nuniv,
+                genie_systematics=genie_systematics,
+                trkScoreCut=trkScoreCut,
+                trkDistCut=trkDistCut,
+                cutClearCosmic=cutClearCosmic,
+                **trkArgs,
+            )
+        else:
+            evt = make_pandora_evtdf_all_mc_multisim(f, **evt_kw, **trkArgs)
+
+        trk = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, **trkArgs)
+
+        mcnu = None
+        if do_xsec or "genie" in wgt_types:
+            if slim and "genie" in wgt_types:
+                mcnu = make_mcnudf_genieslimwgts(
+                    f,
+                    genie_multisim_nuniv=genie_multisim_nuniv,
+                    genie_systematics=genie_systematics,
+                    slim=True,
+                )
+            else:
+                mcnu = make_mcnudf_mc_multisim(
+                    f,
+                    include_weights=True,
+                    multisim_nuniv=multisim_nuniv,
+                    genie_multisim_nuniv=genie_multisim_nuniv,
+                    wgt_types=wgt_types,
+                    slim=slim,
+                    genie_systematics=genie_systematics,
+                    flux_systematics=flux_systematics,
+                )
+    except Exception as ex:
+        # Common on CAFs missing the requested weight branches (empty wgtdf → MultiIndex error).
+        print(
+            "[make_syst_histcounts] failed building evt/trk/mcnu with weights (%s); "
+            "returning empty syst_hists" % ex
+        )
+        return empty_histcounts_df()
+
+
+    if evt is None or len(evt) == 0:
+        return empty_histcounts_df()
+
+    n_slim = int(genie_multisim_nuniv) if str(family).upper() == "GENIE" else int(multisim_nuniv)
+    want_knobs = list(knob_names) if knob_names is not None else None
+    if include_slim:
+        evt, slim_names = attach_family_slim_products(
+            evt, family=family, n_univ=n_slim, knob_names=want_knobs
+        )
+        if mcnu is not None and len(mcnu) > 0:
+            mcnu, _ = attach_family_slim_products(
+                mcnu, family=family, n_univ=n_slim, knob_names=want_knobs
+            )
+        if want_knobs is not None:
+            for sn in slim_names:
+                if sn not in want_knobs:
+                    want_knobs.append(sn)
+        # Auto-detect path: slim products are already on the frame.
+
+    syst_names = discover_syst_names_on_df(evt, family=family, knob_names=want_knobs)
+    if not syst_names:
+        print(
+            "[make_syst_histcounts] no %s weight knobs found on evt (requested %r); "
+            "returning empty syst_hists" % (family, want_knobs)
+        )
+        return empty_histcounts_df()
+
+    try:
+        return fill_syst_histcounts(
+            evt,
+            trk,
+            mcnu,
+            family=family,
+            syst_names=syst_names,
+            sample=sample,
+            do_xsec=bool(do_xsec),
+        )
+    except Exception as ex:
+        print("[make_syst_histcounts] fill failed (%s); returning empty syst_hists" % ex)
+        return empty_histcounts_df()
+
+
+
+def make_syst_histcounts_nowgt(
+    f,
+    sample="mc",
+    trkScoreCut=False,
+    trkDistCut=1000.0,
+    cutClearCosmic=False,
+    **trkArgs,
+):
+    """Unisim path: no weights — CV histogram counts only (WireMod / DENT / intime / offbeam).
+
+    Pair CV vs variation sample counts in the notebook via
+    ``syst_histcounts.unisim_cov_from_cv_and_var``.
+    """
+    from analysis_village.numucc_1p0pi.syst_histcounts import (
+        empty_histcounts_df,
+        fill_syst_histcounts,
+    )
+
+    evt = make_pandora_evtdf_all(
+        f,
+        include_weights=False,
+        multisim_nuniv=0,
+        wgt_types=[],
+        slim=True,
+        trkScoreCut=trkScoreCut,
+        trkDistCut=trkDistCut,
+        cutClearCosmic=cutClearCosmic,
+        **trkArgs,
+    )
+    trk = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, **trkArgs)
+    # Truth categories for signal/background bookkeeping when MC/dirt/intime.
+    mcnu = None
+    try:
+        mcnu = make_mcnudf(f, include_weights=False, multisim_nuniv=0, wgt_types=[], slim=True)
+    except Exception:
+        mcnu = None
+
+    if evt is None or len(evt) == 0:
+        return empty_histcounts_df()
+
+    return fill_syst_histcounts(
+        evt,
+        trk,
+        mcnu,
+        family="UNISIM",
+        syst_names=[],
+        sample=sample,
+        do_xsec=False,
+    )
+
+
+def make_syst_histcounts_all(
+    f,
+    sample="mc",
+    include_ar23p=True,
+    include_slim=True,
+    genie_multisim_nuniv=100,
+    flux_multisim_nuniv=1000,
+    g4_multisim_nuniv=1000,
+    trkScoreCut=False,
+    trkDistCut=1000.0,
+    cutClearCosmic=False,
+    **trkArgs,
+):
+    """One CAF pass: all GENIE knobs + slim products + Flux + G4 histcounts.
+
+    Histcounts are stored **per individual knob** (e.g.
+    ``GENIEReWeight_SBN_v1_multisim_CoulombCCQE``,
+    ``GENIEReWeight_SBN_v1_multisim_NormCCMEC``), never under mode labels
+    like ``CCQE`` / ``MEC``.
+
+    With ``include_slim=True`` (default), also attaches and histograms:
+
+    * ``slim_multisim`` / ``Flux_slim_multisim`` / ``G4_slim_multisim`` —
+      product of **true multisim** (CAF type 0) knobs only.
+    * ``slim`` / ``Flux_slim`` / ``G4_slim`` — slim_multisim × Gaussian throws of
+      multisigma (``ps1``) and morph (notebook / historical getsyst recipe;
+      weights clipped ``≥ 0``).
+
+    Per-knob ±σ/morph columns remain available separately. Do **not** sum slim
+    (or slim_multisim) fractional cov on top of the sum of per-knob multisim covs
+    in the notebook (double-counting). ``slim`` already includes ``slim_multisim``.
+
+    ``include_ar23p``: include Ar23p template knobs (default True).
+    """
+    from makedf.bnbsyst import regen_systematics
+    from makedf.g4syst import g4_systematics
+    from makedf.geniesyst import GENIE_KNOB_GROUPS
+
+    from analysis_village.numucc_1p0pi.syst_histcounts import (
+        attach_family_slim_products,
+        discover_syst_names_on_df,
+        empty_histcounts_df,
+        fill_syst_histcounts,
+        sum_histcounts_dfs,
+    )
+
+    # Flatten group registry → per-knob CAF weight names (not group labels).
+    genie_syst = []
+    genie_knobs = []
+    for name, lst in GENIE_KNOB_GROUPS.items():
+        if name == "Ar23p" and not include_ar23p:
+            continue
+        genie_syst.extend(lst)
+        genie_knobs.extend(lst)
+    flux_knobs = list(regen_systematics)
+    g4_knobs = [k for k in g4_systematics if "neutron" not in k]
+
+    try:
+        # slim=False keeps every per-knob column; we build slim products ourselves so
+        # multisigma/morph stay separate and never enter the multisim product.
+        evt = make_pandora_evtdf_all_mc_multisim(
+            f,
+            include_weights=True,
+            multisim_nuniv=max(int(flux_multisim_nuniv), int(g4_multisim_nuniv), 200),
+            wgt_types=["genie", "bnb", "g4"],
+            slim=False,
+            genie_systematics=genie_syst,
+            flux_systematics=regen_systematics,
+            trkScoreCut=trkScoreCut,
+            trkDistCut=trkDistCut,
+            cutClearCosmic=cutClearCosmic,
+            genie_multisim_nuniv=genie_multisim_nuniv,
+            **trkArgs,
+        )
+        trk = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, **trkArgs)
+        mcnu = make_mcnudf_mc_multisim(
+            f,
+            include_weights=True,
+            multisim_nuniv=200,
+            genie_multisim_nuniv=genie_multisim_nuniv,
+            wgt_types=["genie", "bnb", "g4"],
+            slim=False,
+            genie_systematics=genie_syst,
+            flux_systematics=regen_systematics,
+        )
+    except Exception as ex:
+        print(
+            "[make_syst_histcounts_all] failed building weighted tables (%s); "
+            "returning empty syst_hists" % ex
+        )
+        return empty_histcounts_df()
+
+    if evt is None or len(evt) == 0:
+        return empty_histcounts_df()
+
+    if include_slim:
+        evt, genie_slim = attach_family_slim_products(
+            evt, family="GENIE", n_univ=int(genie_multisim_nuniv), knob_names=genie_knobs
+        )
+        evt, flux_slim = attach_family_slim_products(
+            evt, family="Flux", n_univ=int(flux_multisim_nuniv), knob_names=flux_knobs
+        )
+        evt, g4_slim = attach_family_slim_products(
+            evt, family="G4", n_univ=int(g4_multisim_nuniv), knob_names=g4_knobs
+        )
+        if mcnu is not None and len(mcnu) > 0:
+            mcnu, _ = attach_family_slim_products(
+                mcnu, family="GENIE", n_univ=int(genie_multisim_nuniv), knob_names=genie_knobs
+            )
+            mcnu, _ = attach_family_slim_products(
+                mcnu, family="Flux", n_univ=int(flux_multisim_nuniv), knob_names=flux_knobs
+            )
+            mcnu, _ = attach_family_slim_products(
+                mcnu, family="G4", n_univ=int(g4_multisim_nuniv), knob_names=g4_knobs
+            )
+    else:
+        genie_slim, flux_slim, g4_slim = [], [], []
+
+    parts = []
+    # GENIE: per-knob (+ optional slim products)
+    genie_want = list(genie_knobs) + list(genie_slim)
+    genie_names = discover_syst_names_on_df(evt, family="GENIE", knob_names=genie_want)
+    if genie_names:
+        parts.append(
+            fill_syst_histcounts(
+                evt, trk, mcnu, family="GENIE", syst_names=genie_names, sample=sample, do_xsec=True
+            )
+        )
+    else:
+        print("[make_syst_histcounts_all] no GENIE knobs found on evt")
+
+    # Flux / G4: rate only
+    flux_want = list(flux_knobs) + list(flux_slim)
+    flux_names = discover_syst_names_on_df(evt, family="Flux", knob_names=flux_want)
+    if flux_names:
+        parts.append(
+            fill_syst_histcounts(
+                evt, trk, None, family="Flux", syst_names=flux_names, sample=sample, do_xsec=False
+            )
+        )
+    else:
+        print("[make_syst_histcounts_all] no Flux knobs found on evt")
+
+    g4_want = list(g4_knobs) + list(g4_slim)
+    g4_names = discover_syst_names_on_df(evt, family="G4", knob_names=g4_want)
+    if g4_names:
+        parts.append(
+            fill_syst_histcounts(
+                evt, trk, None, family="G4", syst_names=g4_names, sample=sample, do_xsec=False
+            )
+        )
+    else:
+        print("[make_syst_histcounts_all] no G4 knobs found on evt")
+
+    return sum_histcounts_dfs(parts) if parts else empty_histcounts_df()
+
+
+def build_syst_histcounts_config(
+    mode=None,
+    group_filter=None,
+    sample="mc",
+):
+    """Build ``DFS, ARGS, NAMES`` for grid histcount jobs.
+
+    ``mode`` (or env ``SYST_HIST_MODE``):
+      ``all`` | ``genie`` | ``genie_slim`` | ``flux`` | ``g4`` | ``nowgt``.
+
+    ``all`` — every GENIE knob in ``GENIE_KNOB_GROUPS`` (including Ar23p) + Flux + G4,
+    plus slim products ``slim_multisim`` / ``slim`` (and Flux/G4 analogues) by default.
+    Histcounts are keyed by **individual knob name**, not by group (CCQE/MEC/…).
+    Set ``SYST_HIST_EXCLUDE_AR23P=1`` to drop Ar23p knobs only.
+    Set ``SYST_HIST_EXCLUDE_SLIM=1`` to skip slim product histcounts.
+
+    ``group_filter`` (or env ``GENIE_KNOB_GROUP``): optional GENIE *group* used only
+    to select which knobs to load when ``mode=genie``; output is still one entry
+    per knob inside that group (+ ``slim_multisim`` / ``slim`` unless excluded).
+    """
+    import os
+
+    if mode is None:
+        mode = os.environ.get("SYST_HIST_MODE", "genie").strip().lower()
+    if group_filter is None:
+        group_filter = os.environ.get("GENIE_KNOB_GROUP", "").strip() or None
+    # Ar23p on by default; opt out explicitly.
+    exclude_ar23p = os.environ.get("SYST_HIST_EXCLUDE_AR23P", "").strip() in (
+        "1",
+        "true",
+        "True",
+        "yes",
+        "YES",
+    )
+    include_ar23p = not exclude_ar23p
+    exclude_slim = os.environ.get("SYST_HIST_EXCLUDE_SLIM", "").strip() in (
+        "1",
+        "true",
+        "True",
+        "yes",
+        "YES",
+    )
+    include_slim = not exclude_slim
+
+    def _env_int(name, default):
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return int(default)
+        return int(raw)
+
+    # Smoke / override universe counts (defaults match production).
+    genie_nuniv = _env_int("SYST_HIST_GENIE_NUNIV", 100)
+    flux_nuniv = _env_int("SYST_HIST_FLUX_NUNIV", 1000)
+    g4_nuniv = _env_int("SYST_HIST_G4_NUNIV", 1000)
+
+    def _with_var_config_snapshot(DFS, ARGS, NAMES):
+        return (
+            list(DFS) + [make_var_config_snapshot],
+            list(ARGS) + [{}],
+            list(NAMES) + ["var_configs"],
+        )
+
+    if mode in ("nowgt", "unisim", "none"):
+        DFS = [make_syst_histcounts_nowgt, make_hdrdf]
+        ARGS = [dict(sample=sample), {}]
+        NAMES = ["syst_hists", "hdr"]
+        return _with_var_config_snapshot(DFS, ARGS, NAMES)
+
+    if mode in ("all", "full"):
+        DFS = [make_syst_histcounts_all, make_hdrdf]
+        ARGS = [
+            dict(
+                sample=sample,
+                include_ar23p=include_ar23p,
+                include_slim=include_slim,
+                genie_multisim_nuniv=genie_nuniv,
+                flux_multisim_nuniv=flux_nuniv,
+                g4_multisim_nuniv=g4_nuniv,
+            ),
+            {},
+        ]
+        NAMES = ["syst_hists", "hdr"]
+        return _with_var_config_snapshot(DFS, ARGS, NAMES)
+
+    if mode in ("genie_slim", "slim"):
+        from makedf.geniesyst import regen_systematics
+
+        DFS = [make_syst_histcounts, make_hdrdf]
+        ARGS = [
+            dict(
+                wgt_types=["genie"],
+                family="GENIE",
+                slim=True,
+                include_slim=True,
+                genie_systematics=regen_systematics,
+                genie_multisim_nuniv=genie_nuniv,
+                do_xsec=True,
+                sample=sample,
+            ),
+            {},
+        ]
+        NAMES = ["syst_hists", "hdr"]
+        return _with_var_config_snapshot(DFS, ARGS, NAMES)
+
+    if mode == "genie":
+        from makedf.geniesyst import GENIE_KNOB_GROUPS
+
+        if group_filter is not None:
+            if group_filter not in GENIE_KNOB_GROUPS:
+                raise ValueError(
+                    "Unknown GENIE knob group %r; valid: %s"
+                    % (group_filter, tuple(GENIE_KNOB_GROUPS))
+                )
+            syst = list(GENIE_KNOB_GROUPS[group_filter])
+            knobs = list(syst)
+        else:
+            syst = []
+            knobs = []
+            for name, lst in GENIE_KNOB_GROUPS.items():
+                if name == "Ar23p" and not include_ar23p:
+                    continue
+                syst.extend(lst)
+                knobs.extend(lst)
+        DFS = [make_syst_histcounts, make_hdrdf]
+        ARGS = [
+            dict(
+                wgt_types=["genie"],
+                family="GENIE",
+                slim=False,
+                include_slim=include_slim,
+                genie_systematics=syst,
+                multisim_nuniv=200,
+                genie_multisim_nuniv=genie_nuniv,
+                knob_names=knobs,
+                do_xsec=True,
+                sample=sample,
+            ),
+            {},
+        ]
+        NAMES = ["syst_hists", "hdr"]
+        return _with_var_config_snapshot(DFS, ARGS, NAMES)
+
+    if mode == "flux":
+        from makedf.bnbsyst import regen_systematics
+
+        DFS = [make_syst_histcounts, make_hdrdf]
+        ARGS = [
+            dict(
+                wgt_types=["bnb"],
+                family="Flux",
+                slim=False,
+                include_slim=include_slim,
+                multisim_nuniv=flux_nuniv,
+                flux_systematics=regen_systematics,
+                knob_names=list(regen_systematics),
+                do_xsec=False,
+                sample=sample,
+            ),
+            {},
+        ]
+        NAMES = ["syst_hists", "hdr"]
+        return _with_var_config_snapshot(DFS, ARGS, NAMES)
+
+    if mode == "g4":
+        from makedf.g4syst import g4_systematics
+
+        DFS = [make_syst_histcounts, make_hdrdf]
+        ARGS = [
+            dict(
+                wgt_types=["g4"],
+                family="G4",
+                slim=False,
+                include_slim=include_slim,
+                multisim_nuniv=g4_nuniv,
+                knob_names=[k for k in g4_systematics if "neutron" not in k],
+                do_xsec=False,
+                sample=sample,
+            ),
+            {},
+        ]
+        NAMES = ["syst_hists", "hdr"]
+        return _with_var_config_snapshot(DFS, ARGS, NAMES)
+
+    raise ValueError(
+        "Unknown SYST_HIST_MODE %r; use all, genie, genie_slim, flux, g4, or nowgt" % (mode,)
+    )

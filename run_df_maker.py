@@ -50,8 +50,35 @@ parser.add_argument('-split', dest='SplitSize', default=1.0, type=float, help="S
 
 args = parser.parse_args()
 
+
+def _maybe_write_syst_hist_var_config_snapshot(dest_dir):
+    """For syst_histcounts jobs: freeze VariableConfig next to outputs at submit/run time."""
+    cfg = getattr(args, "config", "") or ""
+    if "syst_histcounts" not in cfg.replace("\\", "/"):
+        return None
+    try:
+        from analysis_village.numucc_1p0pi.syst_histcounts import (
+            VAR_CONFIG_SNAPSHOT_JSON_NAME,
+            write_var_config_snapshot_json,
+        )
+    except Exception as ex:
+        print("[run_df_maker] skip VariableConfig snapshot import (%s)" % ex)
+        return None
+    os.makedirs(dest_dir, exist_ok=True)
+    out = os.path.join(dest_dir, VAR_CONFIG_SNAPSHOT_JSON_NAME)
+    try:
+        write_var_config_snapshot_json(out)
+        print("[run_df_maker] wrote VariableConfig snapshot: %s" % out)
+        return out
+    except Exception as ex:
+        print("[run_df_maker] failed writing VariableConfig snapshot (%s)" % ex)
+        return None
+
+
 def run_pool(output, inputs, nproc):
     os.nice(10)
+    # Freeze binning next to the pool output (same snapshot also lands in each HDF).
+    _maybe_write_syst_hist_var_config_snapshot(str(pathlib.Path(output).resolve().parent))
     ntuples = NTupleGlob(inputs, None)
 
     # if PREPROCESS doesn't exist, set it to None
@@ -138,6 +165,10 @@ def run_grid(inputfiles):
     MasterJobDir = CAFPYANA_GRID_OUT_DIR + "/logs/" + timestamp + '__' + args.output + "_log"
     OutputDir = CAFPYANA_GRID_OUT_DIR + "/dfs/" + timestamp + '__' + args.output
     os.system('mkdir -p ' + MasterJobDir)
+    os.system('mkdir -p ' + OutputDir)
+    # Freeze VariableConfig at submit time into the campaign output + log dirs.
+    _maybe_write_syst_hist_var_config_snapshot(OutputDir)
+    _maybe_write_syst_hist_var_config_snapshot(MasterJobDir)
 
     # 3) grid job is based on number of files
     ngrid = args.NGridJobs
@@ -161,7 +192,7 @@ def run_grid(inputfiles):
         out.write('#!/bin/bash\n')
         # Worker jobs do not inherit the submit-shell environment; configs that branch on e.g.
         # GENIE_KNOB_GROUP must see the same values as the submit host (FLUX_GROUP unused for flux df).
-        for _env in ("GENIE_KNOB_GROUP", "FLUX_GROUP"):
+        for _env in ("GENIE_KNOB_GROUP", "FLUX_GROUP", "SYST_HIST_MODE", "SYST_HIST_SAMPLE", "SYST_HIST_EXCLUDE_AR23P", "SYST_HIST_INCLUDE_AR23P", "SYST_HIST_EXCLUDE_SLIM", "SYST_HIST_GENIE_NUNIV", "SYST_HIST_FLUX_NUNIV", "SYST_HIST_G4_NUNIV"):
             _v = os.environ.get(_env, "").strip()
             if _v:
                 out.write("export %s=%s\n" % (_env, shlex.quote(_v)))
@@ -190,6 +221,16 @@ def run_grid(inputfiles):
     tar_cmd = 'tar cf bin_dir.tar ./'
     os.system(tar_cmd)
 
+    # Resource requests: override via env for heavy histcount / weight jobs.
+    job_disk = os.environ.get("JOBSUB_DISK", "10GB").strip() or "10GB"
+    job_mem = os.environ.get("JOBSUB_MEMORY", "10GB").strip() or "10GB"
+    job_life = os.environ.get("JOBSUB_LIFETIME", "3h").strip() or "3h"
+    job_cpu = os.environ.get("JOBSUB_CPU", "7").strip() or "7"
+    print(
+        "[run_df_maker] jobsub resources: disk=%s memory=%s lifetime=%s cpu=%s"
+        % (job_disk, job_mem, job_life, job_cpu)
+    )
+
     submitCMD = '''jobsub_submit \\
 -G sbnd \\
 --auth-methods="token" \\
@@ -200,13 +241,13 @@ def run_grid(inputfiles):
 --append_condor_requirements='(TARGET.HAS_SINGULARITY=?=true)' \\
 --tar_file_name "dropbox://$(pwd)/bin_dir.tar" \\
 -N %d \\
---disk 10GB \\
---cpu 7 \\
---memory 10GB \\
---expected-lifetime 3h \\
+--disk %s \\
+--cpu %s \\
+--memory %s \\
+--expected-lifetime %s \\
 "file://$(pwd)/grid_executable.sh" \\
 "%s" \\
-"%s"'''%(ngrid,OutputDir,args.output)
+"%s"''' % (ngrid, job_disk, job_cpu, job_mem, job_life, OutputDir, args.output)
 
     print(submitCMD)
     os.system(submitCMD)

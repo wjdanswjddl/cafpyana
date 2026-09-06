@@ -127,39 +127,102 @@ def parse_args():
 
 
 # ===========================================================================
+def _chunk_input_df_paths(meta: dict | None) -> frozenset:
+    """Input ``.df`` paths recorded on a batch pickle (for de-duplication)."""
+    meta = meta or {}
+    paths = meta.get("df_files") or []
+    if not paths:
+        paths = [m.get("path") for m in (meta.get("per_file") or []) if m.get("path")]
+    return frozenset(p for p in paths if p)
+
+
+def dedupe_chunk_pickle_paths(
+    chunk_files: List[str],
+) -> tuple[List[str], List[str]]:
+    """Drop batch pickles whose input ``.df`` files are already covered.
+
+    Prefers larger jobs (more input files) so orphan singleton leftovers from an
+    earlier ``files_per_job=1`` run do not double-count when a later concat job
+    already processed the same files.
+    """
+    if len(chunk_files) <= 1:
+        return list(chunk_files), []
+
+    ranked: List[tuple[int, str, frozenset]] = []
+    for cf in chunk_files:
+        with open(cf, "rb") as f:
+            d = pickle.load(f)
+        inputs = _chunk_input_df_paths(d.get("meta"))
+        ranked.append((len(inputs), cf, inputs))
+
+    # Larger jobs first; stable tie-break on path for reproducibility.
+    ranked.sort(key=lambda t: (-t[0], t[1]))
+
+    kept: List[str] = []
+    dropped: List[str] = []
+    covered: set = set()
+    for _n, cf, inputs in ranked:
+        if not inputs:
+            # No path metadata — keep (legacy pickles); cannot de-dupe.
+            kept.append(cf)
+            continue
+        if inputs <= covered:
+            dropped.append(cf)
+            continue
+        if inputs & covered:
+            # Partial overlap: keep only if it adds new files (unusual).
+            # Still skip fully-redundant orphans; for partial, keep and extend.
+            pass
+        kept.append(cf)
+        covered |= set(inputs)
+
+    kept_sorted = sorted(kept)
+    return kept_sorted, sorted(dropped)
+
+
 def collect_chunks(in_dir: str) -> Dict[str, List[str]]:
-    """Group pickles by sample name (the prefix before ``__``)."""
+    """Group pickles by sample name (the prefix before ``__``).
+
+    De-duplicates by input ``.df`` path so overlapping batch pickles (e.g.
+    leftover one-file jobs after a concat re-run) are not double-counted.
+    """
     out = {s: sorted(glob.glob(path.join(in_dir, f"{s}__*.pkl"))) for s in SAMPLES}
-    for s, files in out.items():
-        print(f"[aggregate] sample={s} -> {len(files)} chunks")
+    for s, files in list(out.items()):
+        kept, dropped = dedupe_chunk_pickle_paths(files)
+        out[s] = kept
+        msg = f"[aggregate] sample={s} -> {len(kept)} chunks"
+        if dropped:
+            msg += f" (dropped {len(dropped)} overlapping: " + ", ".join(
+                path.basename(p) for p in dropped
+            ) + ")"
+        print(msg)
     return out
 
 
 # ===========================================================================
-def accumulate_exposure_totals_from_dir(in_dir: str) -> ExposureTotals:
-    """Sum POT / gates denominators from every per-chunk pickle (map phase metadata)."""
+def accumulate_exposure_totals(chunk_groups: Dict[str, List[str]]) -> ExposureTotals:
+    """Sum POT / gates from de-duplicated chunk groups (sample -> pickle paths)."""
     totals = ExposureTotals()
-    pattern = path.join(in_dir, "*__*.pkl")
-    paths = sorted(glob.glob(pattern))
-    if not paths:
-        print(f"[aggregate] WARN: no chunk pickles matched {pattern}")
+    n_used = sum(len(v) for v in chunk_groups.values())
+    if n_used <= 0:
+        print("[aggregate] WARN: no chunk pickles to sum for exposure")
         return totals
-    for cf in paths:
-        with open(cf, "rb") as f:
-            d = pickle.load(f)
-        sample = d.get("sample")
-        m = d.get("meta", {}) or {}
-        if sample == "data":
-            totals.data_pot += float(m.get("chunk_pot", 0.0))
-            totals.data_gates_bnb += float(m.get("chunk_gates_bnb", 0.0))
-        elif sample == "mc":
-            totals.mc_pot += float(m.get("chunk_pot", 0.0))
-        elif sample == "dirt":
-            totals.dirt_pot += float(m.get("chunk_pot", 0.0))
-        elif sample == "intime":
-            totals.intime_gates += float(m.get("chunk_cosmic_gates_intime", 0.0))
-        elif sample == "offbeam":
-            totals.offbeam_gates += float(m.get("chunk_cosmic_gates_offbeam", 0.0))
+    for sample, files in chunk_groups.items():
+        for cf in files:
+            with open(cf, "rb") as f:
+                d = pickle.load(f)
+            m = d.get("meta", {}) or {}
+            if sample == "data":
+                totals.data_pot += float(m.get("chunk_pot", 0.0))
+                totals.data_gates_bnb += float(m.get("chunk_gates_bnb", 0.0))
+            elif sample == "mc":
+                totals.mc_pot += float(m.get("chunk_pot", 0.0))
+            elif sample == "dirt":
+                totals.dirt_pot += float(m.get("chunk_pot", 0.0))
+            elif sample == "intime":
+                totals.intime_gates += float(m.get("chunk_cosmic_gates_intime", 0.0))
+            elif sample == "offbeam":
+                totals.offbeam_gates += float(m.get("chunk_cosmic_gates_offbeam", 0.0))
     print(
         f"[aggregate] exposure totals: data_pot={totals.data_pot:.3e} "
         f"bnb_gates={totals.data_gates_bnb:.3e} mc_pot={totals.mc_pot:.3e} "
@@ -167,6 +230,11 @@ def accumulate_exposure_totals_from_dir(in_dir: str) -> ExposureTotals:
         f"offbeam_gates={totals.offbeam_gates:.3e}"
     )
     return totals
+
+
+def accumulate_exposure_totals_from_dir(in_dir: str) -> ExposureTotals:
+    """Sum POT / gates denominators from de-duplicated per-chunk pickles."""
+    return accumulate_exposure_totals(collect_chunks(in_dir))
 
 
 # ===========================================================================
@@ -179,6 +247,7 @@ def render_overlay_plots(
     show_fig: bool,
     syst_disk_root: str | None = None,
     syst_cov_loader=None,
+    cosmic_estimate: str = "intime",
 ):
     """Render every plot stored in ``merged['histdata']``."""
     # We need the pipeline definition to recover the per-plot kwargs and labels.
@@ -221,9 +290,9 @@ def render_overlay_plots(
         # Match ``selected_events.ipynb``: combined syst as hatched band (not norm/shape/mixed fill).
         kwargs.setdefault("syst_decomp", False)
         # Drop retired overlay kwargs if any pipeline PlotSpec still sets them.
-        kwargs.pop("cosmic_estimate", None)
         kwargs.pop("show_cosmic_model_unc", None)
         kwargs.pop("legend_percentages", None)
+        kwargs["cosmic_estimate"] = cosmic_estimate
 
         # Pre-saved fractional covariance (custom loader, syst disk, or none).
         if kwargs.get("syst") is None and syst_cov_loader is not None:
@@ -559,7 +628,7 @@ def main():
         )
 
     # ---- exposure denominators from chunk metadata (every pickle), then global scales
-    totals = accumulate_exposure_totals_from_dir(args.in_dir)
+    totals = accumulate_exposure_totals(chunk_groups)
     exposure_scales = None
     if not args.skip_global_exposure:
         exposure_scales = apply_global_exposure_scales(
@@ -591,6 +660,7 @@ def main():
         merged, plot_label_map={}, save_fig_dir=save_fig_dir,
         pot_str=pot_str, save_fig=args.save_fig, show_fig=args.show_fig,
         syst_disk_root=syst_disk_root,
+        cosmic_estimate=args.cosmic_estimate,
     )
     render_summary_breakdown_plot(
         merged, save_fig_dir,

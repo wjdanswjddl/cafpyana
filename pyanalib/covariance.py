@@ -73,9 +73,14 @@ def get_covariance_matrix(univ_events,
 
     cov = cov / n_univ
     cov_frac = cov_frac / n_univ
+    if int(cv_events.shape[0]) != int(n_bins):
+        raise ValueError(
+            "get_covariance_matrix: univ has %d bins but cv has %d"
+            % (n_bins, cv_events.shape[0])
+        )
     corr = np.zeros_like(cov)
-    for i in range(len(cv_events)):
-        for j in range(len(cv_events)):
+    for i in range(n_bins):
+        for j in range(n_bins):
             di = max(float(cov[i, i]), 0.0)
             dj = max(float(cov[j, j]), 0.0)
             denom = np.sqrt(di * dj)
