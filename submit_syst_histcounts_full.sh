@@ -195,9 +195,10 @@ add_jobs "$N_OFFBEAM" "$NGRID_COSMICS"
 echo
 echo "Approx total jobsub processes if everything is submitted at once: ~$TOTAL_JOBS"
 echo "Optional waves (family-level only):"
-echo "  WAVE=1  hist_mc_genie + flux + g4 + mc_cv_nowgt"
-echo "  WAVE=2  hist_dirt_genie + flux + g4"
-echo "  WAVE=3  WireMod / DENT / cosmics"
+echo "  WAVE=1      hist_mc_genie + flux + g4 + mc_cv_nowgt"
+echo "  WAVE=2      hist_dirt_genie + flux + g4"
+echo "  WAVE=3      WireMod / DENT / cosmics"
+echo "  WAVE=genie  hist_mc_genie + hist_dirt_genie only"
 echo "Override e.g. NGRID_GENIE=2000 NGRID_FLUX=3000 bash $0"
 echo
 
@@ -253,6 +254,12 @@ if want_wave 2; then
   submit_one hist_dirt_genie genie dirt "$LIST_DIRT" "$NGRID_DIRT"
   submit_one hist_dirt_flux flux dirt "$LIST_DIRT" "$NGRID_DIRT"
   submit_one hist_dirt_g4 g4 dirt "$LIST_DIRT" "$NGRID_DIRT"
+fi
+
+# GENIE-only (full family + slim; no flux/g4/unisim). Not part of WAVE=all.
+if [[ "$WAVE" == "genie" ]]; then
+  submit_one hist_mc_genie genie mc "$LIST_MC" "$NGRID_GENIE"
+  submit_one hist_dirt_genie genie dirt "$LIST_DIRT" "$NGRID_DIRT"
 fi
 
 if want_wave 3; then

@@ -38,6 +38,7 @@ GENIE **rate** vs **xsec** (critical)
 Flux / G4 are **rate-only** multisims (same fractional cov enters rate and xsec
 totals downstream). Unisim samples (WireMod, DENT, intime, offbeam) store only
 ``rate_cv`` (no universe weights on the CAF).
+
 """
 from __future__ import annotations
 
