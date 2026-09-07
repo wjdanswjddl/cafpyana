@@ -44,8 +44,15 @@ def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="sli
     wgts = wgts.join(isyst)
 
     systs = []
+    missing = []
     for s in systematics:
-        isyst = wgt_names.index(s)
+        try:
+            isyst = wgt_names.index(s)
+        except ValueError:
+            # CAF may lack newer knobs listed in regen_systematics / GENIE_KNOB_GROUPS
+            # (e.g. CCQETemplateReweight_SBN_v3_LFGToSF_* on Spring25). Skip, don't abort.
+            missing.append(s)
+            continue
         this_systs = []
 
         # Get weight type
@@ -102,6 +109,12 @@ def getsyst(f, systematics, nuind, multisim_nuniv=100, slim=False, slimname="sli
             if isinstance(syst, pd.Series):
                 syst = syst.clip(lower=0)
             systs.append(syst)
+
+    if missing:
+        print(
+            "[getsyst] skipping %d systematic(s) not present on this CAF (e.g. %s)"
+            % (len(missing), missing[0])
+        )
 
     # print("HI")
     if slim:

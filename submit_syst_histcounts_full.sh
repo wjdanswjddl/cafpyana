@@ -4,11 +4,11 @@
 # Creates a fresh campaign directory under pnfs scratch, prints the planned
 # jobsub invocations, and only submits if you pass --submit.
 #
-# Physics layout (do not split GENIE by CCQE/MEC/…):
-#   * hist_mc_genie  — ALL GENIE knobs incl. Ar23p + slim_multisim + slim
-#   * hist_mc_flux   — all Flux knobs + Flux_slim_*
-#   * hist_mc_g4     — all G4 knobs + G4_slim_*
-#   * dirt: same family split (hist_dirt_genie / _flux / _g4)
+# Physics layout (do not split GENIE by CCQE/MEC/… — except Ar23p):
+#   * hist_mc_genie       — non-Ar23p GENIE knobs + slim_multisim + slim (Spring CV CAFs)
+#   * hist_mc_genie_Ar23p — Ar23p knobs only (AR23plus knobs CAF list; separate files)
+#   * hist_mc_flux / g4   — Flux / G4 + slim products
+#   * dirt: hist_dirt_genie / _flux / _g4 (no Ar23p dirt sample)
 #   * unisim nowgt: WireMod, DENT, intime, offbeam + mc CV for WireMod pairing
 #
 # IMPORTANT
@@ -43,6 +43,7 @@ REPO=/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana
 cd "$REPO"
 
 LIST_MC=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_MCP2025C_1e20_v10_06_00_09_prodgenie_corsika_proton_rockbox_sbnd_CV_caf_flat_caf_sbnd_xrootd.list
+LIST_MC_AR23P=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/BNB_cosmics/mc_SBND2026A_AR23plus_knobs_BNBLight_CV_v1_00_01_flatcaf_sbnd_xrootd.list
 LIST_DIRT=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_09/lowE/mc_MCP2025B_v10_06_00_09_prodgenie_corsika_proton_rockbox_lowenergydirt_sbnd_CV_caf_flat_caf_sbnd_xrootd.list
 LIST_WM_SV=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/WireMod/mc_SBND2026A_prodgenie_corsika_proton_rockbox_sbnd_SV_v10_06_00_10_flatcaf_sbnd_xrootd.list
 LIST_WM_XTXW=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/WireMod/mc_SBND2026A_prodgenie_corsika_proton_rockbox_sbnd_wiremod_X-ThetaXW_v10_06_00_10_flatcaf_sbnd_xrootd.list
@@ -54,6 +55,7 @@ LIST_OFFBEAM=/exp/sbnd/app/users/munjung/misc/filelists/data/2025Spring_v10_06_0
 nfiles() { grep -cvE '^\s*(#|$)' "$1"; }
 
 N_MC=$(nfiles "$LIST_MC")
+N_MC_AR23P=$(nfiles "$LIST_MC_AR23P")
 N_DIRT=$(nfiles "$LIST_DIRT")
 N_WM_SV=$(nfiles "$LIST_WM_SV")
 N_WM_XTXW=$(nfiles "$LIST_WM_XTXW")
@@ -65,6 +67,7 @@ N_OFFBEAM=$(nfiles "$LIST_OFFBEAM")
 # Job counts (capped at nfiles by run_df_maker).
 # Tuned for 10GB / 6h: fewer files per job is fine (more -N is OK).
 NGRID_GENIE=${NGRID_GENIE:-${NGRID_MC:-1500}}
+NGRID_GENIE_AR23P=${NGRID_GENIE_AR23P:-${NGRID_GENIE}}
 NGRID_FLUX=${NGRID_FLUX:-2500}
 NGRID_G4=${NGRID_G4:-2500}
 NGRID_DIRT=${NGRID_DIRT:-800}
@@ -81,10 +84,9 @@ else
   export SYST_HIST_FLUX_NUNIV=${SYST_HIST_FLUX_NUNIV:-1000}
   export SYST_HIST_G4_NUNIV=${SYST_HIST_G4_NUNIV:-1000}
 fi
-# Ar23p is a normal GENIE group — include it (makedf default). Never run a
-# separate Ar23p-only histcounts job for slim (would be incomplete/wrong).
-unset SYST_HIST_EXCLUDE_AR23P || true
-export SYST_HIST_EXCLUDE_AR23P=0
+# Ar23p knobs live only on the AR23plus CAF sample — never on Spring CV.
+# Main hist_*_genie jobs exclude Ar23p; WAVE=ar23p / hist_mc_genie_Ar23p is separate.
+export SYST_HIST_EXCLUDE_AR23P=1
 
 # Match typical cafpyana weight-job resources; more -N instead of long walltime.
 export JOBSUB_DISK=${JOBSUB_DISK:-10GB}
@@ -146,7 +148,8 @@ echo " syst_histcounts FULL campaign plan"
 echo " CAMPAIGN=$CAMPAIGN"
 echo " DO_SUBMIT=$DO_SUBMIT"
 echo " NUNIV GENIE=$SYST_HIST_GENIE_NUNIV FLUX=$SYST_HIST_FLUX_NUNIV G4=$SYST_HIST_G4_NUNIV"
-echo " Ar23p: INCLUDED in hist_*_genie (SYST_HIST_EXCLUDE_AR23P=$SYST_HIST_EXCLUDE_AR23P)"
+echo " Ar23p: EXCLUDED from hist_*_genie (SYST_HIST_EXCLUDE_AR23P=$SYST_HIST_EXCLUDE_AR23P);"
+echo "        separate hist_mc_genie_Ar23p on AR23plus CAF list (N=$N_MC_AR23P)"
 echo " Resources: disk=$JOBSUB_DISK mem=$JOBSUB_MEMORY life=$JOBSUB_LIFETIME cpu=$JOBSUB_CPU"
 echo "============================================================"
 printf '%-28s %8s %6s %10s\n' "job" "nfiles" "ngrid" "files/job"
@@ -168,9 +171,12 @@ add_jobs() {
   TOTAL_JOBS=$((TOTAL_JOBS + ng))
 }
 
-# Family split only — never split GENIE by mode (slim needs all knobs).
+# Family split only — never split GENIE by mode (slim needs all non-Ar23p knobs).
+# Ar23p is a separate sample/job (WAVE=ar23p).
 plan_line "hist_mc_genie" "$N_MC" "$NGRID_GENIE"
 add_jobs "$N_MC" "$NGRID_GENIE"
+plan_line "hist_mc_genie_Ar23p" "$N_MC_AR23P" "$NGRID_GENIE_AR23P"
+add_jobs "$N_MC_AR23P" "$NGRID_GENIE_AR23P"
 plan_line "hist_mc_flux" "$N_MC" "$NGRID_FLUX"
 add_jobs "$N_MC" "$NGRID_FLUX"
 plan_line "hist_mc_g4" "$N_MC" "$NGRID_G4"
@@ -201,10 +207,11 @@ add_jobs "$N_OFFBEAM" "$NGRID_COSMICS"
 echo
 echo "Approx total jobsub processes if everything is submitted at once: ~$TOTAL_JOBS"
 echo "Optional waves (family-level only):"
-echo "  WAVE=1      hist_mc_genie + flux + g4 + mc_cv_nowgt"
+echo "  WAVE=1      hist_mc_genie + flux + g4 + mc_cv_nowgt  (Ar23p excluded)"
 echo "  WAVE=2      hist_dirt_genie + flux + g4"
 echo "  WAVE=3      WireMod / DENT / cosmics"
-echo "  WAVE=genie   hist_mc_genie + hist_dirt_genie only"
+echo "  WAVE=genie   hist_mc_genie + hist_dirt_genie (non-Ar23p only)"
+echo "  WAVE=ar23p   hist_mc_genie_Ar23p only (AR23plus CAF list)"
 echo "  WAVE=flux_g4 hist_mc/dirt flux + g4 only"
 echo "Reuse campaign: CAMPAIGN=/path/to/syst_histcounts_full_... WAVE=flux_g4 bash $0 --submit"
 echo "Override e.g. NGRID_GENIE=2000 NGRID_FLUX=3000 bash $0"
@@ -219,10 +226,10 @@ submit_one() {
   if [[ "$DO_SUBMIT" -ne 1 ]]; then
     return 0
   fi
-  # No GENIE_KNOB_GROUP — load all GENIE groups (incl. Ar23p) for slim.
+  # Default: exclude Ar23p (Spring CV). Override via $extra for Ar23p jobs.
   # shellcheck disable=SC2086
   env SYST_HIST_MODE="$mode" SYST_HIST_SAMPLE="$sample" \
-    SYST_HIST_EXCLUDE_AR23P=0 $extra \
+    SYST_HIST_EXCLUDE_AR23P="${SYST_HIST_EXCLUDE_AR23P:-1}" $extra \
     python run_df_maker.py -c "$CFG" -l "$list" -o "$name" -ngrid "$ngrid"
 }
 
@@ -248,7 +255,7 @@ which jobsub_submit >/dev/null 2>&1 || {
   setup jobsub_client
 }
 
-# Unset any leftover group filter from the submit shell.
+# Unset any leftover group filter from the submit shell (except Ar23p wave).
 unset GENIE_KNOB_GROUP || true
 
 if want_wave 1; then
@@ -264,10 +271,16 @@ if want_wave 2; then
   submit_one hist_dirt_g4 g4 dirt "$LIST_DIRT" "$NGRID_DIRT"
 fi
 
-# GENIE-only (full family + slim; no flux/g4/unisim). Not part of WAVE=all.
+# GENIE non-Ar23p only (full family + slim). Not part of WAVE=all.
 if [[ "$WAVE" == "genie" ]]; then
   submit_one hist_mc_genie genie mc "$LIST_MC" "$NGRID_GENIE"
   submit_one hist_dirt_genie genie dirt "$LIST_DIRT" "$NGRID_DIRT"
+fi
+
+# Ar23p knobs on AR23plus CAF sample only (not Spring CV).
+if [[ "$WAVE" == "all" || "$WAVE" == "ar23p" ]]; then
+  submit_one hist_mc_genie_Ar23p genie mc "$LIST_MC_AR23P" "$NGRID_GENIE_AR23P" \
+    "GENIE_KNOB_GROUP=Ar23p SYST_HIST_EXCLUDE_AR23P=0"
 fi
 
 # Flux + G4 only (MC + dirt). Not part of WAVE=all.

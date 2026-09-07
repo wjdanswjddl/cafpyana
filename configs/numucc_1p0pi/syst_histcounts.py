@@ -5,20 +5,22 @@
 # event tables — see ``analysis_village.numucc_1p0pi.syst_histcounts``.
 #
 # Modes via env ``SYST_HIST_MODE`` (default: genie):
-#   all         — all GENIE knobs (incl. Ar23p) + Flux + G4 in one CAF pass
+#   all         — all non-Ar23p GENIE knobs + Flux + G4 in one CAF pass
 #                 (stored per knob, e.g. CoulombCCQE / NormCCMEC — not per mode)
 #                 + slim products: slim_multisim (true multisim only) and slim
 #                   (× Gaussian throws of multisigma/morph; weights ≥ 0)
-#   genie       — GENIE_KNOB_GROUP=<CCQE|MEC|…> selects which knobs to load;
-#                 unset = all groups. Output still one hist stack per knob
-#                 (+ slim_multisim + slim by default)
+#   genie       — GENIE_KNOB_GROUP=<CCQE|MEC|…|Ar23p> selects which knobs to load;
+#                 unset = all groups except Ar23p unless SYST_HIST_EXCLUDE_AR23P=0.
+#                 Output still one hist stack per knob (+ slim_multisim + slim)
 #   genie_slim  — getsyst slim load; histcounts still build slim_multisim + slim
 #   flux        — BNB flux multisim knobs (rate only) + Flux_slim_* by default
 #   g4          — Geant4 reinteraction knobs (rate only) + G4_slim_* by default
 #   nowgt       — no weights; CV counts only (WireMod, DENT, intime, offbeam)
 #
 # Optional: ``SYST_HIST_SAMPLE=mc|dirt|intime|offbeam|data``
-# Optional: ``SYST_HIST_EXCLUDE_AR23P=1`` to drop Ar23p knobs from all/genie.
+# Optional: ``SYST_HIST_EXCLUDE_AR23P=1`` (default for Spring CV jobs) to drop Ar23p.
+#           Ar23p knobs exist only on the AR23plus CAF sample — run a separate job
+#           with ``GENIE_KNOB_GROUP=Ar23p`` and that file list (see submit script).
 # Optional: ``SYST_HIST_EXCLUDE_SLIM=1`` to skip slim product histcounts.
 #
 # Notebook: do not sum slim / slim_multisim frac-cov with the sum of per-knob

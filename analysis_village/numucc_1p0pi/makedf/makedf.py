@@ -1201,14 +1201,10 @@ def build_syst_histcounts_config(
         mode = os.environ.get("SYST_HIST_MODE", "genie").strip().lower()
     if group_filter is None:
         group_filter = os.environ.get("GENIE_KNOB_GROUP", "").strip() or None
-    # Ar23p on by default; opt out explicitly.
-    exclude_ar23p = os.environ.get("SYST_HIST_EXCLUDE_AR23P", "").strip() in (
-        "1",
-        "true",
-        "True",
-        "yes",
-        "YES",
-    )
+    # Ar23p off by default for Spring CV histcounts; set SYST_HIST_EXCLUDE_AR23P=0
+    # or GENIE_KNOB_GROUP=Ar23p on the AR23plus CAF sample to load those knobs.
+    _raw_excl = os.environ.get("SYST_HIST_EXCLUDE_AR23P", "1").strip().lower()
+    exclude_ar23p = _raw_excl not in ("0", "false", "no")
     include_ar23p = not exclude_ar23p
     exclude_slim = os.environ.get("SYST_HIST_EXCLUDE_SLIM", "").strip() in (
         "1",

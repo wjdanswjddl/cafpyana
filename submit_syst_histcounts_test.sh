@@ -61,8 +61,8 @@ CFG=configs/numucc_1p0pi/syst_histcounts.py
 export SYST_HIST_GENIE_NUNIV=10
 export SYST_HIST_FLUX_NUNIV=20
 export SYST_HIST_G4_NUNIV=20
-# Ar23p is a normal GENIE group (include in genie / all modes).
-export SYST_HIST_EXCLUDE_AR23P=0
+# Ar23p knobs only on AR23plus CAFs — exclude from Spring CV smoke.
+export SYST_HIST_EXCLUDE_AR23P=1
 
 echo "CAMPAIGN=$CAMPAIGN"
 echo "OUT=$OUT"
@@ -91,7 +91,7 @@ run_one hist_intime nowgt intime "$LISTS/intime.list" &
 run_one hist_offbeam nowgt offbeam "$LISTS/offbeam.list" &
 wait
 
-# GENIE: all knobs incl. Ar23p + slim in one pass (do not split by mode).
+# GENIE: all non-Ar23p knobs + slim in one pass (do not split by mode).
 unset GENIE_KNOB_GROUP || true
 run_one hist_mc_genie genie mc "$LISTS/mc_bnb.list" &
 run_one hist_mc_flux flux mc "$LISTS/mc_bnb.list" &
