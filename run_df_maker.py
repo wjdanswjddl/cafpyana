@@ -99,27 +99,31 @@ def run_pool(output, inputs, nproc):
         df_buffers = {k: [] for k in NAMES}
 
         for dfs in dfss:
-            this_NAMES = NAMES
-            if len(dfs) == 2: ## no or empty recTree
-                this_NAMES = ["histpotdf", "histgenevtdf"]
+            if not dfs:
+                continue
 
-            for k, df in zip(reversed(this_NAMES), reversed(dfs)):
-                this_key = k + "_" + str(k_idx)
-                size_bytes = df.memory_usage(deep=True).sum() if df is not None else 0
+            # Align table names with returned frames. Never zip unequal lengths —
+            # that mislabeled hdr as var_configs when makers failed silently.
+            if len(dfs) == 2:
+                # no / empty recTree: only histpot + histgenevt from ntuple_glob
+                name_df_pairs = list(zip(["histpotdf", "histgenevtdf"], dfs))
+            elif len(dfs) == len(NAMES):
+                name_df_pairs = list(zip(NAMES, dfs))
+            else:
+                print(
+                    "[run_df_maker] ERROR: len(dfs)=%d != len(NAMES)=%d (NAMES=%s); "
+                    "skipping this CAF result to avoid mislabeled HDF keys"
+                    % (len(dfs), len(NAMES), NAMES)
+                )
+                continue
+
+            for k, df in name_df_pairs:
+                if df is None:
+                    continue
+                size_bytes = df.memory_usage(deep=True).sum()
                 size_gb = size_bytes / (1024**3)
-                if len(dfs) == 2: ## no or empty recTree
-                    size_counters["histpotdf"] += size_gb
-                    df_buffers["histpotdf"].append(df)
-
-                    size_counters["histgenevtdf"] += size_gb
-                    df_buffers["histgenevtdf"].append(df)
-                else:
-                    size_counters[k] += size_gb
-                    if df is not None:
-                        df_buffers[k].append(df)  # accumulate
-
-                #print(f"{k}_{k_idx}: added {size_gb:.4f} GB (total {size_counters[k]:.4f} GB)")
-
+                size_counters[k] += size_gb
+                df_buffers[k].append(df)
                 del df
 
             if any(val > split_margin for val in size_counters.values()):
@@ -136,8 +140,8 @@ def run_pool(output, inputs, nproc):
                         del concat_df
                 # Reset counters and buffers
                 k_idx += 1
-                size_counters = {k: 0 for k in this_NAMES}
-                df_buffers = {k: [] for k in this_NAMES}
+                size_counters = {k: 0 for k in NAMES}
+                df_buffers = {k: [] for k in NAMES}
 
         for k, buffer in df_buffers.items():
             if buffer:

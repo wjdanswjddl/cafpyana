@@ -4,18 +4,22 @@ DENT detector unisim comparison: matched CV vs DENT histograms, plots, and
 selection efficiency / purity summary.
 
 Unlike WireMod / SCE (matched at sel_mup / sel_2prong), DENT is evaluated from
-``sel_all`` onward because the uncertainty affects early selection variables.
+``sel_all`` onward because the uncertainty affects early selection.  Common-event
+matching is done on ``sel_all`` (shared generated-event overlap); the pipeline is
+then walked to ``2prong-mup``.  Final kinematics (``integrated``, muon-p, TKI, …)
+are filled at that last stage — there is **no** separate sel_mup matched pass
+(that would only keep the intersection of survivors and drop differential
+selection efficiency).
 
 Outputs (parallel to WireMod / SCE):
   /exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final/DENT/
-    cache/   — histogram pickles, summary CSV, per-event frac-diff hists
-    plots/   — CV vs DENT overlays + per-event (DENT-CV)/CV distributions
-    plots/sel_mup/ — final-selected variables (when sel_mup matched files exist)
+    cache/   — ``dent_sel_all_hists.pkl``, summary CSV, optional paired pickles
+    plots/   — CV vs DENT overlays (cut-stage + final) + frac-diff / ratio
 
-Example (test on 3 files, using available DENT production if canonical dirs empty):
-    python dent_compare.py --max-files 3 \\
-        --dent-all-dir /pnfs/.../2026_08_18_120607__sel_all-mc-DENT \\
-        --dent-mup-dir /pnfs/.../2026_08_18_120753__sel_mup-mc-DENT
+Example:
+    python dent_compare.py --skip-match --skip-plots \\
+        --cv-all-dir /pnfs/.../sel_all-...-CV_updated \\
+        --dent-all-dir /pnfs/.../sel_all-...-DENT_updated
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ import pickle
 import sys
 import warnings
 from dataclasses import dataclass, field
+from multiprocessing import Pool, cpu_count
 from os import makedirs, path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -96,10 +101,8 @@ _DFS_ROOT = "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs"
 _OUT_BASE = "/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final/DENT"
 
 DEFAULT_DIRS = {
-    "cv_all": f"{_DFS_ROOT}/2026_08_19_031254__sel_all-mc-CV",
-    "dent_all": f"{_DFS_ROOT}/2026_08_18_120607__sel_all-mc-DENT",
-    "cv_mup": f"{_DFS_ROOT}/2026_08_19_031423__sel_mup-mc-CV",
-    "dent_mup": f"{_DFS_ROOT}/2026_08_18_120753__sel_mup-mc-DENT",
+    "cv_all": f"{_DFS_ROOT}/2026_09_03_032325__sel_all-mc-BNB_cosmics-detvar_CV_updated",
+    "dent_all": f"{_DFS_ROOT}/2026_09_03_032705__sel_all-mc-BNB_cosmics-detvar_DENT_updated",
 }
 
 VARIATIONS = ("cv", "dent")
@@ -188,11 +191,13 @@ def build_sel_all_var_defs() -> Dict[str, dict]:
     return defs
 
 
-def build_mup_var_defs() -> Dict[str, dict]:
+def build_final_var_defs() -> Dict[str, dict]:
+    """Final-selection kinematics filled at ``FINAL_STAGE_KEY`` during the sel_all walk."""
     from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
         CORE_SELECTED_EVT_VARIABLE_CONFIGS,
         with_final_selected_evt_variables,
     )
+    from analysis_village.numucc_1p0pi.variable_configs import INTEGRATED_HIST_DUMMY
 
     defs: Dict[str, dict] = {}
     for vc in with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIABLE_CONFIGS)):
@@ -201,13 +206,15 @@ def build_mup_var_defs() -> Dict[str, dict]:
             defs["integrated"] = {
                 "label": "Integrated",
                 "bins": np.asarray(vc.bins),
-                "extract": lambda df: np.full(len(df), 500.0, dtype=float),
+                "extract": lambda df: np.full(len(df), INTEGRATED_HIST_DUMMY, dtype=float),
+                "stage_key": FINAL_STAGE_KEY,
             }
             continue
         defs[vc.var_save_name] = {
             "label": vc.var_labels[0] if vc.var_labels else vc.var_save_name,
             "bins": np.asarray(vc.bins),
             "extract": lambda df, col=col: _per_evt_col(df, col),
+            "stage_key": FINAL_STAGE_KEY,
         }
     ne = VariableConfig.neutrino_energy()
     if ne.var_save_name not in defs:
@@ -216,8 +223,14 @@ def build_mup_var_defs() -> Dict[str, dict]:
             "label": ne.var_labels[0],
             "bins": np.asarray(ne.bins),
             "extract": lambda df, col=col: _per_evt_col(df, col),
+            "stage_key": FINAL_STAGE_KEY,
         }
     return defs
+
+
+def build_mup_var_defs() -> Dict[str, dict]:
+    """Deprecated alias — final vars now come from the sel_all walk."""
+    return build_final_var_defs()
 
 
 # ---------------------------------------------------------------------------
@@ -511,10 +524,19 @@ def process_sel_all_file(
     summary: SampleSummary,
     stage_specs: Dict[str, List[Tuple[str, Any, str]]],
     keyed_maps: Optional[Dict[str, Dict[PairKey, float]]] = None,
+    final_var_defs: Optional[Dict[str, dict]] = None,
 ) -> float:
-    """Walk the selection pipeline on one matched sel_all file."""
+    """Walk the selection pipeline on one matched sel_all file.
+
+    Cut-stage diagnostics are filled from ``stage_specs``.  At
+    ``FINAL_STAGE_KEY`` (``2prong-mup``), final kinematics in ``final_var_defs``
+    are filled after attaching TKI columns.
+    """
+    from pyanalib.variable_calculator import add_reco_cc1p0pi_tki_evtdf
+
     chunk_pot = 0.0
     n_split = get_n_split(df_file)
+    final_defs = final_var_defs or {}
 
     for i in range(n_split):
         split: Dict[str, Optional[pd.DataFrame]] = {}
@@ -578,6 +600,26 @@ def process_sel_all_file(
                     except Exception:
                         continue
                     _store_trk_var_keyed(keyed_maps, var_name, base_keys, v1, v2)
+
+            # Final kinematics at 2prong-mup (same events that survive the walk).
+            if stage_key == FINAL_STAGE_KEY and final_defs and cur_evt is not None and len(cur_evt) > 0:
+                pe = add_reco_cc1p0pi_tki_evtdf(cur_evt)
+                for var_name, cfg in final_defs.items():
+                    if var_name not in hists:
+                        continue
+                    try:
+                        vals = cfg["extract"](pe)
+                    except Exception:
+                        continue
+                    if len(vals) == 0:
+                        continue
+                    hists[var_name] += histogram_var(vals, cfg["bins"])
+                    if (
+                        keyed_maps is not None
+                        and base_keys is not None
+                        and var_name != "integrated"
+                    ):
+                        _store_evt_var_keyed(keyed_maps, var_name, base_keys, vals)
 
         del split, state
         gc.collect()
@@ -702,33 +744,80 @@ def list_matched_files(search_dir: str, filename_str: str) -> List[str]:
     return sorted(glob.glob(path.join(search_dir, f"*{filename_str}*_matched.df")))
 
 
+def _merge_stage_metrics(dst: Dict[str, StageMetrics], src: Dict[str, dict]) -> None:
+    for sk, d in src.items():
+        if sk not in dst:
+            dst[sk] = StageMetrics()
+        acc = dst[sk]
+        acc.n_evt_raw += int(d.get("n_evt_raw", 0))
+        acc.n_signal_raw += int(d.get("n_signal_raw", 0))
+        acc.n_evt_pot += float(d.get("n_evt_pot", 0.0))
+        acc.n_signal_pot += float(d.get("n_signal_pot", 0.0))
+        acc.n_truth_nu_raw += int(d.get("n_truth_nu_raw", 0))
+        acc.n_truth_nu_pot += float(d.get("n_truth_nu_pot", 0.0))
+
+
+def _merge_keyed_maps(
+    dst: Dict[str, Dict[PairKey, float]],
+    src: Dict[str, Dict[PairKey, float]],
+) -> None:
+    for var_name, mp in src.items():
+        slot = dst.setdefault(var_name, {})
+        slot.update(mp)
+
+
+def _process_one_sel_all_file_worker(payload: Tuple[str, bool]) -> dict:
+    """Pool worker: rebuild defs locally (lambdas are not picklable)."""
+    fpath, collect_keyed = payload
+    cut_var_defs = build_sel_all_var_defs()
+    final_var_defs = build_final_var_defs()
+    var_defs = {**cut_var_defs, **final_var_defs}
+    stage_specs = _stage_specs_by_key()
+    hists = {v: np.zeros(len(cfg["bins"]) - 1, dtype=float) for v, cfg in var_defs.items()}
+    summary = SampleSummary(variation="", n_matched_files=1)
+    keyed_maps: Dict[str, Dict[PairKey, float]] = {} if collect_keyed else {}
+    pot = process_sel_all_file(
+        fpath,
+        hists=hists,
+        var_defs=var_defs,
+        summary=summary,
+        stage_specs=stage_specs,
+        keyed_maps=keyed_maps if collect_keyed else None,
+        final_var_defs=final_var_defs,
+    )
+    return {
+        "hists": hists,
+        "stages": {k: sm.__dict__ for k, sm in summary.stages.items()},
+        "pot": float(pot),
+        "keyed": keyed_maps,
+    }
+
+
 def run_matching(args) -> None:
     import dent_match_common_events as dent_match
 
-    for fmt, cv_dir, dent_dir, fstr in (
-        ("sel_all", args.cv_all_dir, args.dent_all_dir, "sel_all"),
-        ("sel_mup", args.cv_mup_dir, args.dent_mup_dir, "sel_mup"),
-    ):
-        if not path.isdir(cv_dir):
-            print(f"[match] skip {fmt}: CV dir missing: {cv_dir}", flush=True)
-            continue
-        if not path.isdir(dent_dir):
-            print(f"[match] skip {fmt}: DENT dir missing: {dent_dir}", flush=True)
-            continue
-        print(f"\n[match] {fmt}: CV={cv_dir}", flush=True)
-        print(f"[match] {fmt}: DENT={dent_dir}", flush=True)
-        argv = [
-            "--format", fmt,
-            "--variation", "cv", cv_dir,
-            "--variation", "dent", dent_dir,
-            "--filename-str", fstr,
-            "--phase", "all",
-        ]
-        if args.max_files is not None:
-            argv.extend(["--max-files", str(args.max_files)])
-        summary_csv = path.join(args.out_base, "cache", f"dent_match_summary-{fstr}.csv")
-        argv.extend(["--summary-csv", summary_csv])
-        dent_match.main(argv)
+    # Only sel_all: preserve generated-event overlap; walk to 2prong-mup later.
+    fmt, cv_dir, dent_dir, fstr = ("sel_all", args.cv_all_dir, args.dent_all_dir, "sel_all")
+    if not path.isdir(cv_dir):
+        print(f"[match] skip {fmt}: CV dir missing: {cv_dir}", flush=True)
+        return
+    if not path.isdir(dent_dir):
+        print(f"[match] skip {fmt}: DENT dir missing: {dent_dir}", flush=True)
+        return
+    print(f"\n[match] {fmt}: CV={cv_dir}", flush=True)
+    print(f"[match] {fmt}: DENT={dent_dir}", flush=True)
+    argv = [
+        "--format", fmt,
+        "--variation", "cv", cv_dir,
+        "--variation", "dent", dent_dir,
+        "--filename-str", fstr,
+        "--phase", "all",
+    ]
+    if args.max_files is not None:
+        argv.extend(["--max-files", str(args.max_files)])
+    summary_csv = path.join(args.out_base, "cache", f"dent_match_summary-{fstr}.csv")
+    argv.extend(["--summary-csv", summary_csv])
+    dent_match.main(argv)
 
 
 def process_variation(
@@ -740,7 +829,9 @@ def process_variation(
     var_defs: Dict[str, dict],
     max_files: Optional[int],
     stage_specs: Optional[Dict[str, List[Tuple[str, Any, str]]]] = None,
+    final_var_defs: Optional[Dict[str, dict]] = None,
     collect_keyed: bool = False,
+    n_workers: int = 1,
 ) -> Tuple[Dict[str, np.ndarray], SampleSummary, float, Dict[str, Dict[PairKey, float]]]:
     files = list_matched_files(matched_dir, filename_str)
     if not files:
@@ -749,14 +840,24 @@ def process_variation(
     if max_files is not None:
         files = files[:max_files]
 
-    print(f"[{variation}] {len(files)} files in {matched_dir}", flush=True)
+    if input_format != "sel_all":
+        raise ValueError(
+            "Only sel_all input is supported (final vars filled at 2prong-mup). "
+            "Got input_format=%r" % (input_format,)
+        )
+
+    n_workers = max(int(n_workers), 1)
+    print(
+        f"[{variation}] {len(files)} files in {matched_dir}  (n_workers={n_workers})",
+        flush=True,
+    )
     hists = {v: np.zeros(len(cfg["bins"]) - 1, dtype=float) for v, cfg in var_defs.items()}
     summary = SampleSummary(variation=variation, n_matched_files=len(files))
     total_pot = 0.0
     keyed_maps: Dict[str, Dict[PairKey, float]] = {} if collect_keyed else {}
 
-    for fpath in tqdm(files, desc=f"process {variation}"):
-        if input_format == "sel_all":
+    if n_workers == 1 or len(files) <= 1:
+        for fpath in tqdm(files, desc=f"process {variation}"):
             total_pot += process_sel_all_file(
                 fpath,
                 hists=hists,
@@ -764,15 +865,23 @@ def process_variation(
                 summary=summary,
                 stage_specs=stage_specs or {},
                 keyed_maps=keyed_maps if collect_keyed else None,
+                final_var_defs=final_var_defs,
             )
-        else:
-            total_pot += process_sel_mup_file(
-                fpath,
-                hists=hists,
-                var_defs=var_defs,
-                summary=summary,
-                keyed_maps=keyed_maps if collect_keyed else None,
-            )
+    else:
+        tasks = [(fpath, bool(collect_keyed)) for fpath in files]
+        with Pool(processes=n_workers) as pool:
+            for result in tqdm(
+                pool.imap_unordered(_process_one_sel_all_file_worker, tasks, chunksize=2),
+                total=len(tasks),
+                desc=f"process {variation}",
+            ):
+                for vn, arr in result["hists"].items():
+                    if vn in hists:
+                        hists[vn] += np.asarray(arr, dtype=float)
+                _merge_stage_metrics(summary.stages, result["stages"])
+                total_pot += float(result["pot"])
+                if collect_keyed and result.get("keyed"):
+                    _merge_keyed_maps(keyed_maps, result["keyed"])
 
     summary.pot = total_pot
     return hists, summary, total_pot, keyed_maps
@@ -1157,13 +1266,27 @@ def write_summary_table(
 # Main
 # ---------------------------------------------------------------------------
 def parse_args():
-    p = argparse.ArgumentParser(description="DENT CV vs DENT comparison workflow")
+    p = argparse.ArgumentParser(description="DENT CV vs DENT comparison workflow (sel_all only)")
     p.add_argument("--out-base", default=_OUT_BASE)
     p.add_argument("--cv-all-dir", default=DEFAULT_DIRS["cv_all"])
     p.add_argument("--dent-all-dir", default=DEFAULT_DIRS["dent_all"])
-    p.add_argument("--cv-mup-dir", default=DEFAULT_DIRS["cv_mup"])
-    p.add_argument("--dent-mup-dir", default=DEFAULT_DIRS["dent_mup"])
-    p.add_argument("--max-files", type=int, default=None, help="Cap files per variation (None = all; set to small N for tests)")
+    p.add_argument(
+        "--cv-mup-dir",
+        default="",
+        help="Ignored (obsolete). Final vars come from the sel_all walk.",
+    )
+    p.add_argument(
+        "--dent-mup-dir",
+        default="",
+        help="Ignored (obsolete). Final vars come from the sel_all walk.",
+    )
+    p.add_argument("--max-files", type=int, default=None, help="Cap files per variation (None = all)")
+    p.add_argument(
+        "--n-workers",
+        type=int,
+        default=None,
+        help="multiprocessing.Pool workers for file loop (default: min(32, cpu_count))",
+    )
     p.add_argument("--skip-match", action="store_true", help="Skip event matching step")
     p.add_argument("--skip-plots", action="store_true")
     p.add_argument(
@@ -1178,21 +1301,30 @@ def main() -> int:
     args = parse_args()
     cache_dir = path.join(args.out_base, "cache")
     fig_dir = path.join(args.out_base, "plots")
-    fig_dir_mup = path.join(fig_dir, "sel_mup")
     fig_dir_frac = path.join(fig_dir, "fracdiff")
     fig_dir_ratio = path.join(fig_dir, "ratio")
-    fig_dir_frac_mup = path.join(fig_dir_mup, "fracdiff")
-    fig_dir_ratio_mup = path.join(fig_dir_mup, "ratio")
     makedirs(cache_dir, exist_ok=True)
     makedirs(fig_dir, exist_ok=True)
+
+    if args.cv_mup_dir or args.dent_mup_dir:
+        print(
+            "[warn] --cv-mup-dir / --dent-mup-dir are obsolete and ignored; "
+            "final kinematics are filled at 2prong-mup during the sel_all walk.",
+            flush=True,
+        )
 
     if not args.skip_match:
         run_matching(args)
 
     collect_keyed = (not args.skip_plots) and (not args.skip_fracdiff)
+    n_workers = args.n_workers
+    if n_workers is None:
+        n_workers = min(32, cpu_count() or 4)
+    print(f"Using n_workers={n_workers}", flush=True)
 
-    # ── sel_all early-selection histograms + pipeline metrics ──────────────
-    sel_all_var_defs = build_sel_all_var_defs()
+    cut_var_defs = build_sel_all_var_defs()
+    final_var_defs = build_final_var_defs()
+    sel_all_var_defs = {**cut_var_defs, **final_var_defs}
     stage_specs = _stage_specs_by_key()
     all_hists_all: Dict[str, Dict[str, np.ndarray]] = {}
     summaries: Dict[str, SampleSummary] = {}
@@ -1211,7 +1343,9 @@ def main() -> int:
             var_defs=sel_all_var_defs,
             max_files=args.max_files,
             stage_specs=stage_specs,
+            final_var_defs=final_var_defs,
             collect_keyed=collect_keyed,
+            n_workers=n_workers,
         )
         all_hists_all[var] = hists
         summaries[var] = summary
@@ -1219,19 +1353,27 @@ def main() -> int:
         keyed_all[var] = keyed
 
     if all_hists_all:
+        # Matched sel_all events share a common set — do not POT-rescale counts.
         pot_scales = None
-        if pots.get("cv") and pots.get("dent") and pots["dent"] > 0:
-            scale = pots["cv"] / pots["dent"]
-            pot_scales = {"cv": 1.0, "dent": scale}
-            print(f"POT scale DENT→CV: {scale:.4f}", flush=True)
+        if pots.get("cv") and pots.get("dent"):
+            print(
+                f"POT (informational): CV={pots['cv']:.6e}  DENT={pots['dent']:.6e} "
+                f"(no scale applied to matched counts)",
+                flush=True,
+            )
         cache_all = path.join(cache_dir, "dent_sel_all_hists.pkl")
         save_hists(
             cache_all,
             {
-                "var_defs": {k: {"label": v["label"], "bins": v["bins"]} for k, v in sel_all_var_defs.items()},
+                "var_defs": {
+                    k: {"label": v["label"], "bins": v["bins"]}
+                    for k, v in sel_all_var_defs.items()
+                },
                 "hists": all_hists_all,
                 "pots": pots,
                 "pot_scales": pot_scales,
+                "final_var_names": sorted(final_var_defs),
+                "cut_var_names": sorted(cut_var_defs),
                 "summaries": {k: v.__dict__ for k, v in summaries.items()},
             },
         )
@@ -1252,56 +1394,6 @@ def main() -> int:
                     fig_dir_frac=fig_dir_frac,
                     fig_dir_ratio=fig_dir_ratio,
                     cache_path=path.join(cache_dir, "dent_sel_all_paired.pkl"),
-                )
-
-    # ── sel_mup final-selected variables ───────────────────────────────────
-    mup_var_defs = build_mup_var_defs()
-    all_hists_mup: Dict[str, Dict[str, np.ndarray]] = {}
-    keyed_mup: Dict[str, Dict[str, Dict[PairKey, float]]] = {}
-
-    for var, dir_path in (("cv", args.cv_mup_dir), ("dent", args.dent_mup_dir)):
-        if not path.isdir(dir_path):
-            print(f"[sel_mup] skip {var}: dir missing {dir_path}", flush=True)
-            continue
-        hists, summary_mup, pot, keyed = process_variation(
-            var,
-            dir_path,
-            "sel_mup",
-            input_format="sel_mup",
-            var_defs=mup_var_defs,
-            max_files=args.max_files,
-            collect_keyed=collect_keyed,
-        )
-        all_hists_mup[var] = hists
-        summaries[f"{var}_mup"] = summary_mup
-        pots[f"{var}_mup"] = pot
-        keyed_mup[var] = keyed
-
-    if all_hists_mup:
-        cache_mup = path.join(cache_dir, "dent_sel_mup_hists.pkl")
-        save_hists(cache_mup, {"var_defs": mup_var_defs, "hists": all_hists_mup, "pots": pots})
-
-        if not args.skip_plots and "cv" in all_hists_mup and "dent" in all_hists_mup:
-            # Matched unisim events are 1:1 paired, so no POT rescaling is
-            # needed (and would be wrong if the two productions happen to have
-            # different numbers of subruns per file).  Use the sel_all CV POT
-            # as the exposure label since that is the true shared exposure.
-            pot_scales_mup = None
-            for var_name, cfg in mup_var_defs.items():
-                if var_name not in all_hists_mup["cv"] or var_name not in all_hists_mup["dent"]:
-                    continue
-                plot_var_comparison(
-                    var_name, cfg, all_hists_mup,
-                    fig_dir=fig_dir_mup, pot_scales=pot_scales_mup,
-                )
-            if collect_keyed and "cv" in keyed_mup and "dent" in keyed_mup:
-                make_paired_diff_plots(
-                    mup_var_defs,
-                    keyed_mup["cv"],
-                    keyed_mup["dent"],
-                    fig_dir_frac=fig_dir_frac_mup,
-                    fig_dir_ratio=fig_dir_ratio_mup,
-                    cache_path=path.join(cache_dir, "dent_sel_mup_paired.pkl"),
                 )
 
     summary_csv = path.join(cache_dir, "dent_efficiency_purity_summary.csv")

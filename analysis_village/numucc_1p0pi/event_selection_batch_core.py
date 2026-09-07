@@ -331,7 +331,10 @@ def run_batch_selection(
         "n_files": len(df_files),
         "concat_load": use_concat,
         "workflow": "batched_notebook",
-        "mc_efficiency_enabled": load_mcnu,
+        # Efficiency numerators always fill for MC; mcnu only enables the
+        # generated-neutrino denominator (else render uses first-stage evt).
+        "mc_efficiency_enabled": sample == "mc",
+        "mcnu_denominator_enabled": bool(load_mcnu),
     }
     runner.save(out_path, extra_meta=meta)
     return meta

@@ -4,8 +4,10 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import string
-import statsmodels.api as sm
 import pickle
+# Do NOT import statsmodels at module load time: grid worker venvs often lack it,
+# and syst_histcounts / headless batch only need a few helpers from this module.
+# (See selection_framework.get_clipped_evts note; get_eff_err imports lazily.)
 
 import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
@@ -662,6 +664,8 @@ def get_clipped_evts(df, var_col, bins, verbose=False, var_save_name=None):
     return var, weights
 
 def get_eff_err(success,total):  # success/total
+    import statsmodels.api as sm
+
     err = [[],[]]
     eff = success/total
     for i in range(len(success)):

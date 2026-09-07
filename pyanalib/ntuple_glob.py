@@ -91,12 +91,26 @@ def _loaddf(applyfs, args, preprocess, g):
             #    print("File (%s) has 0 in TotalEvents. Try only histpotdf & histgenevtdf and skipping other dfs..." % fname)
             else:
                 for aidx, applyf in enumerate(applyfs):
+                    maker_name = getattr(applyf, "__name__", None) or getattr(
+                        applyf, "name", "maker_%d" % aidx
+                    )
                     try:
                         if args is not None:
                             df = applyf(f, **args[aidx])
                         else:
                             df = applyf(f)
                     except Exception as e:
+                        # Keep dfs aligned with DFS/NAMES — silent skip caused
+                        # run_df_maker to mis-label surviving tables (e.g. hdr
+                        # written as var_configs when syst_hists import failed).
+                        print(
+                            "[ntuple_glob] maker %d (%s) failed on %s: %s: %s"
+                            % (aidx, maker_name, fname, type(e).__name__, e)
+                        )
+                        import traceback
+
+                        traceback.print_exc()
+                        dfs.append(None)
                         continue
                     if df is None:
                         dfs.append(None)

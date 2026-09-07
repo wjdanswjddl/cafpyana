@@ -94,7 +94,10 @@ export JOBSUB_CPU=${JOBSUB_CPU:-7}
 
 STAMP=$(date +%Y_%m_%d_%H%M%S)
 CAMPAIGN_ROOT_DEFAULT=/pnfs/sbnd/scratch/users/munjung/cafpyana_tmp
-if [[ "$DO_SUBMIT" -eq 1 ]]; then
+if [[ -n "${CAMPAIGN:-}" ]]; then
+  # Reuse an existing campaign dir (append more waves without mixing stamps).
+  :
+elif [[ "$DO_SUBMIT" -eq 1 ]]; then
   if ! mkdir -p "$CAMPAIGN_ROOT_DEFAULT" 2>/dev/null; then
     echo "ERROR: cannot create $CAMPAIGN_ROOT_DEFAULT (needed for grid outputs)" >&2
     exit 1
@@ -115,10 +118,13 @@ mkdir -p "$CAMPAIGN"
 # shellcheck disable=SC1091
 source envs/venv_py310_cafpyana/bin/activate
 
-python - <<PY
+python - <<PY || true
 from analysis_village.numucc_1p0pi.syst_histcounts import write_var_config_snapshot_json
-write_var_config_snapshot_json("$CAMPAIGN/variable_configs.json")
-print("wrote $CAMPAIGN/variable_configs.json")
+try:
+    write_var_config_snapshot_json("$CAMPAIGN/variable_configs.json")
+    print("wrote $CAMPAIGN/variable_configs.json")
+except Exception as ex:
+    print("WARNING: could not refresh variable_configs.json (%s); continuing" % ex)
 PY
 
 CFG=configs/numucc_1p0pi/syst_histcounts.py
@@ -198,7 +204,9 @@ echo "Optional waves (family-level only):"
 echo "  WAVE=1      hist_mc_genie + flux + g4 + mc_cv_nowgt"
 echo "  WAVE=2      hist_dirt_genie + flux + g4"
 echo "  WAVE=3      WireMod / DENT / cosmics"
-echo "  WAVE=genie  hist_mc_genie + hist_dirt_genie only"
+echo "  WAVE=genie   hist_mc_genie + hist_dirt_genie only"
+echo "  WAVE=flux_g4 hist_mc/dirt flux + g4 only"
+echo "Reuse campaign: CAMPAIGN=/path/to/syst_histcounts_full_... WAVE=flux_g4 bash $0 --submit"
 echo "Override e.g. NGRID_GENIE=2000 NGRID_FLUX=3000 bash $0"
 echo
 
@@ -262,7 +270,17 @@ if [[ "$WAVE" == "genie" ]]; then
   submit_one hist_dirt_genie genie dirt "$LIST_DIRT" "$NGRID_DIRT"
 fi
 
+# Flux + G4 only (MC + dirt). Not part of WAVE=all.
+if [[ "$WAVE" == "flux_g4" ]]; then
+  submit_one hist_mc_flux flux mc "$LIST_MC" "$NGRID_FLUX"
+  submit_one hist_mc_g4 g4 mc "$LIST_MC" "$NGRID_G4"
+  submit_one hist_dirt_flux flux dirt "$LIST_DIRT" "$NGRID_DIRT"
+  submit_one hist_dirt_g4 g4 dirt "$LIST_DIRT" "$NGRID_DIRT"
+fi
+
 if want_wave 3; then
+  # CV for WireMod pairing (nowgt) — remaining with unisim samples.
+  submit_one hist_mc_cv_nowgt nowgt mc "$LIST_MC" "$NGRID_UNISIM"
   submit_one hist_wiremod_sv nowgt mc "$LIST_WM_SV" "$NGRID_UNISIM"
   submit_one hist_wiremod_xtxw nowgt mc "$LIST_WM_XTXW" "$NGRID_UNISIM"
   submit_one hist_dent_cv nowgt mc "$LIST_DENT_CV" "$NGRID_UNISIM"

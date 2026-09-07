@@ -236,8 +236,14 @@ def aggregate_batches_so_far(
         scales = agg.apply_global_exposure_scales(
             merged, totals, f_offbeam_coincident=f_offbeam_frac
         )
-    data_pot = totals.data_pot if totals.data_pot > 0 else 1.0
-    pot_str = get_pot_str(data_pot)
+    if totals.data_pot > 0:
+        data_pot = totals.data_pot
+        pot_str = get_pot_str(data_pot)
+    else:
+        # Live run before any data chunk: leave MC unscaled (scale_mc=1) and
+        # label POT as pending so the panel is not blank.
+        data_pot = 0.0
+        pot_str = "MC unscaled (no data yet)"
     return merged, data_pot, pot_str, scales, totals
 
 
@@ -520,7 +526,11 @@ def _draw_efficiency_curve(
     *,
     legend_fontsize: float = 6.5,
 ) -> None:
-    """Compact per-stage efficiency curves for one variable (integrated % in legend)."""
+    """Per-stage efficiency curves matching notebook ``plot_efficiency`` style.
+
+    Left axis: signal spectra (step). Right axis: efficiency vs the first-stage
+    denominator (``o-`` with Wilson errors when raw counts exist).
+    """
     try:
         from statsmodels.stats.proportion import proportion_confint
     except ImportError:
@@ -549,6 +559,10 @@ def _draw_efficiency_curve(
         n_tot_pot = np.asarray(denom.n_signal_pot, dtype=float)
         n_tot_raw = np.asarray(denom.n_signal_raw, dtype=float)
     denom_int_pot = float(np.sum(n_tot_pot))
+    if denom_int_pot <= 0.0:
+        ax.set_axis_off()
+        ax.set_title(f"eff: {var_save_name} (empty denom)", fontsize=8)
+        return
 
     bins = np.asarray(var_config.bins, dtype=float)
     bin_centers = 0.5 * (bins[:-1] + bins[1:])
@@ -556,12 +570,14 @@ def _draw_efficiency_curve(
 
     plot_idx = 0
     final_eff_pct = None
+    ymax_hist = 0.0
     for stage_key in stage_keys:
         if stage_key not in eff or var_save_name not in eff[stage_key]:
             continue
         ea = eff[stage_key][var_save_name]
         n_pot = np.asarray(ea.n_signal_pot, dtype=float)
         n_int = float(ea.n_total_signal_int)
+        ymax_hist = max(ymax_hist, float(np.max(n_pot)) if n_pot.size else 0.0)
         with np.errstate(divide="ignore", invalid="ignore"):
             this_eff = np.where(n_tot_pot > 0, n_pot / n_tot_pot, 0.0)
         err_low, err_high = [], []
@@ -578,7 +594,8 @@ def _draw_efficiency_curve(
         final_eff_pct = eff_int_pct
         label = f"{label_lookup.get(stage_key, stage_key)} ({eff_int_pct:.2f}%)"
         color = plt.cm.tab10(plot_idx % 10)
-        ax.stairs(n_pot, bins, fill=False, alpha=0.45, color=color, linewidth=1.2, zorder=1)
+        # Match notebook ``histtype='step'`` + efficiency ``o-`` on twin axis.
+        ax.stairs(n_pot, bins, fill=False, alpha=0.55, color=color, linewidth=1.4, zorder=1)
         ax_eff.errorbar(
             bin_centers,
             this_eff,
@@ -586,11 +603,16 @@ def _draw_efficiency_curve(
             fmt="o-",
             color=color,
             label=label,
-            markersize=3,
-            linewidth=1.0,
-            zorder=4,
+            markersize=3.5,
+            linewidth=1.2,
+            zorder=5,
         )
         plot_idx += 1
+
+    if plot_idx == 0:
+        ax.set_axis_off()
+        ax.set_title(f"eff: {var_save_name} (no stages)", fontsize=8)
+        return
 
     xlabel = var_config.var_labels[0] if getattr(var_config, "var_labels", None) else var_save_name
     title = f"eff: {var_save_name}"
@@ -601,9 +623,13 @@ def _draw_efficiency_curve(
     ax_eff.set_ylabel("Efficiency", fontsize=7)
     ax_eff.set_ylim(0, 1.05)
     ax.set_xlim(bins[0], bins[-1])
+    if ymax_hist > 0:
+        ax.set_ylim(0.0, ymax_hist * 1.15)
     ax.set_title(title, fontsize=8, pad=2)
     ax.tick_params(labelsize=6)
     ax_eff.tick_params(labelsize=6)
+    # Keep efficiency markers above the event steps (notebook plot_efficiency).
+    ax.set_zorder(1)
     ax_eff.set_zorder(3)
     ax_eff.patch.set_visible(False)
     ax_eff.legend(
@@ -615,7 +641,7 @@ def _draw_efficiency_curve(
         borderpad=0.15,
         handlelength=1.0,
         labelspacing=0.15,
-        columnspacing=0.8,
+        columnspacing=0.6,
     )
 
 

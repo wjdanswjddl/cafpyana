@@ -55,6 +55,7 @@ from os import path, makedirs
 from dataclasses import dataclass, field
 from typing import Callable, List, Dict, Optional, Any, Tuple
 import pickle
+from collections import Counter, defaultdict
 
 import numpy as np
 import pandas as pd
@@ -743,9 +744,10 @@ class ChunkRunner:
     def _fill_efficiency(self, stage_key: str, state: Dict[str, pd.DataFrame]):
         if self.sample != "mc":
             return
-        # Denominator histograms come from ``mcnu``; numerator from reco ``evt``.
-        if state.get("mcnu") is None:
-            return
+        # Numerator: reco ``evt`` signal at this stage.
+        # Denominator: generated signal on ``mcnu`` when available (preferred); otherwise
+        # leave ``n_truth_nu_*`` empty and let render fall back to first-stage evt signal
+        # (legacy ``plot_efficiency`` / ``sel_all`` without an ``mcnu`` table).
         mc_df = state.get("evt")
         if mc_df is None:
             return
@@ -776,9 +778,10 @@ class ChunkRunner:
 
         ``initial_state`` is a dict carrying per-event and per-track dfs, e.g.
             ``{"evt": ..., "trk": ..., "hdr": ..., "mcnu": ...}``.
-        For MC efficiency accumulators, pass a non-None ``mcnu`` dataframe when the
-        HDF file contains an ``mcnu_*`` split table; otherwise efficiency filling
-        is skipped (see chunk driver).
+        For MC efficiency, pass ``mcnu`` when the HDF has an ``mcnu_*`` table so the
+        denominator uses generated neutrinos. Without ``mcnu`` (e.g. plain
+        ``sel_all``), numerators are still filled from ``evt`` and render falls
+        back to the first-stage evt signal as the denominator.
 
         Only entries whose first key matches ``self.sample`` are touched (the
         rest can be set to None when running per-sample).
@@ -811,10 +814,10 @@ class ChunkRunner:
                 self._fill_breakdown(stage.key, state)
             if stage.save_for_efficiency:
                 if self.sample == "mc" and state.get("mcnu") is None:
-                    _tr("[pipeline]     efficiency accumulators skipped (no mcnu in state)")
+                    _tr("[pipeline]     efficiency accumulators (evt-only; no mcnu) …")
                 else:
-                    _tr(f"[pipeline]     efficiency accumulators …")
-                    self._fill_efficiency(stage.key, state)
+                    _tr("[pipeline]     efficiency accumulators …")
+                self._fill_efficiency(stage.key, state)
             _tr(f"[pipeline] <<< stage={stage.key!r} finished")
 
     # -------- save/load -------------------------------------------------
@@ -840,38 +843,98 @@ class ChunkRunner:
 # ===========================================================================
 # Aggregation helpers
 # ===========================================================================
+def _bins_fingerprint(bins) -> Tuple[float, ...]:
+    return tuple(np.asarray(bins, dtype=float).ravel().tolist())
+
+
+def _majority_bins_fingerprint(fingerprints: List[Tuple[float, ...]]) -> Tuple[float, ...]:
+    """Return the most common bins fingerprint (stable tie-break: first seen)."""
+    if not fingerprints:
+        raise ValueError("empty fingerprints")
+    counts = Counter(fingerprints)
+    best_n = max(counts.values())
+    for fp in fingerprints:
+        if counts[fp] == best_n:
+            return fp
+    return fingerprints[0]
+
+
+def _warn_bin_skip(context: str, key, n_keep: int, n_skip: int, bins_keep) -> None:
+    if n_skip <= 0:
+        return
+    nb = max(len(bins_keep) - 1, 0)
+    print(
+        f"[aggregate] WARN: {context} {key!r}: skipped {n_skip} contribution(s) "
+        f"with mismatched bins (kept {n_keep} @ nbins={nb}). "
+        f"Re-run map jobs so all samples share the same VariableConfig bins.",
+        flush=True,
+    )
+
+
 def aggregate_chunk_files(chunk_files: List[str]) -> Dict[str, Any]:
     """Sum the contents of multiple per-chunk pickles.
 
     Pickles must be from the SAME sample. Returns a single dict-of-accumulators
     with histograms summed bin-by-bin.
+
+    If VariableConfig bin edges changed mid-campaign, chunks with a minority
+    bin scheme for a given plot are skipped (majority wins) so live aggregation
+    does not assert-fail.
     """
     if not chunk_files:
         raise ValueError("no chunk files passed to aggregate_chunk_files")
 
-    out: Optional[Dict[str, Any]] = None
+    loaded: List[Dict[str, Any]] = []
     for cf in chunk_files:
         with open(cf, "rb") as f:
-            d = pickle.load(f)
+            loaded.append(pickle.load(f))
+
+    sample0 = loaded[0]["sample"]
+    for d in loaded[1:]:
+        assert d["sample"] == sample0
+
+    # Majority bin scheme per histdata / eff key across chunks.
+    hist_fps: Dict[Any, List[Tuple[float, ...]]] = defaultdict(list)
+    eff_fps: Dict[Tuple[str, str], List[Tuple[float, ...]]] = defaultdict(list)
+    for d in loaded:
+        for key, hd in d["histdata"].items():
+            hist_fps[key].append(_bins_fingerprint(hd.bins))
+        for stage_key, by_v in (d.get("eff") or {}).items():
+            for v, ea in by_v.items():
+                eff_fps[(stage_key, v)].append(_bins_fingerprint(ea.bins))
+
+    hist_pref = {k: _majority_bins_fingerprint(fps) for k, fps in hist_fps.items()}
+    eff_pref = {k: _majority_bins_fingerprint(fps) for k, fps in eff_fps.items()}
+
+    out: Optional[Dict[str, Any]] = None
+    hist_keep: Dict[Any, int] = defaultdict(int)
+    hist_skip: Dict[Any, int] = defaultdict(int)
+    eff_keep: Dict[Tuple[str, str], int] = defaultdict(int)
+    eff_skip: Dict[Tuple[str, str], int] = defaultdict(int)
+
+    for d in loaded:
         if out is None:
             out = {
                 "sample": d["sample"],
                 "stage_keys": d["stage_keys"],
                 "stage_labels": d["stage_labels"],
-                "histdata": dict(d["histdata"]),
-                "bar": {k: dict(v) for k, v in d["bar"].items()},
-                "eff": {k: dict(v) for k, v in d["eff"].items()},
+                "histdata": {},
+                "bar": {},
+                "eff": {},
                 "meta": d.get("meta"),
             }
-            continue
-        assert d["sample"] == out["sample"]
         # histdata
         for key, hd in d["histdata"].items():
+            fp = _bins_fingerprint(hd.bins)
+            if fp != hist_pref[key]:
+                hist_skip[key] += 1
+                continue
+            hist_keep[key] += 1
             if key in out["histdata"]:
                 out["histdata"][key] += hd
             else:
                 out["histdata"][key] = hd
-        # bar
+        # bar (no bins)
         for stage_key, by_bt in d["bar"].items():
             if stage_key not in out["bar"]:
                 out["bar"][stage_key] = dict(by_bt)
@@ -882,15 +945,40 @@ def aggregate_chunk_files(chunk_files: List[str]) -> Dict[str, Any]:
                     else:
                         out["bar"][stage_key][bt] = bb
         # eff
-        for stage_key, by_v in d["eff"].items():
+        for stage_key, by_v in (d.get("eff") or {}).items():
             if stage_key not in out["eff"]:
-                out["eff"][stage_key] = dict(by_v)
-            else:
-                for v, ea in by_v.items():
-                    if v in out["eff"][stage_key]:
-                        out["eff"][stage_key][v] += ea
-                    else:
-                        out["eff"][stage_key][v] = ea
+                out["eff"][stage_key] = {}
+            for v, ea in by_v.items():
+                ek = (stage_key, v)
+                fp = _bins_fingerprint(ea.bins)
+                if fp != eff_pref[ek]:
+                    eff_skip[ek] += 1
+                    continue
+                eff_keep[ek] += 1
+                if v in out["eff"][stage_key]:
+                    out["eff"][stage_key][v] += ea
+                else:
+                    out["eff"][stage_key][v] = ea
+
+    for key, n_skip in hist_skip.items():
+        seed = out["histdata"].get(key)
+        _warn_bin_skip(
+            f"sample={sample0!r} histdata",
+            key,
+            hist_keep.get(key, 0),
+            n_skip,
+            seed.bins if seed is not None else [],
+        )
+    for ek, n_skip in eff_skip.items():
+        stage_key, v = ek
+        seed = (out["eff"].get(stage_key) or {}).get(v)
+        _warn_bin_skip(
+            f"sample={sample0!r} eff",
+            ek,
+            eff_keep.get(ek, 0),
+            n_skip,
+            seed.bins if seed is not None else [],
+        )
     return out
 
 
@@ -904,6 +992,10 @@ def merge_samples(samples: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
 
     Intime and offbeam cosmics are kept in separate arrays until plotting so the
     central prediction can be chosen at aggregation time.
+
+    Samples whose bin edges disagree with the majority scheme for a plot are
+    skipped for that plot (with a warning) so mixed VariableConfig campaigns
+    still render.
     """
     # union of all (stage_key, plot_key) entries across samples
     all_keys = set()
@@ -912,22 +1004,28 @@ def merge_samples(samples: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
 
     merged_histdata: Dict[Tuple[str, str], OverlayHistData] = {}
     for key in all_keys:
-        # find the first sample that has this key, to seed bins/breakdown_type/var_save_name
-        seed = None
-        for s in samples.values():
-            if key in s["histdata"]:
-                seed = s["histdata"][key]
-                break
+        fps = []
+        holders = []
+        for sample_name, s in samples.items():
+            if key not in s["histdata"]:
+                continue
+            hd = s["histdata"][key]
+            fps.append(_bins_fingerprint(hd.bins))
+            holders.append((sample_name, hd))
+        if not holders:
+            continue
+        pref = _majority_bins_fingerprint(fps)
+        keep = [(n, hd) for (n, hd), fp in zip(holders, fps) if fp == pref]
+        skip_n = len(holders) - len(keep)
+        seed = keep[0][1]
+        _warn_bin_skip("merge_samples histdata", key, len(keep), skip_n, seed.bins)
         merged = OverlayHistData(
             var_save_name=seed.var_save_name,
             breakdown_type=seed.breakdown_type,
             bins=seed.bins.copy(),
         )
-        # Each sample accumulator only fills its own slot; just += them.
-        for sample_name, s in samples.items():
-            if key not in s["histdata"]:
-                continue
-            merged += s["histdata"][key]
+        for _sample_name, hd in keep:
+            merged += hd
         merged_histdata[key] = merged
 
     # bar / eff: only mc samples have bar mc-counts, intime/dirt have intime/dirt
@@ -950,11 +1048,29 @@ def merge_samples(samples: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
                         data_count=bb.data_count,
                     )
 
+    # eff: majority bins per (stage, var)
+    eff_votes: Dict[Tuple[str, str], List[Tuple[float, ...]]] = defaultdict(list)
+    for s in samples.values():
+        for stage_key, by_v in (s.get("eff") or {}).items():
+            for v, ea in by_v.items():
+                eff_votes[(stage_key, v)].append(_bins_fingerprint(ea.bins))
+    eff_pref = {k: _majority_bins_fingerprint(fps) for k, fps in eff_votes.items()}
+
     merged_eff: Dict[str, Dict[str, EfficiencyAccumulator]] = {}
     for s in samples.values():
-        for stage_key, by_v in s["eff"].items():
+        for stage_key, by_v in (s.get("eff") or {}).items():
             merged_eff.setdefault(stage_key, {})
             for v, ea in by_v.items():
+                ek = (stage_key, v)
+                if _bins_fingerprint(ea.bins) != eff_pref[ek]:
+                    _warn_bin_skip(
+                        "merge_samples eff",
+                        ek,
+                        0,
+                        1,
+                        np.asarray(eff_pref[ek]),
+                    )
+                    continue
                 if v in merged_eff[stage_key]:
                     merged_eff[stage_key][v] += ea
                 else:
@@ -1068,7 +1184,9 @@ def apply_global_exposure_scales(
     Returns the dict of scale factors applied for logging.
     """
     def _safe_ratio(num: float, den: float, default: float) -> float:
-        if den <= 0 or not np.isfinite(num) or not np.isfinite(den):
+        # No target exposure yet (e.g. live run before any data chunk) → keep
+        # intrinsic weights instead of scaling MC/dirt to zero.
+        if num <= 0 or den <= 0 or not np.isfinite(num) or not np.isfinite(den):
             return default
         r = num / den
         return float(r) if np.isfinite(r) else default
@@ -1078,6 +1196,7 @@ def apply_global_exposure_scales(
         "scale_dirt": _safe_ratio(totals.data_pot, totals.dirt_pot, 1.0),
     }
     gate_fac = (1.0 - f_offbeam_coincident)
+    # Cosmic scales default to 0 when on-beam gates are missing (nothing to normalize to).
     sm["scale_intime"] = _safe_ratio(
         gate_fac * totals.data_gates_bnb, totals.intime_gates, 0.0
     )
