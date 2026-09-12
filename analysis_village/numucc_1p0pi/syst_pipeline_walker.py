@@ -4,11 +4,11 @@ Used by ``syst_cosmics_chunk`` / ``syst_multisim_chunk`` when the input is a
 **sel_all**-style ``.df`` (raw ``evt`` / ``trk`` / ``hdr``) so they can record
 systematic histograms
 
-* at every cut stage (the variable that drives the *next* cut), and
+* at every cut stage (variables from ``build_pipeline()`` PlotSpecs), and
 * at the final stage (all final-selected event-level variables).
 
 Cuts are imported from :func:`event_selection_pipeline_def.build_pipeline`,
-which is the same definition used by ``event_selection_chunk.py``, so the
+which is the same definition used by CAF / batched selection, so the
 selection here is bit-for-bit identical.
 
 For *final*-style inputs the chunk scripts skip this module and just
@@ -27,7 +27,11 @@ import pandas as pd
 # relative sys.path entry.
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 
-from analysis_village.numucc_1p0pi.event_selection_pipeline_def import build_pipeline
+from analysis_village.numucc_1p0pi.event_selection_pipeline_def import (
+    build_pipeline,
+    sel_evt,
+    sel_trks_concat,
+)
 from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
     CORE_SELECTED_EVT_VARIABLE_CONFIGS,
     with_final_selected_evt_variables,
@@ -37,7 +41,7 @@ from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
 
 
 # ---------------------------------------------------------------------------
-# Stage → variable mapping (mirrors the ``plots`` lists in build_pipeline()).
+# Stage → variable mapping derived from ``build_pipeline()`` PlotSpecs.
 # ``target`` is either "evt" (column on the event df) or "trk" (column on the
 # concat of evt.trk1 / evt.trk2).
 # ---------------------------------------------------------------------------
@@ -47,9 +51,13 @@ class CutStageVarSpec(NamedTuple):
     target: str
 
 
-# Chi2 is attached at ``2prong-vtxdist`` and remains available through final selection.
+# Chi2 plane×stage grid is the only intentional extra beyond pipeline PlotSpecs
+# (syst needs I0/I1/I2/avg at several stages; pipeline plots only show avg once).
 CHI2_CUT_STAGES: Tuple[str, ...] = ("2prong-vtxdist", "2prong-muX", "2prong-mup")
 CHI2_PLANES: Tuple[str, ...] = ("I0", "I1", "I2", "avg")
+
+# Skip PlotSpecs that are not cut-driving diagnostics for syst rate histos.
+_SKIP_NAME_SUFFIXES = frozenset({"final", "not_mu"})
 
 
 def clone_var_config(vc: VariableConfig, *, var_save_name: str) -> VariableConfig:
@@ -72,21 +80,45 @@ def _stage_tagged_vc(vc: VariableConfig, stage_key: str) -> VariableConfig:
     return clone_var_config(vc, var_save_name=f"{vc.var_save_name}__at_{stage_key}")
 
 
-def _build_cut_stage_specs() -> List[CutStageVarSpec]:
-    """Cut-stage histograms mirror ``build_pipeline()`` plots + chi2 plane×stage grid.
+def _target_for_selector(selector: Callable) -> Optional[str]:
+    if selector is sel_evt:
+        return "evt"
+    if selector is sel_trks_concat:
+        return "trk"
+    return None
 
-    Chi2 is stored once per ``(plane, species, stage)`` with save names like
-    ``chi2_mu_I0__at_2prong-vtxdist`` / ``chi2_avg_p__at_2prong-mup`` so covariances
-    from different selection steps never collide.
+
+def _build_cut_stage_specs() -> List[CutStageVarSpec]:
+    """Cut-stage histograms from ``build_pipeline()`` plots + chi2 plane×stage grid.
+
+    Primary specs are taken from each stage's ``PlotSpec`` list (evt / trk1+trk2
+    selectors only). Chi2 is stored once per ``(plane, species, stage)`` with
+    save names like ``chi2_mu_I0__at_2prong-vtxdist`` so covariances from
+    different selection steps never collide.
     """
-    specs: List[CutStageVarSpec] = [
-        CutStageVarSpec("vertex_in_fv", VariableConfig.nu_score(), "evt"),
-        CutStageVarSpec("nu_score", VariableConfig.n_trks(), "evt"),
-        CutStageVarSpec("2prong-contained", VariableConfig.track_score(), "trk"),
-        CutStageVarSpec("2prong-trackscore", VariableConfig.vtx_dist(), "trk"),
-        CutStageVarSpec("2prong-vtxdist", VariableConfig.trk_len(), "trk"),
-        CutStageVarSpec("2prong-vtxdist", VariableConfig.mcs_range_diff(), "trk"),
-    ]
+    specs: List[CutStageVarSpec] = []
+    seen: set[Tuple[str, str]] = set()
+
+    for stage in build_pipeline():
+        for plot in stage.plots:
+            if (plot.name_suffix or "") in _SKIP_NAME_SUFFIXES:
+                continue
+            target = _target_for_selector(plot.selector)
+            if target is None:
+                continue
+            vc = plot.var_config
+            slug = getattr(vc, "var_save_name", None)
+            if not slug:
+                continue
+            # Avg chi2 PlotSpecs are superseded by the plane×stage grid below.
+            if "chi2" in str(slug):
+                continue
+            key = (stage.key, str(slug))
+            if key in seen:
+                continue
+            seen.add(key)
+            specs.append(CutStageVarSpec(stage.key, vc, target))
+
     for stage_key in CHI2_CUT_STAGES:
         for plane in CHI2_PLANES:
             specs.append(
@@ -137,18 +169,16 @@ def walk_pipeline(
     """Yield ``(stage_key, state)`` for each pipeline stage after its cut is applied.
 
     ``state`` must contain at least ``evt`` / ``trk`` / ``hdr`` (``mcnu`` may be
-    ``None``). ``sample`` is one of ``"mc" / "data" / "intime" / "offbeam" / "dirt"``
-    -- only relevant for sample-aware cuts (none of the cuts in the current
-    pipeline branch on it, but we forward it for forward-compat with the
-    pipeline definition).
+    ``None``). Delegates to ``build_pipeline()`` so cuts match CAF / batched selection.
     """
-    cur = dict(state)
-    for stage in build_pipeline():
+    from analysis_village.numucc_1p0pi.event_selection_pipeline_def import (
+        iter_pipeline_stages,
+    )
+
+    for stage_key, cur in iter_pipeline_stages(state, sample=sample):
         if trace is not None:
-            trace(f"[walker] stage={stage.key!r} (cut={'yes' if stage.cut else 'no'})")
-        if stage.cut is not None:
-            cur = stage.cut(cur, sample=sample)
-        yield stage.key, cur
+            trace(f"[walker] stage={stage_key!r}")
+        yield stage_key, cur
 
 
 # ---------------------------------------------------------------------------

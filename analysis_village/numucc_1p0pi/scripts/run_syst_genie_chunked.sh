@@ -37,6 +37,8 @@
 #   GENIE_RUN_GROUPS  Comma-separated subset of ``GENIE_GROUP_GLOBS`` keys (e.g. ``CCQE,MEC``).
 #                     Overridden by ``--genie-groups LIST`` / ``-g LIST``. Empty = all groups
 #                     that appear in the active glob map for ``MC_DF_STAGE``.
+#   GENIE_VAR_SAVE_NAMES  Optional comma list of ``var_save_name``s to fill/merge
+#                         (aliases: ``tki-alpha``→``tki-del_alpha``, ``tki-phi``→``tki-del_phi``).
 #   WORKERS           Map-phase parallel worker count for ``syst_genie_parallel.py``
 #                     (default: ``min(nproc, 8)``). Overridden by ``--workers N`` / ``-j N``.
 #                     Each worker calls ``get_systematics_genie.run_chunk_map`` directly inside
@@ -141,7 +143,7 @@ from analysis_village.numucc_1p0pi.dataset_locations import default_genie_syst_w
 print(default_genie_syst_work_root('${TODAY}'))
 ")}
 CHUNKS_DIR=${CHUNKS_DIR:-"$WORK_BASE/chunks"}
-MERGE_ROOT=${MERGE_ROOT:-"$WORK_BASE/merged_perTPC"}
+MERGE_ROOT=${MERGE_ROOT:-"$WORK_BASE/merged"}
 XSEC_UNIT=${XSEC_UNIT:-1.0}
 
 MC_DF_STAGE=${MC_DF_STAGE:-final}

@@ -5,7 +5,7 @@ Surveys ``EVENT_SELECTION_GLOBS``, packs ``.df`` files into ≤1 GiB jobs, runs 
 notebook selection pipeline per job, aggregates histograms, and renders plots.
 
 This replaces the orchestration formerly only in
-``notebooks/event_selection.ipynb`` and ``run_event_selection_batched.sh``.
+``notebooks/event_selection_batched.ipynb`` and ``run_event_selection_batched.sh``.
 
 Examples
 --------
@@ -43,7 +43,7 @@ from analysis_village.numucc_1p0pi.dataset_locations import PLOTS_BASE  # noqa: 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Batched event selection: map → aggregate → plots "
-        "(same workflow as notebooks/event_selection.ipynb batched cells)."
+        "(same workflow as notebooks/event_selection_batched.ipynb)."
     )
     p.add_argument(
         "--work-base",

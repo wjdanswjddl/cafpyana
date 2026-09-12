@@ -227,7 +227,7 @@ def run_grid(inputfiles):
 
     # Resource requests: override via env for heavy histcount / weight jobs.
     job_disk = os.environ.get("JOBSUB_DISK", "10GB").strip() or "10GB"
-    job_mem = os.environ.get("JOBSUB_MEMORY", "10GB").strip() or "10GB"
+    job_mem = os.environ.get("JOBSUB_MEMORY", "5GB").strip() or "10GB"
     job_life = os.environ.get("JOBSUB_LIFETIME", "3h").strip() or "3h"
     job_cpu = os.environ.get("JOBSUB_CPU", "7").strip() or "7"
     print(

@@ -42,10 +42,11 @@ totals downstream). Unisim samples (WireMod, DENT, intime, offbeam) store only
 """
 from __future__ import annotations
 
+import gc
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -847,6 +848,7 @@ def _ensure_univ_aliases(evt_df: pd.DataFrame, mc_nu_df: Optional[pd.DataFrame],
 
     Non-multisim knobs (``ps1``/``ms1``/``morph``) are treated as discrete universes for
     covariance; their weights are clipped to ``≥ 0`` (never negative reweights).
+    If a ``cv`` leaf exists, multisigma universes are ``ps|ms / cv``.
     """
     key = tuple(syst_name)
     try:
@@ -874,40 +876,52 @@ def _ensure_univ_aliases(evt_df: pd.DataFrame, mc_nu_df: Optional[pd.DataFrame],
         else:
             leaves.add(str(c))
 
-    def _copy_leaf(df: pd.DataFrame, src: str, dst: str) -> None:
+    def _copy_leaf(df: pd.DataFrame, src: str, dst: str, *, divide_by_cv: bool = False) -> None:
         if df is None or len(df) == 0:
             return
         # Resolve to a *full* MultiIndex column key (partial tuples can look "in"
         # columns but cannot be used to create new leaves).
         src_key = None
+        cv_key = None
         for c in df.columns:
             if not isinstance(c, tuple) or c[: len(key)] != key:
                 continue
             leaf = next((str(p) for p in c[len(key) :] if p), "")
-            if leaf == src:
+            if leaf == src and src_key is None:
                 src_key = c
-                break
+            if leaf == "cv" and cv_key is None:
+                cv_key = c
         if src_key is None:
             return
         dst_key = tuple(list(key) + [dst] + [""] * (len(src_key) - len(key) - 1))
         vals = np.asarray(df.loc[:, src_key], dtype=np.float64)
         # Physical: event weights cannot be negative (esp. ±σ / morph unisim).
-        vals = np.clip(np.nan_to_num(vals, nan=1.0, posinf=1.0, neginf=0.0), 0.0, None)
+        vals = np.nan_to_num(vals, nan=1.0, posinf=1.0, neginf=0.0)
+        if divide_by_cv and cv_key is not None:
+            cv = np.asarray(df.loc[:, cv_key], dtype=np.float64)
+            cv = np.nan_to_num(cv, nan=1.0, posinf=1.0, neginf=1.0)
+            cv = np.where(cv == 0.0, 1.0, cv)
+            vals = vals / cv
+        vals = np.clip(vals, 0.0, None)
         df.loc[:, dst_key] = vals
 
+    # Match get_systematics_genie: GENIE_MULTISIGMA_DIVIDE_BY_CV (default on).
+    _div_env = os.environ.get("GENIE_MULTISIGMA_DIVIDE_BY_CV", "1").strip().lower()
+    _div_on = _div_env not in ("0", "false", "no", "off")
+    div_cv = "cv" in leaves and _div_on
     if "ps1" in leaves and "ms1" in leaves:
         for src, dst in (("ps1", "univ_0"), ("ms1", "univ_1")):
-            _copy_leaf(evt_df, src, dst)
+            _copy_leaf(evt_df, src, dst, divide_by_cv=div_cv)
             if mc_nu_df is not None:
-                _copy_leaf(mc_nu_df, src, dst)
+                _copy_leaf(mc_nu_df, src, dst, divide_by_cv=div_cv)
         clip_nonnegative_weight_leaves(evt_df, syst_name)
         if mc_nu_df is not None:
             clip_nonnegative_weight_leaves(mc_nu_df, syst_name)
         return 2
     if "ps1" in leaves:
-        _copy_leaf(evt_df, "ps1", "univ_0")
+        _copy_leaf(evt_df, "ps1", "univ_0", divide_by_cv=div_cv)
         if mc_nu_df is not None:
-            _copy_leaf(mc_nu_df, "ps1", "univ_0")
+            _copy_leaf(mc_nu_df, "ps1", "univ_0", divide_by_cv=div_cv)
         clip_nonnegative_weight_leaves(evt_df, syst_name)
         if mc_nu_df is not None:
             clip_nonnegative_weight_leaves(mc_nu_df, syst_name)
@@ -1246,28 +1260,46 @@ def sum_histcounts_dfs(dfs: Iterable[pd.DataFrame]) -> pd.DataFrame:
     return cat.groupby(keys, as_index=False, sort=False)["value"].sum()
 
 
+def _apply_hist_filters(
+    df: pd.DataFrame,
+    *,
+    family: Optional[str] = None,
+    knob: Optional[str] = None,
+    var: Optional[str] = None,
+    vars: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """Subset long histcounts by family / knob / variable slug(s)."""
+    sub = df
+    if family is not None:
+        sub = sub[sub["family"] == family]
+    if knob is not None:
+        sub = sub[sub["knob"] == knob]
+    if vars is not None:
+        keep = {str(v) for v in vars}
+        sub = sub[sub["var"].astype(str).isin(keep)]
+    elif var is not None:
+        sub = sub[sub["var"] == var]
+    return sub
+
+
 def unpack_rate_from_df(
     df: pd.DataFrame,
     *,
     family: Optional[str] = None,
     knob: Optional[str] = None,
     var: Optional[str] = None,
+    vars: Optional[Sequence[str]] = None,
     nbins_by_var: Optional[Mapping[str, int]] = None,
 ) -> Dict[str, Dict[str, Dict[str, np.ndarray]]]:
     """``out[knob][var] = {cv, univ}`` from summed histcounts.
 
     ``nbins_by_var`` pads to the frozen VariableConfig length (safety net for
     older files that lacked a trailing-bin shape sentinel).
+    Pass ``vars`` to keep only final observables (skips cut-stage histograms).
     """
     if df is None or len(df) == 0:
         return {}
-    sub = df
-    if family is not None:
-        sub = sub[sub["family"] == family]
-    if knob is not None:
-        sub = sub[sub["knob"] == knob]
-    if var is not None:
-        sub = sub[sub["var"] == var]
+    sub = _apply_hist_filters(df, family=family, knob=knob, var=var, vars=vars)
     out: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {}
     cv_rows = sub[sub["kind"] == KIND_RATE_CV]
     univ_rows = sub[sub["kind"] == KIND_RATE_UNIV]
@@ -1308,18 +1340,16 @@ def unpack_xsec_from_df(
     family: Optional[str] = None,
     knob: Optional[str] = None,
     var: Optional[str] = None,
+    vars: Optional[Sequence[str]] = None,
     nbins_by_var: Optional[Mapping[str, int]] = None,
 ) -> Dict[str, Dict[str, Dict[str, np.ndarray]]]:
-    """``out[knob][var] = xsec accumulator dict`` ready for :func:`finalize_genie_xsec_univ`."""
+    """``out[knob][var] = xsec accumulator dict`` ready for :func:`finalize_genie_xsec_univ`.
+
+    Pass ``vars`` to keep only selected observables (skips cut-stage histograms).
+    """
     if df is None or len(df) == 0:
         return {}
-    sub = df
-    if family is not None:
-        sub = sub[sub["family"] == family]
-    if knob is not None:
-        sub = sub[sub["knob"] == knob]
-    if var is not None:
-        sub = sub[sub["var"] == var]
+    sub = _apply_hist_filters(df, family=family, knob=knob, var=var, vars=vars)
     xkinds = {
         KIND_XSEC_NEVTS_ALLMC,
         KIND_XSEC_CV_SEL_RECO,
@@ -1385,19 +1415,299 @@ def unpack_xsec_from_df(
     return out
 
 
-def load_syst_hists_from_df_file(path: str) -> pd.DataFrame:
-    """Read and sum all ``syst_hists_*`` splits from one ``run_df_maker`` output."""
+def load_syst_hists_from_df_file(
+    path: str,
+    *,
+    vars: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """Read and sum all ``syst_hists_*`` splits from one ``run_df_maker`` output.
+
+    Optional ``vars`` drops other slugs immediately after read (HDF Fixed format
+    still loads the full table — this only shrinks the in-memory working set).
+    """
     parts: List[pd.DataFrame] = []
     with pd.HDFStore(path, mode="r") as store:
         keys = [k.lstrip("/") for k in store.keys()]
         hist_keys = sorted(k for k in keys if k.startswith("syst_hists"))
         for k in hist_keys:
             parts.append(store[k])
-    return sum_histcounts_dfs(parts)
+    out = sum_histcounts_dfs(parts)
+    if vars is not None and len(out) > 0:
+        keep = {str(v) for v in vars}
+        out = out[out["var"].astype(str).isin(keep)].reset_index(drop=True)
+    return out
+
+
+def sum_histcounts_paths_streaming(
+    paths: Sequence[str],
+    *,
+    progress_every: int = 10,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
+) -> pd.DataFrame:
+    """Sum histcounts across files **one file at a time** (never materialize all).
+
+    Peak RAM is ~2× one file (current accumulator + next file during concat),
+    not ``N_files ×`` one file. Prefer :func:`stream_sum_rate_dense` for Flux/G4
+    rate-only campaigns (smaller resident set after unpack).
+    """
+    acc: Optional[pd.DataFrame] = None
+    n_paths = len(paths)
+    for i, p in enumerate(paths, start=1):
+        df = load_syst_hists_from_df_file(p)
+        if acc is None:
+            acc = df
+        else:
+            acc = sum_histcounts_dfs([acc, df])
+            del df
+            gc.collect()
+        if progress_cb is not None:
+            progress_cb(i, n_paths, p)
+        elif progress_every > 0 and (i % progress_every == 0 or i == n_paths):
+            n_rows = 0 if acc is None else len(acc)
+            print(
+                "[histcounts-stream] %d/%d  rows=%d  %s"
+                % (i, n_paths, n_rows, os.path.basename(p)),
+                flush=True,
+            )
+    return empty_histcounts_df() if acc is None else acc
+
+
+def add_rate_dense_inplace(
+    acc: MutableMapping[str, Dict[str, Dict[str, np.ndarray]]],
+    rate: Mapping[str, Mapping[str, Mapping[str, np.ndarray]]],
+) -> None:
+    """``acc[knob][var][{cv,univ}] += rate[...]`` with shape padding."""
+
+    def _fit_univ(a: np.ndarray, n_univ: int, nb: int) -> np.ndarray:
+        a = np.asarray(a, dtype=np.float64)
+        if a.size == 0:
+            return np.zeros((n_univ, nb), dtype=np.float64)
+        if a.ndim != 2:
+            a = a.reshape(1, -1)
+        a = _pad_2d_univ(a, nb)
+        if a.shape[0] == n_univ:
+            return a
+        out = np.zeros((n_univ, nb), dtype=np.float64)
+        n_copy = min(int(a.shape[0]), n_univ)
+        out[:n_copy, :] = a[:n_copy, :]
+        return out
+
+    for knob, vars_d in rate.items():
+        slot_k = acc.setdefault(str(knob), {})
+        for slug, pack in vars_d.items():
+            cv = np.asarray(pack["cv"], dtype=np.float64).reshape(-1)
+            univ = np.asarray(pack["univ"], dtype=np.float64)
+            if slug not in slot_k:
+                if univ.size:
+                    univ = univ.reshape(-1, univ.shape[-1]) if univ.ndim == 1 else univ
+                    slot_k[str(slug)] = {"cv": cv.copy(), "univ": univ.copy()}
+                else:
+                    slot_k[str(slug)] = {
+                        "cv": cv.copy(),
+                        "univ": np.zeros((0, cv.shape[0]), dtype=np.float64),
+                    }
+                continue
+            cur = slot_k[str(slug)]
+            nb = max(int(cur["cv"].shape[0]), int(cv.shape[0]))
+            cur["cv"] = _pad_1d(cur["cv"], nb) + _pad_1d(cv, nb)
+            if univ.size == 0:
+                if cur["univ"].size:
+                    cur["univ"] = _pad_2d_univ(cur["univ"], nb)
+                continue
+            if univ.ndim != 2:
+                univ = univ.reshape(1, -1)
+            n_univ = max(
+                int(cur["univ"].shape[0]) if cur["univ"].size else 0,
+                int(univ.shape[0]),
+            )
+            cur["univ"] = _fit_univ(cur["univ"], n_univ, nb) + _fit_univ(univ, n_univ, nb)
+
+
+def stream_sum_rate_dense(
+    paths: Sequence[str],
+    *,
+    family: Optional[str] = None,
+    nbins_by_var: Optional[Mapping[str, int]] = None,
+    vars: Optional[Sequence[str]] = None,
+    progress_every: int = 10,
+) -> Dict[str, Dict[str, Dict[str, np.ndarray]]]:
+    """Stream files → dense rate accumulators ``out[knob][var] = {cv, univ}``.
+
+    Intended for Flux / G4 (rate-only). Loads one long hist DF at a time, unpacks,
+    adds into numpy arrays, then drops the DF. Pass ``vars`` to skip cut-stage
+    histograms (much faster cov build).
+    """
+    acc: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {}
+    n_paths = len(paths)
+    for i, p in enumerate(paths, start=1):
+        df = load_syst_hists_from_df_file(p, vars=vars)
+        rate = unpack_rate_from_df(
+            df, family=family, vars=vars, nbins_by_var=nbins_by_var
+        )
+        del df
+        add_rate_dense_inplace(acc, rate)
+        del rate
+        gc.collect()
+        if progress_every > 0 and (i % progress_every == 0 or i == n_paths):
+            n_knob = len(acc)
+            n_var = len(next(iter(acc.values()), {}))
+            print(
+                "[histcounts-stream-dense] %d/%d  knobs=%d  vars~=%d  %s"
+                % (i, n_paths, n_knob, n_var, os.path.basename(p)),
+                flush=True,
+            )
+    return acc
+
+
+def rate_dense_to_hist_df(
+    rate: Mapping[str, Mapping[str, Mapping[str, np.ndarray]]],
+    *,
+    family: str,
+) -> pd.DataFrame:
+    """Pack dense rate accumulators back into the long ``syst_hists`` schema."""
+    return pack_blob_to_df({"family": family, "rate": rate, "xsec": {}})
+
+
+def add_xsec_dense_inplace(
+    acc: MutableMapping[str, Dict[str, Dict[str, np.ndarray]]],
+    xsec: Mapping[str, Mapping[str, Mapping[str, np.ndarray]]],
+) -> None:
+    """Add unpacked xsec accumulators into ``acc[knob][var]`` (GENIE)."""
+
+    def _add_arr(dst: np.ndarray, src: np.ndarray) -> np.ndarray:
+        a = np.asarray(dst, dtype=np.float64)
+        b = np.asarray(src, dtype=np.float64)
+        if a.shape == b.shape:
+            return a + b
+        # Pad trailing dims to the max shape (bin / univ growth across files).
+        out_shape = tuple(max(x, y) for x, y in zip(a.shape, b.shape))
+        if len(a.shape) != len(b.shape):
+            raise ValueError("xsec array rank mismatch: %s vs %s" % (a.shape, b.shape))
+        aa = np.zeros(out_shape, dtype=np.float64)
+        bb = np.zeros(out_shape, dtype=np.float64)
+        aa[tuple(slice(0, s) for s in a.shape)] = a
+        bb[tuple(slice(0, s) for s in b.shape)] = b
+        return aa + bb
+
+    for knob, vars_d in xsec.items():
+        slot_k = acc.setdefault(str(knob), {})
+        for slug, pack in vars_d.items():
+            if slug not in slot_k:
+                slot_k[str(slug)] = {
+                    k: np.array(v, dtype=np.float64, copy=True) for k, v in pack.items()
+                }
+                continue
+            cur = slot_k[str(slug)]
+            for key, arr in pack.items():
+                if key not in cur:
+                    cur[key] = np.array(arr, dtype=np.float64, copy=True)
+                else:
+                    cur[key] = _add_arr(cur[key], arr)
+
+
+def stream_sum_genie_dense(
+    paths: Sequence[str],
+    *,
+    nbins_by_var: Optional[Mapping[str, int]] = None,
+    vars: Optional[Sequence[str]] = None,
+    progress_every: int = 10,
+    max_files: int = 0,
+) -> Tuple[Dict[str, Dict[str, Dict[str, np.ndarray]]], Dict[str, Dict[str, Dict[str, np.ndarray]]]]:
+    """Stream GENIE histcount files → dense ``(rate, xsec)`` (one file at a time).
+
+    Peak RAM ≈ one file (~10 GiB for Spring MC GENIE) + dense accumulators.
+    Never materializes all long DataFrames together.
+
+    Pass ``vars`` (e.g. final selected observables only) to skip cut-stage
+    histograms — unpack/cov become much cheaper; HDF Fixed still reads full file.
+    """
+    files = list(paths)
+    if max_files > 0:
+        files = files[: int(max_files)]
+    rate_acc: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {}
+    xsec_acc: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {}
+    n_paths = len(files)
+    for i, p in enumerate(files, start=1):
+        df = load_syst_hists_from_df_file(p, vars=vars)
+        rate = unpack_rate_from_df(
+            df, family="GENIE", vars=vars, nbins_by_var=nbins_by_var
+        )
+        xsec = unpack_xsec_from_df(
+            df, family="GENIE", vars=vars, nbins_by_var=nbins_by_var
+        )
+        del df
+        add_rate_dense_inplace(rate_acc, rate)
+        add_xsec_dense_inplace(xsec_acc, xsec)
+        del rate, xsec
+        gc.collect()
+        if progress_every > 0 and (i % progress_every == 0 or i == n_paths):
+            print(
+                "[genie-stream-dense] %d/%d  rate_knobs=%d  xsec_knobs=%d  %s"
+                % (
+                    i,
+                    n_paths,
+                    len(rate_acc),
+                    len(xsec_acc),
+                    os.path.basename(p),
+                ),
+                flush=True,
+            )
+    return rate_acc, xsec_acc
+
+
+def build_genie_covs_from_dense(
+    rate: Mapping[str, Mapping[str, Mapping[str, np.ndarray]]],
+    xsec: Mapping[str, Mapping[str, Mapping[str, np.ndarray]]],
+    *,
+    xsec_unit: float = 1.0,
+    slim_skip: Optional[Sequence[str]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Build per-var GENIE cov packs from dense rate/xsec (same keys as notebook helper)."""
+    skip = set(slim_skip or ())
+    by_var: Dict[str, Dict[str, Any]] = {}
+    rate_packs_by_var: Dict[str, List[Any]] = {}
+    xsec_packs_by_var: Dict[str, List[Any]] = {}
+    cv_rate_by_var: Dict[str, np.ndarray] = {}
+    cv_xsec_by_var: Dict[str, np.ndarray] = {}
+
+    for knob, vars_d in rate.items():
+        for slug, pack in vars_d.items():
+            univ = np.asarray(pack["univ"], dtype=float)
+            if univ.size == 0:
+                continue
+            rp = rate_cov_from_univ_cv(univ, pack["cv"])
+            by_var.setdefault(str(slug), {})[f"{knob}_rate"] = rp
+            if knob not in skip:
+                rate_packs_by_var.setdefault(str(slug), []).append(rp)
+            cv_rate_by_var[str(slug)] = np.asarray(pack["cv"], dtype=float)
+
+    for knob, vars_d in xsec.items():
+        for slug, acc in vars_d.items():
+            univ = finalize_genie_xsec_univ(acc, xsec_unit=xsec_unit)
+            cv = finalize_genie_xsec_cv(acc, xsec_unit=xsec_unit, bkgd_subtract=True)
+            if univ.size == 0:
+                continue
+            xp = rate_cov_from_univ_cv(univ, cv)
+            by_var.setdefault(str(slug), {})[str(knob)] = xp
+            if knob not in skip:
+                xsec_packs_by_var.setdefault(str(slug), []).append(xp)
+            cv_xsec_by_var[str(slug)] = np.asarray(cv, dtype=float)
+
+    for slug in set(rate_packs_by_var) | set(xsec_packs_by_var):
+        if slug in rate_packs_by_var:
+            by_var.setdefault(slug, {})["genie_rate"] = combine_indep_knob_frac_covs(
+                rate_packs_by_var[slug], cv_rate_by_var[slug]
+            )
+        if slug in xsec_packs_by_var:
+            by_var.setdefault(slug, {})["genie"] = combine_indep_knob_frac_covs(
+                xsec_packs_by_var[slug], cv_xsec_by_var[slug]
+            )
+    return by_var
 
 
 def load_syst_hists_from_glob(paths: Sequence[str]) -> pd.DataFrame:
-    return sum_histcounts_dfs(load_syst_hists_from_df_file(p) for p in paths)
+    """Sum histcounts across files via streaming (never loads all files at once)."""
+    return sum_histcounts_paths_streaming(paths)
 
 
 def rate_cov_from_univ_cv(

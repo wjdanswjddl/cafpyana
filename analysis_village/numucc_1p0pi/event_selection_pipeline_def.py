@@ -1,9 +1,15 @@
 """Pipeline definition for the numuCC 1p0pi event selection.
 
-This file is the SINGLE place to edit when you want to change cuts, add or
-remove a plot, or follow a new variable through the efficiency curve. The
-chunk-runner script and the aggregator script both import ``build_pipeline``
-from here, so any change is picked up by both passes.
+This file is the SINGLE place to edit when you want to change **cut order**,
+add or remove a plot, or follow a new variable through the efficiency curve.
+Thresholds and cut formulas live in ``makedf/selections.py``.
+
+Consumers (all import ``build_pipeline`` / ``apply_selection_pipeline``):
+
+* CAF maker ``make_pandora_evtdf`` (maps ``sel_level`` → stage key)
+* Batched / live event selection
+* Interactive notebook (via ``SampleBundle.run_pipeline``)
+* Systematics ``syst_pipeline_walker`` (cut-stage histograms)
 
 Adding new things
 -----------------
@@ -17,7 +23,7 @@ from __future__ import annotations
 
 import sys
 from os import path
-from typing import Dict, List, Optional, Callable
+from typing import Any, Dict, Iterator, List, Optional, Callable, Tuple
 
 import numpy as np
 import pandas as pd
@@ -51,6 +57,78 @@ from analysis_village.numucc_1p0pi.selection_framework import (
 
 
 SAMPLES = ("mc", "data", "intime", "offbeam", "dirt")
+
+# CAF ``sel_level`` (underscore / short names) → pipeline stage key (hyphenated).
+# ``None`` means return before any cut (raw slices).
+# ``2prong_wcandidates`` is CAF-only: stop after vtxdist PID columns, then attach
+# μ/p candidates without applying has_μ / has_p / kinematics (handled in the maker).
+CAF_SEL_LEVEL_TO_STAGE: Dict[str, Optional[str]] = {
+    "all": None,
+    "clearcosmic": "is_clear_cosmic",
+    "fv": "vertex_in_fv",
+    "nu": "nu_score",
+    "2prong": "2prong",
+    "2prong_contained": "2prong-contained",
+    "2prong_trackscore": "2prong-trackscore",
+    "2prong_vtxdist": "2prong-vtxdist",
+    "2prong_wcandidates": "2prong-vtxdist",  # + get_mu_p_candidate in the maker
+    "muX": "2prong-muX",
+    "mup": "2prong-mup",
+}
+
+# Stages at / after which the CAF maker must load the track table.
+# ``nu`` stops after the nu-score cut without attaching tracks (legacy CAF product).
+CAF_SEL_LEVELS_NEED_TRACKS = frozenset({
+    "2prong", "2prong_contained", "2prong_trackscore", "2prong_vtxdist",
+    "2prong_wcandidates", "muX", "mup",
+})
+
+
+def apply_selection_pipeline(
+    state: Dict[str, Any],
+    *,
+    stop_at: Optional[str] = None,
+    sample: str = "mc",
+    mu_p_candidate_kwargs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Apply ``build_pipeline()`` cuts to ``state`` until (and including) ``stop_at``.
+
+    ``state`` is ``{"evt", "trk", "hdr", ...}``. Optional ``mu_p_candidate_kwargs``
+    (e.g. ``score_tag="_new"`` for calorimetry variations) is forwarded to
+    ``get_mu_p_candidate`` at the ``2prong-muX`` stage.
+
+    If ``stop_at`` is ``None``, no cuts are applied (caller wants raw slices).
+    """
+    if stop_at is None:
+        return state
+    if mu_p_candidate_kwargs:
+        state = dict(state)
+        state["_mu_p_candidate_kwargs"] = dict(mu_p_candidate_kwargs)
+    found = False
+    for stage in build_pipeline():
+        if stage.cut is not None:
+            state = stage.cut(state, sample=sample)
+        if stage.key == stop_at:
+            found = True
+            break
+    if not found:
+        raise ValueError(
+            f"Unknown pipeline stop stage {stop_at!r}; "
+            f"valid keys: {[s.key for s in build_pipeline()]}"
+        )
+    return state
+
+
+def iter_pipeline_stages(
+    state: Dict[str, Any],
+    sample: str = "mc",
+) -> Iterator[Tuple[str, Dict[str, Any]]]:
+    """Yield ``(stage_key, state)`` after each stage cut (same as syst walker)."""
+    cur = dict(state)
+    for stage in build_pipeline():
+        if stage.cut is not None:
+            cur = stage.cut(cur, sample=sample)
+        yield stage.key, cur
 
 
 # ===========================================================================
@@ -284,7 +362,9 @@ def build_pipeline() -> List[Stage]:
     def _nu_score_cut_then_refresh(state, sample):
         if state.get("evt") is not None:
             state["evt"] = cut_nu_score(state["evt"])
-        state = _refresh_tracks_and_attach_ntrks(state, sample)
+        # CAF early sel_level="nu" may omit the track table; skip refresh then.
+        if state.get("trk") is not None:
+            state = _refresh_tracks_and_attach_ntrks(state, sample)
         return state
 
     stages.append(Stage(
@@ -458,7 +538,9 @@ def build_pipeline() -> List[Stage]:
                 "evt is missing trk1/trk2 at 2prong-muX — "
                 "get_trk_info did not attach track blocks (check trk–evt matching on this shard)"
             )
-        df = get_mu_p_candidate(evt)
+        # CAF calorimetry variations pass score_tag="_new" via apply_selection_pipeline.
+        pid_kw = dict(state.get("_mu_p_candidate_kwargs") or {})
+        df = get_mu_p_candidate(evt, **pid_kw)
         df = cut_has_mu(df)
         df = cut_mu_kinematics(df)
         state["evt"] = df

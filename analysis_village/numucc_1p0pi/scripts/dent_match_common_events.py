@@ -75,8 +75,12 @@ SEL_ALL_KEYS = ["evt", "trk", "hdr"]
 SEL_MUP_KEYS = ["meta", "evt_cv", "evt"]
 
 
-def matched_out_path(fpath: str, suffix: str = "_matched") -> str:
+def matched_out_path(
+    fpath: str, suffix: str = "_matched", out_dir: str | None = None
+) -> str:
     base, ext = path.splitext(fpath)
+    if out_dir:
+        return path.join(out_dir, f"{path.basename(base)}{suffix}{ext}")
     return f"{base}{suffix}{ext}"
 
 
@@ -114,19 +118,184 @@ def hdr_event_keys(hdr: pd.DataFrame, evt: pd.DataFrame) -> Set[EventKey]:
     )
 
 
-def collect_sel_all_event_keys(files: Sequence[str]) -> Set[EventKey]:
+def _sel_all_keys_one_file(fpath: str) -> Set[EventKey]:
     keys: Set[EventKey] = set()
-    for fpath in tqdm(files, desc="sel_all meta scan"):
+    try:
         n_split = get_n_split(fpath)
-        for i in range(n_split):
-            try:
-                hdr = pd.read_hdf(fpath, key=f"hdr_{i}")
-                evt = pd.read_hdf(fpath, key=f"evt_{i}")
-            except Exception as exc:
-                print(f"Error loading split {i} from {fpath}: {exc}", flush=True)
-                continue
-            keys.update(hdr_event_keys(hdr, evt))
+    except Exception as exc:
+        print(f"Error n_split for {fpath}: {exc}", flush=True)
+        return keys
+    for i in range(n_split):
+        try:
+            hdr = pd.read_hdf(fpath, key=f"hdr_{i}")
+            evt = pd.read_hdf(fpath, key=f"evt_{i}")
+        except Exception as exc:
+            print(f"Error loading split {i} from {fpath}: {exc}", flush=True)
+            continue
+        keys.update(hdr_event_keys(hdr, evt))
     return keys
+
+
+def collect_sel_all_event_keys(
+    files: Sequence[str],
+    *,
+    n_workers: int = 1,
+    file_timeout_s: float = 300.0,
+    retry_timeout_s: float | None = None,
+    max_retries: int = 2,
+) -> Set[EventKey]:
+    """Collect event keys with a bounded process pool.
+
+    Uses one ``multiprocessing.Process`` per in-flight file so hung pnfs reads
+    can be terminated instead of permanently occupying a ProcessPool worker
+    (which previously caused timeout cascades under load).
+
+    Timed-out files are retried sequentially with a longer timeout so a
+    transient pnfs stall does not permanently drop events from the common set.
+    """
+    import time
+    from multiprocessing import Process, Queue
+
+    retry_timeout_s = (
+        float(retry_timeout_s)
+        if retry_timeout_s is not None
+        else max(float(file_timeout_s) * 3.0, 900.0)
+    )
+
+    def _worker(fpath: str, q: "Queue") -> None:
+        try:
+            q.put(("ok", _sel_all_keys_one_file(fpath)))
+        except Exception as exc:  # pragma: no cover
+            q.put(("err", f"{type(exc).__name__}: {exc}"))
+
+    def _scan_batch(
+        batch: Sequence[str],
+        *,
+        workers: int,
+        timeout_s: float,
+        desc: str,
+    ) -> tuple[Set[EventKey], List[str], int]:
+        """Return (keys, timed_out_files, n_err)."""
+        keys_local: Set[EventKey] = set()
+        timed_out: List[str] = []
+        n_err = 0
+
+        if not batch:
+            return keys_local, timed_out, n_err
+
+        file_iter = iter(batch)
+        in_flight: list = []
+        pbar = tqdm(total=len(batch), desc=desc)
+        n_parallel = max(int(workers), 1)
+
+        def _submit_one() -> bool:
+            try:
+                fpath = next(file_iter)
+            except StopIteration:
+                return False
+            q: Queue = Queue(maxsize=1)
+            proc = Process(target=_worker, args=(fpath, q), daemon=True)
+            proc.start()
+            in_flight.append((proc, q, fpath, time.monotonic()))
+            return True
+
+        try:
+            for _ in range(n_parallel):
+                if not _submit_one():
+                    break
+            while in_flight:
+                time.sleep(0.2)
+                now = time.monotonic()
+                still = []
+                for proc, q, fpath, t0 in in_flight:
+                    if not proc.is_alive():
+                        proc.join(timeout=1)
+                        try:
+                            status, payload = q.get_nowait()
+                        except Exception:
+                            status, payload = "err", "no-result"
+                        if status == "ok":
+                            keys_local.update(payload)
+                        else:
+                            n_err += 1
+                            print(f"Error keys for {fpath}: {payload}", flush=True)
+                        pbar.update(1)
+                        _submit_one()
+                        continue
+                    if now - t0 > timeout_s:
+                        print(
+                            f"TIMEOUT ({timeout_s:.0f}s) killing hung worker: {fpath}",
+                            flush=True,
+                        )
+                        timed_out.append(fpath)
+                        try:
+                            proc.terminate()
+                        except Exception:
+                            pass
+                        proc.join(timeout=2)
+                        if proc.is_alive():
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
+                            proc.join(timeout=2)
+                        pbar.update(1)
+                        _submit_one()
+                        continue
+                    still.append((proc, q, fpath, t0))
+                in_flight = still
+        finally:
+            pbar.close()
+            for proc, _q, _f, _t0 in in_flight:
+                if proc.is_alive():
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    proc.join(timeout=1)
+
+        return keys_local, timed_out, n_err
+
+    keys, hung, n_err = _scan_batch(
+        files, workers=n_workers, timeout_s=file_timeout_s, desc="sel_all meta scan"
+    )
+    if hung or n_err:
+        print(f"meta scan skipped hung={len(hung)} errors={n_err}", flush=True)
+
+    for attempt in range(1, max_retries + 1):
+        if not hung:
+            break
+        print(
+            f"retrying {len(hung)} hung files (attempt {attempt}/{max_retries}, "
+            f"timeout={retry_timeout_s:.0f}s, workers=1)",
+            flush=True,
+        )
+        more, hung, n_err2 = _scan_batch(
+            hung,
+            workers=1,
+            timeout_s=retry_timeout_s,
+            desc=f"sel_all meta retry {attempt}",
+        )
+        keys.update(more)
+        n_err += n_err2
+        if hung or n_err2:
+            print(
+                f"meta retry {attempt} still hung={len(hung)} errors={n_err2}",
+                flush=True,
+            )
+
+    if hung:
+        print(
+            f"WARNING: permanently skipped {len(hung)} files after {max_retries} retries",
+            flush=True,
+        )
+        for fpath in hung[:20]:
+            print(f"  skipped: {fpath}", flush=True)
+        if len(hung) > 20:
+            print(f"  ... and {len(hung) - 20} more", flush=True)
+
+    return keys
+
 
 
 def _matched_art_entries(hdr: pd.DataFrame, evt: pd.DataFrame, common_keys: Set[EventKey]):
@@ -173,12 +342,15 @@ def save_matched_sel_all_files(
     *,
     matched_suffix: str = "_matched",
     variation_name: str = "",
+    out_dir: str | None = None,
 ) -> pd.DataFrame:
     summary = []
     desc = f"write sel_all {variation_name}" if variation_name else "write sel_all matched"
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
 
     for fpath in tqdm(files, desc=desc):
-        out_path = matched_out_path(fpath, suffix=matched_suffix)
+        out_path = matched_out_path(fpath, suffix=matched_suffix, out_dir=out_dir)
         n_split = get_n_split(fpath)
         written_splits = []
 
@@ -221,6 +393,10 @@ def save_matched_sel_all_files(
             for out_i, (split_out, _, _) in enumerate(written_splits):
                 for key, df in split_out.items():
                     store.put(f"{key}_{out_i}", df, format="fixed")
+
+        # Sidecar so hist filling can find histpot on the original pnfs input.
+        with open(f"{out_path}.source", "w") as fh:
+            fh.write(fpath)
 
         summary.append(
             {
@@ -280,7 +456,20 @@ def run_sel_all_match(args) -> int:
                 files = files[: args.max_files]
             file_lists[name] = files
             print(f"[{name}] {len(files)} files under {search_dir}", flush=True)
-            per_var_keys[name] = collect_sel_all_event_keys(files)
+            n_workers = max(int(getattr(args, "n_workers", 1) or 1), 1)
+            file_timeout_s = float(getattr(args, "file_timeout", 300.0) or 300.0)
+            max_retries = int(getattr(args, "meta_retries", 2) or 0)
+            print(
+                f"[{name}] meta scan n_workers={n_workers} "
+                f"file_timeout={file_timeout_s:.0f}s retries={max_retries}",
+                flush=True,
+            )
+            per_var_keys[name] = collect_sel_all_event_keys(
+                files,
+                n_workers=n_workers,
+                file_timeout_s=file_timeout_s,
+                max_retries=max_retries,
+            )
             print(f"[{name}] unique events: {len(per_var_keys[name])}", flush=True)
 
         common_keys = intersect_event_keys(per_var_keys)
@@ -322,11 +511,15 @@ def run_sel_all_match(args) -> int:
             summaries = []
             for name, files in file_lists.items():
                 print(f"\nWriting matched sel_all files for [{name}] ...", flush=True)
+                var_out = None
+                if getattr(args, "matched_out_dir", None):
+                    var_out = path.join(args.matched_out_dir, name)
                 summary = save_matched_sel_all_files(
                     files,
                     common_keys,
                     matched_suffix=args.matched_suffix,
                     variation_name=name,
+                    out_dir=var_out,
                 )
                 summaries.append(summary)
                 if len(summary):
@@ -407,7 +600,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--common-keys-pkl", default=None)
     p.add_argument("--summary-csv", default=None)
     p.add_argument("--matched-suffix", default="_matched")
+    p.add_argument(
+        "--matched-out-dir",
+        default=None,
+        help="If set, write matched .df files under DIR/<variation>/ instead of "
+        "alongside the input files (avoids pnfs write hangs). Writes a "
+        "<out>.source sidecar with the original input path.",
+    )
     p.add_argument("--max-files", type=int, default=None)
+    p.add_argument(
+        "--n-workers",
+        type=int,
+        default=1,
+        help="Parallel workers for sel_all meta key scan (default: 1).",
+    )
+    p.add_argument(
+        "--file-timeout",
+        type=float,
+        default=300.0,
+        help="Seconds before killing a hung meta-scan worker (default: 300).",
+    )
+    p.add_argument(
+        "--meta-retries",
+        type=int,
+        default=2,
+        help="Retry timed-out meta-scan files this many times (sequential, longer timeout).",
+    )
     return p
 
 

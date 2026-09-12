@@ -157,19 +157,33 @@ DETVAR_WIREMOD_GLOBS: List[Tuple[str, str]] = [
 GENIE_GROUP_ORDER: Tuple[str, ...] = ("CCQE", "MEC", "RES", "nonRES", "DIS", "Other", "Ar23p")
 
 # Final-selection-style GENIE weight bundles (same convention as ``MULTISIM_SYST_GLOBS_FINAL``).
+# Aug 2026 ``sel_mup`` productions (perTPC FV/containment); raw job outputs (not merged_perTPC).
+# Prior May ``merged_perTPC`` stamps kept commented for reference.
+_SEL_MUP_DFS = Path("/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs")
 GENIE_GROUP_GLOBS: Dict[str, str] = {
-    "CCQE": str(SPRING_GEN1_ROOT / "2026_05_11_024530__sel_mup-wgts_genie_CCQE/merged_perTPC/*.df"),
-    "MEC": str(SPRING_GEN1_ROOT / "2026_05_11_030314__sel_mup-wgts_genie_MEC/merged_perTPC/*.df"),
-    "RES": str(SPRING_GEN1_ROOT / "2026_05_11_030547__sel_mup-wgts_genie_RES/merged_perTPC/*.df"),
-    "nonRES": str(SPRING_GEN1_ROOT / "2026_05_11_030906__sel_mup-wgts_genie_nonRES/merged_perTPC/*.df"),
-    "DIS": str(SPRING_GEN1_ROOT / "2026_05_11_031206__sel_mup-wgts_genie_DIS/merged_perTPC/*.df"),
-    "Other": str(SPRING_GEN1_ROOT / "2026_05_11_031520__sel_mup-wgts_genie_Other/merged_perTPC/*.df"),
-    "Ar23p": str(SPRING_GEN1_ROOT / "2026_05_12_010953__sel_mup-wgts_genie_Ar23p/merged_perTPC/*.df"),
+    "CCQE": str(_SEL_MUP_DFS / "2026_08_24_125255__sel_mup-wgts_genie_CCQE/*.df"),
+    "MEC": str(_SEL_MUP_DFS / "2026_08_24_125457__sel_mup-wgts_genie_MEC/*.df"),
+    "RES": str(_SEL_MUP_DFS / "2026_08_24_125700__sel_mup-wgts_genie_RES/*.df"),
+    "nonRES": str(_SEL_MUP_DFS / "2026_08_24_125855__sel_mup-wgts_genie_nonRES/*.df"),
+    "DIS": str(_SEL_MUP_DFS / "2026_08_24_130058__sel_mup-wgts_genie_DIS/*.df"),
+    "Other": str(_SEL_MUP_DFS / "2026_08_24_130336__sel_mup-wgts_genie_Other/*.df"),
+    "Ar23p": str(_SEL_MUP_DFS / "2026_08_24_181643__sel_mup-wgts_genie_Ar23p/*.df"),
+    # Scratch overrides (when pnfs unavailable on a given host):
+    # "RES": str("/scratch/7DayLifetime/munjung/xsec/2026_08_24_125700__sel_mup-wgts_genie_RES/*.df"),
+    # "Other": str("/scratch/7DayLifetime/munjung/xsec/2026_08_24_130336__sel_mup-wgts_genie_Other/*.df"),
+    # "CCQE": str(SPRING_GEN1_ROOT / "2026_05_11_024530__sel_mup-wgts_genie_CCQE/merged_perTPC/*.df"),
+    # "MEC": str(SPRING_GEN1_ROOT / "2026_05_11_030314__sel_mup-wgts_genie_MEC/merged_perTPC/*.df"),
+    # "RES": str(SPRING_GEN1_ROOT / "2026_05_11_030547__sel_mup-wgts_genie_RES/merged_perTPC/*.df"),
+    # "nonRES": str(SPRING_GEN1_ROOT / "2026_05_11_030906__sel_mup-wgts_genie_nonRES/merged_perTPC/*.df"),
+    # "DIS": str(SPRING_GEN1_ROOT / "2026_05_11_031206__sel_mup-wgts_genie_DIS/merged_perTPC/*.df"),
+    # "Other": str(SPRING_GEN1_ROOT / "2026_05_11_031520__sel_mup-wgts_genie_Other/merged_perTPC/*.df"),
+    # "Ar23p": str(SPRING_GEN1_ROOT / "2026_05_12_010953__sel_mup-wgts_genie_Ar23p/merged_perTPC/*.df"),
 }
 
 # Loose ``sel_all``-style MC + GENIE weights (evt / trk / hdr / mcnu).
-# Scratch paths from 2026-08-30/31 sel_all GENIE productions. Ar23p dfs were empty
-# at wiring time (skipped); DIS not produced yet.
+# Scratch paths from 2026-08-30/31 sel_all GENIE productions.
+# Ar23p: resubmit 2026_09_08 (xrootd list); prior Aug 31 stamp was empty stubs.
+# DIS: 2026_09_01 production.
 _SEL_ALL_DFS = Path("/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs")
 GENIE_GROUP_GLOBS_SEL_ALL: Dict[str, str] = {
     "slim": str(_SEL_ALL_DFS / "2026_08_30_232437__sel_all-wgts_genie_slim/*.df"),
@@ -177,7 +191,9 @@ GENIE_GROUP_GLOBS_SEL_ALL: Dict[str, str] = {
     "MEC": str(_SEL_ALL_DFS / "2026_08_31_004212__sel_all-wgts_genie_MEC/*.df"),
     "RES": str(_SEL_ALL_DFS / "2026_08_31_011858__sel_all-wgts_genie_RES/*.df"),
     "nonRES": str(_SEL_ALL_DFS / "2026_08_31_012312__sel_all-wgts_genie_nonRES/*.df"),
+    "DIS": str(_SEL_ALL_DFS / "2026_09_01_054339__sel_all-wgts_genie_DIS/*.df"),
     "Other": str(_SEL_ALL_DFS / "2026_08_31_022313__sel_all-wgts_genie_Other/*.df"),
+    "Ar23p": str(_SEL_ALL_DFS / "2026_09_08_032343__sel_all-wgts_genie_Ar23p/*.df"),
 }
 
 

@@ -325,10 +325,10 @@ ar23p_genie_systematics = [
     "GENIEReWeight_SBN_v3_MFPHiE_N",
 
 
-    "ZExpPCAWeighter_SBN_v3_MvA_b1",
-    "ZExpPCAWeighter_SBN_v3_MvA_b2",
-    "ZExpPCAWeighter_SBN_v3_MvA_b3",
-    "ZExpPCAWeighter_SBN_v3_MvA_b4",
+    "ZExpPCAWeighter_SBN_v3_Deut_b1",
+    "ZExpPCAWeighter_SBN_v3_Deut_b2",
+    "ZExpPCAWeighter_SBN_v3_Deut_b3",
+    "ZExpPCAWeighter_SBN_v3_Deut_b4",
 
 
     "MECq0q3InterpWeighting_SBN_v3_SuSAToVal_MECResponse_q0bin0",

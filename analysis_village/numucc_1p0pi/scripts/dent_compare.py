@@ -307,10 +307,12 @@ def _count_stage(state: dict, mcnu_df: Optional[pd.DataFrame]) -> StageMetrics:
     return m
 
 
-def source_file_pot(matched_df_file: str, n_split: int) -> float:
+def source_file_pot(
+    matched_df_file: str, n_split: int, matched_suffix: str = "_matched"
+) -> float:
     """
     Read POT from the *original* (unmatched) source file that corresponds to a
-    ``_matched.df`` file.  The original file carries ``histpotdf_{i}`` with a
+    ``{matched_suffix}.df`` file.  The original file carries ``histpotdf_{i}`` with a
     single column ``TotalPOT`` — the same value used by the rest of the
     framework.  The matched file only keeps ``evt_*`` / ``meta_*``.
 
@@ -318,7 +320,19 @@ def source_file_pot(matched_df_file: str, n_split: int) -> float:
     """
     import tables as _tb
 
-    orig = matched_df_file.replace("_matched.df", ".df")
+    orig = matched_df_file.replace(f"{matched_suffix}.df", ".df")
+    if not path.isfile(orig):
+        # Fallback for legacy callers.
+        orig = matched_df_file.replace("_matched.df", ".df")
+    src_side = f"{matched_df_file}.source"
+    if not path.isfile(orig) and path.isfile(src_side):
+        try:
+            with open(src_side) as fh:
+                candidate = fh.read().strip()
+            if path.isfile(candidate):
+                orig = candidate
+        except Exception:
+            pass
     if not path.isfile(orig):
         return 0.0
     pot = 0.0
@@ -740,8 +754,12 @@ def process_sel_mup_file(
     return chunk_pot
 
 
-def list_matched_files(search_dir: str, filename_str: str) -> List[str]:
-    return sorted(glob.glob(path.join(search_dir, f"*{filename_str}*_matched.df")))
+def list_matched_files(
+    search_dir: str, filename_str: str, matched_suffix: str = "_matched"
+) -> List[str]:
+    return sorted(
+        glob.glob(path.join(search_dir, f"*{filename_str}*{matched_suffix}.df"))
+    )
 
 
 def _merge_stage_metrics(dst: Dict[str, StageMetrics], src: Dict[str, dict]) -> None:
@@ -815,6 +833,16 @@ def run_matching(args) -> None:
     ]
     if args.max_files is not None:
         argv.extend(["--max-files", str(args.max_files)])
+    matched_suffix = getattr(args, "matched_suffix", "_matched") or "_matched"
+    argv.extend(["--matched-suffix", matched_suffix])
+    n_workers = getattr(args, "n_workers", None)
+    if n_workers is None:
+        from os import cpu_count as _cpu_count
+
+        n_workers = min(32, _cpu_count() or 4)
+    argv.extend(["--n-workers", str(max(int(n_workers), 1))])
+    keys_pkl = path.join(args.out_base, "cache", "dent_common_keys_sel_all.pkl")
+    argv.extend(["--common-keys-pkl", keys_pkl])
     summary_csv = path.join(args.out_base, "cache", f"dent_match_summary-{fstr}.csv")
     argv.extend(["--summary-csv", summary_csv])
     dent_match.main(argv)
@@ -832,8 +860,9 @@ def process_variation(
     final_var_defs: Optional[Dict[str, dict]] = None,
     collect_keyed: bool = False,
     n_workers: int = 1,
+    matched_suffix: str = "_matched",
 ) -> Tuple[Dict[str, np.ndarray], SampleSummary, float, Dict[str, Dict[PairKey, float]]]:
-    files = list_matched_files(matched_dir, filename_str)
+    files = list_matched_files(matched_dir, filename_str, matched_suffix=matched_suffix)
     if not files:
         files = sorted(glob.glob(path.join(matched_dir, f"*{filename_str}*.df")))
         files = [f for f in files if "_matched" not in path.basename(f)]
@@ -1294,6 +1323,12 @@ def parse_args():
         action="store_true",
         help="Skip per-event (DENT-CV)/CV distribution plots (overlay plots still made)",
     )
+    p.add_argument(
+        "--matched-suffix",
+        default="_matched",
+        help="Suffix for matched HDF5 outputs (default: _matched). "
+        "Use e.g. _matched_hs to avoid overwriting an older match.",
+    )
     return p.parse_args()
 
 
@@ -1346,6 +1381,7 @@ def main() -> int:
             final_var_defs=final_var_defs,
             collect_keyed=collect_keyed,
             n_workers=n_workers,
+            matched_suffix=args.matched_suffix,
         )
         all_hists_all[var] = hists
         summaries[var] = summary

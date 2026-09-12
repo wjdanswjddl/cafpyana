@@ -2,7 +2,7 @@
 
 Survey input ``.df`` files from :data:`dataset_locations.EVENT_SELECTION_GLOBS`,
 pack them into jobs under a size budget, run the same selection pipeline as
-``notebooks/event_selection.ipynb`` (via ``build_runner`` / ``ChunkRunner``),
+``notebooks/event_selection_batched.ipynb`` (via ``build_runner`` / ``ChunkRunner``),
 save histogram + breakdown pickles per job, then aggregate with
 ``scripts/event_selection_aggregate.py``.
 

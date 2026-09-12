@@ -3,6 +3,10 @@
 
 Configurable input directories (``PLOT_SETS`` below). Used by
 ``notebooks/selected_xsec_overlay.ipynb`` and runnable headless for batch jobs.
+
+First run fills per-mode MC + data histogram counts into ``overlay_histdata.pkl``
+under each plot set's ``output_dir``; later runs replot from those counts unless
+``FORCE_REBUILD_COUNTS`` is set.
 """
 
 from __future__ import annotations
@@ -13,7 +17,6 @@ import os
 import sys
 import warnings
 from datetime import datetime
-from functools import partial
 from os import makedirs, path
 
 import numpy as np
@@ -34,13 +37,17 @@ from analysis_village.numucc_1p0pi.final_selected_evt_vars import (  # noqa: E40
     CORE_SELECTED_EVT_VARIABLE_CONFIGS,
 )
 from analysis_village.numucc_1p0pi import utils as numucc_utils  # noqa: E402
-from analysis_village.numucc_1p0pi.utils import (  # noqa: E402
-    get_pot_str,
-    overlay_hists,
-)
+from analysis_village.numucc_1p0pi.utils import get_pot_str  # noqa: E402
 from analysis_village.numucc_1p0pi.utils import get_syst_unc as load_syst_disk_unc  # noqa: E402
 from analysis_village.numucc_1p0pi.utils import _DEFAULT_SYST_DISK_ROOT  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV  # noqa: E402
+from analysis_village.numucc_1p0pi.selected_xsec_overlay_hist import (  # noqa: E402
+    build_overlay_histdata_map,
+    histdata_pkl_path,
+    load_overlay_counts,
+    plot_overlay_counts_map,
+    save_overlay_counts,
+)
 
 import matplotlib.pyplot as plt  # noqa: F401, E402
 
@@ -112,6 +119,9 @@ APPROVAL = "internal"
 SAVE_FIG = True
 PLOT = False
 TEXTCHI2 = True
+
+# If False and overlay_histdata.pkl exists, skip DF load and replot from counts.
+FORCE_REBUILD_COUNTS = False
 
 
 class MemoryLimitExceeded(RuntimeError):
@@ -330,50 +340,57 @@ def run_plot_set(plot_set: dict) -> None:
         makedirs(out_dir, exist_ok=True)
         print(f"  saving -> {out_dir}")
 
-    mc_evt, mc_hdr, n_mc_loaded, n_mc_total = load_mc_sample(
-        plot_set["mc_dir"], plot_set["mc_filename_str"]
-    )
-    if n_mc_loaded < n_mc_total:
-        print(
-            f"  MC subsample: {n_mc_loaded}/{n_mc_total} files "
-            f"(pot_weight scaled in setup_pot_weights)",
-            flush=True,
+    payload = None if FORCE_REBUILD_COUNTS else load_overlay_counts(out_dir)
+    if payload is not None:
+        print(f"  replot from counts: {histdata_pkl_path(out_dir)}", flush=True)
+        pot_label = payload["pot_label"]
+        histdata_map = payload["histdata"]
+    else:
+        print("  filling counts from dataframes...", flush=True)
+        mc_evt, mc_hdr, n_mc_loaded, n_mc_total = load_mc_sample(
+            plot_set["mc_dir"], plot_set["mc_filename_str"]
         )
-    data_evt, data_hdr = load_data_sample(
-        plot_set["data_dir"], plot_set["data_filename_str"]
-    )
-    pot_label = setup_pot_weights(mc_evt, mc_hdr, data_evt, data_hdr)
+        if n_mc_loaded < n_mc_total:
+            print(
+                f"  MC subsample: {n_mc_loaded}/{n_mc_total} files "
+                f"(pot_weight scaled in setup_pot_weights)",
+                flush=True,
+            )
+        data_evt, data_hdr = load_data_sample(
+            plot_set["data_dir"], plot_set["data_filename_str"]
+        )
+        pot_label = setup_pot_weights(mc_evt, mc_hdr, data_evt, data_hdr)
+        histdata_map = build_overlay_histdata_map(
+            VAR_CONFIGS,
+            BREAKDOWN_TYPES,
+            mc_df=mc_evt,
+            data_df=data_evt,
+        )
+        pkl = save_overlay_counts(
+            out_dir,
+            histdata_map,
+            pot_label=pot_label,
+            plot_set=plot_set,
+            var_save_names=[vc.var_save_name for vc in VAR_CONFIGS],
+            breakdown_types=BREAKDOWN_TYPES,
+        )
+        print(f"  wrote counts -> {pkl}", flush=True)
 
-    plotter = partial(
-        overlay_hists,
-        mc_df=mc_evt,
-        data_df=data_evt,
-        intime_df=None,
-        dirt_df=None,
+    plot_overlay_counts_map(
+        histdata_map,
+        VAR_CONFIGS,
+        BREAKDOWN_TYPES,
+        pot_label=pot_label,
+        out_dir=out_dir,
+        get_syst=_get_syst_cov,
         ax_ylim_ratio=AX_YLIM_RATIO,
         ratio=RATIO,
         textloc=TEXTLOC,
         approval=APPROVAL,
         save_fig=SAVE_FIG,
         plot=PLOT,
+        textchi2=TEXTCHI2,
     )
-
-    for var_config in VAR_CONFIGS:
-        syst = _get_syst_cov(var_config)
-        for breakdown_type in BREAKDOWN_TYPES:
-            save_name = path.join(
-                out_dir, f"{var_config.var_save_name}_{breakdown_type}"
-            )
-            plot_labels = [var_config.var_labels[1], pot_label, ""]
-            print(f"  plot {var_config.var_save_name} ({breakdown_type})")
-            plotter(
-                breakdown_type=breakdown_type,
-                var_config=var_config,
-                plot_labels=plot_labels,
-                syst=syst,
-                textchi2=TEXTCHI2,
-                save_name=save_name,
-            )
 
 
 def main():

@@ -311,6 +311,52 @@ class SampleBundle:
             show_plot=show_plot,
         )
 
+    def run_pipeline(
+        self,
+        *,
+        bars: bool = True,
+        breakdown_dict: Optional[Dict[str, dict]] = None,
+        plot_bar_plots: Optional[Callable[..., dict]] = None,
+        show_plot: bool = True,
+        samples: Optional[Iterable[str]] = None,
+        stop_at: Optional[str] = None,
+    ) -> "SampleBundle":
+        """Apply :func:`build_pipeline` cuts to every sample (same chain as CAF / syst).
+
+        Records a stage snapshot after each pipeline stage. Prefer this over
+        hand-written ``cut_stage`` / ``apply_evt`` sequences so thresholds and
+        cut order stay in sync with ``event_selection_pipeline_def``.
+        """
+        from analysis_village.numucc_1p0pi.event_selection_pipeline_def import (
+            build_pipeline,
+        )
+
+        sample_names = _ensure_samples(samples)
+        for stage in build_pipeline():
+            if stage.cut is not None:
+                for s in sample_names:
+                    state = {
+                        "evt": self.evt[s],
+                        "trk": self.trk.get(s),
+                        "hdr": self.hdr.get(s),
+                    }
+                    state = stage.cut(state, sample=s)
+                    self.evt[s] = _own(state.get("evt"))
+                    if state.get("trk") is not None:
+                        self.trk[s] = _own(state["trk"])
+                self._sync_trk_exposure_weights(samples=sample_names)
+            self.record_stage(
+                stage.key,
+                bars=bars and stage.save_for_breakdown,
+                breakdown_dict=breakdown_dict,
+                plot_bar_plots=plot_bar_plots,
+                show_plot=show_plot,
+                samples=sample_names,
+            )
+            if stop_at is not None and stage.key == stop_at:
+                break
+        return self
+
     # ------------------------------------------------------------------
     # Track / column helpers (shared across stages)
     # ------------------------------------------------------------------

@@ -6,6 +6,39 @@ Workflow: CAF ROOT files → pandas dataframes (`.df`, via `run_df_maker.py` +
 See the repo-root `README.md` for the phase-by-phase run instructions and
 `scripts/README.md` for the systematics/selection drivers.
 
+## Event selection (read this first)
+
+Selection is defined in **two** places only. Everything else (CAF makers,
+batched notebook, syst walkers) should call into them — do not copy thresholds
+or cut order into notebooks.
+
+| Edit this… | When you want to… |
+|---|---|
+| `makedf/selections.py` | Change a **threshold** or cut formula (`NU_SCORE_TH`, PID, kinematics, FV) |
+| `event_selection_pipeline_def.py` (`build_pipeline`) | Change **cut order**, stage names, or which plots/syst vars appear at each stage |
+
+CAF products (written by `makedf/makedf.py` → `make_pandora_evtdf`):
+
+| Product | `sel_level` | Use for |
+|---|---|---|
+| `sel_all` | `all` | Cut-stage studies / systematics (loose slices + tracks) |
+| `sel_2prong` | `2prong` | Mid-selection checks |
+| `sel_mup` | `mup` | Final rates, xsec, unfolding |
+
+Stage names in the pipeline use hyphens (`2prong-mup`); CAF `sel_level` uses
+underscores / short names (`mup`, `muX`). Mapping:
+`CAF_SEL_LEVEL_TO_STAGE` in `event_selection_pipeline_def.py`.
+
+The frozen predecessor under `analysis_village/numucc1p0pi-old/` uses different
+thresholds and FV — do not mix it with Gen-1 / per-TPC DFs.
+
+Notebooks:
+
+| Notebook | Use for |
+|---|---|
+| `notebooks/event_selection.ipynb` | Develop / tune cuts on a few files (tweak thresholds in-notebook) |
+| `notebooks/event_selection_batched.ipynb` | Live batched overlays on full samples + summary / efficiency |
+
 ## Package modules (`analysis_village/numucc_1p0pi/`)
 
 - `categories.py` — truth topology, fiducial-volume, and signal-definition masks.
@@ -19,15 +52,16 @@ See the repo-root `README.md` for the phase-by-phase run instructions and
 - `exposure_access.py` — staged data-access policy (`DataAccessStage`) and exposure-batch definitions.
 - `utils.py` — plotting/overlay helpers, event-rate builders, `get_syst_unc`, χ² wiring; the hub imported by nearly everything.
 - `selection_framework.py` — chunked selection engine (`ChunkRunner`, histogram accumulation/merging).
-- `event_selection_pipeline_def.py` — the single definition of the cut/plot pipeline (edit cuts here).
+- `event_selection_pipeline_def.py` — **cut order + stage plots** (`build_pipeline`); CAF / notebook / syst all consume this.
 - `event_selection_batched.py` — batched (≤1 GiB per job) selection orchestrator.
 - `event_selection_batch_core.py` — per-batch selection runner used by the map jobs.
+- `legacy_samples.py` — in-memory `SampleBundle` for small tests (`run_pipeline()` wraps `build_pipeline`).
 - `syst_disk_layout.py` — on-disk layout of the systematics NPZ/pickle tree (`MCstat/`, `Flux/`, `G4/`, `GENIE/`, `Cosmics/`, `Detector/`).
 - `syst_disk_cc_layout.py` — same for the joint (cross-variable) covariance tree.
 - `syst_multisim_common.py` — shared MCstat/Flux/G4 multisim helpers.
 - `syst_cosmics_common.py` — cosmics variable registry and NPZ helpers.
 - `syst_cc_joint_multisim_common.py` — joint-pair layout and filename helpers.
-- `syst_pipeline_walker.py` — walks the selection pipeline stage-by-stage on sel_all dataframes (for cut-stage systematics).
+- `syst_pipeline_walker.py` — walks `build_pipeline` on sel_all dfs; cut-stage vars derived from PlotSpecs.
 - `syst_category_summary.py` — pack/load per-category systematic summary NPZ.
 - `cc_joint_cov.py` — builds the joint covariance for the conditional (muon → proton) constraint.
 - `genie_flat_helpers.py` — flat-GENIE / generator-comparison cross-section helpers.
@@ -35,8 +69,8 @@ See the repo-root `README.md` for the phase-by-phase run instructions and
 
 ## Dataframe makers (`makedf/` in this directory)
 
-- `makedf/makedf.py` — CAF→dataframe makers at each selection stage (`all` → `2prong` → `mup`), plus weight, calorimetry-variation, and E-field-variation variants.
-- `makedf/selections.py` — cut primitives and μ/p candidate identification shared by the makers and the selection pipeline.
+- `makedf/makedf.py` — CAF→dataframe makers; selection via `apply_selection_pipeline` (`sel_all` → `sel_mup`).
+- `makedf/selections.py` — **thresholds + cut primitives** shared by makers and the selection pipeline.
 
 ## Dataframe configs (`configs/numucc_1p0pi/`)
 
@@ -77,7 +111,8 @@ Exposure and flux:
 
 Event selection and PID:
 
-- `event_selection.ipynb` — production event selection (batched workflow).
+- `event_selection.ipynb` — develop / tune selection in-memory (few files, tweakable thresholds).
+- `event_selection_batched.ipynb` — live batched overlays on full (or partial) samples + summary/efficiency.
 
 Data/MC comparison and validation:
 

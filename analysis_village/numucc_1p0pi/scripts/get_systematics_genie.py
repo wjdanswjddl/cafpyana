@@ -114,15 +114,58 @@ def genie_final_var_configs() -> List[VariableConfig]:
     return with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIABLE_CONFIGS))
 
 
+# User shorthand → ``var_save_name`` (e.g. notebook / CLI ``tki-alpha``).
+_GENIE_VAR_SAVE_ALIASES: Dict[str, str] = {
+    "tki-alpha": "tki-del_alpha",
+    "tki-phi": "tki-del_phi",
+    "del_Tp": "tki-del_Tp",
+    "del_alpha": "tki-del_alpha",
+    "del_phi": "tki-del_phi",
+    "tki-del_Tp": "tki-del_Tp",
+    "tki-del_alpha": "tki-del_alpha",
+    "tki-del_phi": "tki-del_phi",
+}
+
+
+def genie_var_save_name_allowlist() -> Optional[AbstractSet[str]]:
+    """Optional ``GENIE_VAR_SAVE_NAMES=a,b,c`` filter (aliases applied).
+
+    When set, cut-stage and final hist fills / merges keep only these slugs.
+    """
+    raw = os.environ.get("GENIE_VAR_SAVE_NAMES", "").strip()
+    if not raw:
+        return None
+    out: set[str] = set()
+    for part in raw.split(","):
+        name = part.strip()
+        if not name:
+            continue
+        out.add(_GENIE_VAR_SAVE_ALIASES.get(name, name))
+    return out or None
+
+
+def filter_genie_var_configs(
+    configs: Sequence[VariableConfig],
+    allow: Optional[AbstractSet[str]] = None,
+) -> List[VariableConfig]:
+    if allow is None:
+        allow = genie_var_save_name_allowlist()
+    if allow is None:
+        return list(configs)
+    return [vc for vc in configs if vc.var_save_name in allow]
+
+
 def genie_all_var_configs(input_stage: str) -> List[VariableConfig]:
     """All ``VariableConfig`` objects produced by ``chunk-map`` for this input layout.
 
     * ``final``: same as :func:`genie_final_var_configs` (unchanged behaviour).
     * ``sel_all``: cut-stage observables (rate-only downstream) plus the same final
       variables as ``final`` (rate + xsec), deduped by ``var_save_name``.
+
+    Honours ``GENIE_VAR_SAVE_NAMES`` when set.
     """
     if input_stage == "final":
-        return genie_final_var_configs()
+        return filter_genie_var_configs(genie_final_var_configs())
     seen: set[str] = set()
     out: List[VariableConfig] = []
     for spec in CUT_STAGE_VAR_SPECS:
@@ -134,7 +177,7 @@ def genie_all_var_configs(input_stage: str) -> List[VariableConfig]:
         if vc.var_save_name not in seen:
             seen.add(vc.var_save_name)
             out.append(vc)
-    return out
+    return filter_genie_var_configs(out)
 
 
 def _align_evt_mcnu(evt_df: pd.DataFrame, mcnu_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -252,15 +295,27 @@ def _replace_first_nonempty_segment(col: Tuple, value: str) -> Tuple:
 
 
 def _ensure_univ_from_leaf(
-    df: pd.DataFrame, syst_key: Tuple[str, ...], src_leaf: str, dst_leaf: str
+    df: pd.DataFrame,
+    syst_key: Tuple[str, ...],
+    src_leaf: str,
+    dst_leaf: str,
+    *,
+    divide_by_cv: bool = False,
 ) -> None:
-    """Alias a unisim leaf (``ps1``, ``ms1``, ``morph``) into ``univ_*`` for multisim-style loops."""
+    """Alias a unisim leaf (``ps1``, ``ms1``, ``morph``) into ``univ_*`` for multisim-style loops.
+
+    When ``divide_by_cv`` is set and a ``cv`` leaf exists, store ``src/cv`` so multisigma
+    universes are relative to the knob central value (e.g. MINERvA Nature z-exp at ``b=0``).
+    """
     block = df.loc[:, syst_key]
     src_rest = None
+    cv_rest = None
     for c in block.columns:
-        if _block_column_weight_leaf(c) == src_leaf:
+        leaf = _block_column_weight_leaf(c)
+        if leaf == src_leaf and src_rest is None:
             src_rest = c if isinstance(c, tuple) else (c,)
-            break
+        if leaf == "cv" and cv_rest is None:
+            cv_rest = c if isinstance(c, tuple) else (c,)
     if src_rest is None:
         return
 
@@ -270,7 +325,27 @@ def _ensure_univ_from_leaf(
 
     if full_dst in df.columns:
         return
-    df.loc[:, full_dst] = df.loc[:, full_src]
+
+    vals = np.asarray(df.loc[:, full_src], dtype=np.float64)
+    vals = np.nan_to_num(vals, nan=1.0, posinf=1.0, neginf=0.0)
+    if divide_by_cv and cv_rest is not None:
+        full_cv = tuple(syst_key) + tuple(cv_rest)
+        cv = np.asarray(df.loc[:, full_cv], dtype=np.float64)
+        cv = np.nan_to_num(cv, nan=1.0, posinf=1.0, neginf=1.0)
+        cv = np.where(cv == 0.0, 1.0, cv)
+        vals = vals / cv
+    vals = np.clip(vals, 0.0, None)
+    df.loc[:, full_dst] = vals
+
+
+def _multisigma_divide_by_cv_enabled() -> bool:
+    """Whether multisigma ``ps|ms`` universes should be ``/ cv`` when a ``cv`` leaf exists.
+
+    Controlled by ``GENIE_MULTISIGMA_DIVIDE_BY_CV`` (default ``1`` / true). Set to ``0`` /
+    ``false`` / ``no`` to keep absolute CAF weights (e.g. side-by-side vs ``/cv``).
+    """
+    raw = os.environ.get("GENIE_MULTISIGMA_DIVIDE_BY_CV", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def normalize_and_infer_n_univ(mc_evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame, syst_name: SystName) -> int:
@@ -279,6 +354,8 @@ def normalize_and_infer_n_univ(mc_evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame, 
 
     - **Multisim** (CAF type 0): existing ``univ_*`` columns.
     - **Multisigma**: ``ps1`` → ``univ_0``, ``ms1`` → ``univ_1`` when both exist; else ``ps1`` only.
+      If a ``cv`` leaf is present and ``GENIE_MULTISIGMA_DIVIDE_BY_CV`` is enabled (default),
+      universes are ``ps|ms / cv`` (uncertainty around knob CV).
     - **Morph unisim**: ``morph`` → ``univ_0``.
     """
     key = tuple(syst_name)
@@ -288,14 +365,15 @@ def normalize_and_infer_n_univ(mc_evt_df: pd.DataFrame, mc_nu_df: pd.DataFrame, 
         return n
 
     leaves = set(_iter_leaf_strings(block_cols))
+    div_cv = "cv" in leaves and _multisigma_divide_by_cv_enabled()
     if "ps1" in leaves and "ms1" in leaves:
         for src, dst in (("ps1", "univ_0"), ("ms1", "univ_1")):
-            _ensure_univ_from_leaf(mc_evt_df, key, src, dst)
-            _ensure_univ_from_leaf(mc_nu_df, key, src, dst)
+            _ensure_univ_from_leaf(mc_evt_df, key, src, dst, divide_by_cv=div_cv)
+            _ensure_univ_from_leaf(mc_nu_df, key, src, dst, divide_by_cv=div_cv)
         return 2
     if "ps1" in leaves:
-        _ensure_univ_from_leaf(mc_evt_df, key, "ps1", "univ_0")
-        _ensure_univ_from_leaf(mc_nu_df, key, "ps1", "univ_0")
+        _ensure_univ_from_leaf(mc_evt_df, key, "ps1", "univ_0", divide_by_cv=div_cv)
+        _ensure_univ_from_leaf(mc_nu_df, key, "ps1", "univ_0", divide_by_cv=div_cv)
         return 1
     if "morph" in leaves:
         _ensure_univ_from_leaf(mc_evt_df, key, "morph", "univ_0")
@@ -1118,9 +1196,24 @@ def run_chunk_map(
     }
 
     cut_by_stage: Dict[str, List[Any]] = {}
+    allow = genie_var_save_name_allowlist()
     for spec in CUT_STAGE_VAR_SPECS:
+        if allow is not None and spec.var_config.var_save_name not in allow:
+            continue
         cut_by_stage.setdefault(spec.stage_key, []).append(spec)
-    final_only_vcs = genie_final_var_configs()
+    final_only_vcs = filter_genie_var_configs(genie_final_var_configs(), allow)
+    if allow is not None:
+        logger.info(
+            "GENIE_VAR_SAVE_NAMES filter: %s → final=%s cut_stages=%s",
+            sorted(allow),
+            [v.var_save_name for v in final_only_vcs],
+            {k: [s.var_config.var_save_name for s in v] for k, v in cut_by_stage.items()},
+        )
+    if not final_only_vcs and not any(cut_by_stage.values()):
+        raise SystemExit(
+            "[genie-chunk-map] GENIE_VAR_SAVE_NAMES matched no variables; "
+            "check names (aliases: tki-alpha→tki-del_alpha, tki-phi→tki-del_phi)"
+        )
     skip_xsec_cut = CUT_STAGE_RATE_ONLY_SLUGS
 
     for i in tqdm(range(n_use), desc="HDF splits"):
@@ -1143,7 +1236,7 @@ def run_chunk_map(
                 mc_evt_df,
                 mc_nu_df,
                 blob_root,
-                var_configs,
+                final_only_vcs if allow is not None else var_configs,
                 syst_names,
                 bkgd_subtract=bkgd_subtract,
                 skip_xsec_slugs=None,
@@ -1449,6 +1542,10 @@ def main_cli_chunk(argv: Optional[Sequence[str]] = None) -> None:
                 inferred,
             )
         var_configs = genie_all_var_configs(stage)
+        npz_path = args.npz
+        if not npz_path:
+            # Same layout as syst_genie_parallel / prl-genie-syst-summary.ipynb
+            npz_path = path.join(args.out_dir, "genie_syst_%s.npz" % args.genie_group)
         run_chunk_merge(
             args.chunks_dir,
             args.out_dir,
@@ -1457,7 +1554,7 @@ def main_cli_chunk(argv: Optional[Sequence[str]] = None) -> None:
             xsec_unit=args.xsec_unit,
             bkgd_subtract=not args.no_bkgd_subtract,
             save_figs=args.save_figs,
-            npz_path=args.npz,
+            npz_path=npz_path,
         )
 
 

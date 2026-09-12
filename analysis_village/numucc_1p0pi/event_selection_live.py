@@ -86,7 +86,7 @@ class LiveAccumulateConfig:
     concat_load: bool = True
     """Concat files in a job before one pipeline pass (legacy ``dfs_from_dir`` style)."""
 
-    # Notebook file layout (same as event_selection.ipynb config cell).
+    # Notebook file layout (same as event_selection_batched.ipynb config cell).
     base_dir: Path | str | None = None
     sample_dirs: Dict[str, str] | None = None
     filename_str: str = "sel_all"

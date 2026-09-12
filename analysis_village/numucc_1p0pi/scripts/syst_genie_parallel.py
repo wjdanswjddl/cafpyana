@@ -201,6 +201,9 @@ def _worker_chunk_merge(job: dict) -> dict:
         var_configs = genie_mod.genie_all_var_configs(job["input_stage"])
         out_sub = path.join(job["merge_root"], grp)
         os.makedirs(out_sub, exist_ok=True)
+        # Layout expected by ``prl-genie-syst-summary.ipynb``:
+        #   ``$MERGE_ROOT/<GROUP>/genie_syst_<GROUP>.npz``
+        npz_path = path.join(out_sub, "genie_syst_%s.npz" % grp)
         genie_mod.run_chunk_merge(
             chunks_dir=job["chunks_dir"],
             out_dir=out_sub,
@@ -209,12 +212,13 @@ def _worker_chunk_merge(job: dict) -> dict:
             xsec_unit=float(job["xsec_unit"]),
             bkgd_subtract=True,
             save_figs=False,
-            npz_path=None,
+            npz_path=npz_path,
         )
         return {
             "ok": True,
             "group": grp,
             "out_dir": out_sub,
+            "npz_path": npz_path,
             "elapsed": time.time() - started,
         }
     except BaseException as e:

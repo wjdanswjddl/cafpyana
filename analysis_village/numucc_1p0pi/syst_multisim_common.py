@@ -363,7 +363,11 @@ def save_neutrino_multisim_npzs(syst_dict: dict, syst_disk_root: str) -> None:
             continue
         d = os.path.join(root, subdir)
         os.makedirs(d, exist_ok=True)
-        knob_block = syst_dict.get("%s_by_knob" % dict_key) if dict_key in ("Flux", "G4") else None
+        knob_block = (
+            syst_dict.get("%s_by_knob" % dict_key)
+            if dict_key in ("Flux", "G4", "GENIE")
+            else None
+        )
         payload = legacy_npz_wrap(inner_key, block, by_knob_by_var=knob_block)
         np.savez_compressed(os.path.join(d, fname), **payload)
 
