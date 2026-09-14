@@ -65,6 +65,7 @@ from analysis_village.numucc_1p0pi.files_config import get_ana_dfs  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_disk_layout import SUB_COSMICS, SYST_DISK_ENV  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_cosmics_common import (  # noqa: E402
     apply_flat_cosmic_uncertainty,
+    attach_selected_rate_to_syst_dict,
     build_variable_configs,
 )
 from analysis_village.numucc_1p0pi.utils import dpi, fig_ext, plot_heatmap, plot_univ_hists  # noqa: E402
@@ -342,6 +343,11 @@ def parse_args() -> argparse.Namespace:
         default="offbeam",
     )
     pr.add_argument("--vars", nargs="*", default=None)
+    pr.add_argument(
+        "--selected-mc-df",
+        default=None,
+        help="Optional selected-MC .df (HDF key 'evt') to attach SelectedRate.",
+    )
 
     pa = sub.add_parser(
         "aggregate",
@@ -355,6 +361,11 @@ def parse_args() -> argparse.Namespace:
     pa.add_argument("--no-save-npz", action="store_true")
     pa.add_argument("--cv-mode", choices=("mean", "intime", "offbeam"), default="offbeam")
     pa.add_argument("--vars", nargs="*", default=None)
+    pa.add_argument(
+        "--selected-mc-df",
+        default=None,
+        help="Optional selected-MC .df (HDF key 'evt') to attach SelectedRate.",
+    )
 
     args = p.parse_args()
     _parse_syst_disk_root(p, args)
@@ -404,6 +415,23 @@ def main_run_ana(args: argparse.Namespace) -> None:
             logger.error(
                 "FAILED variable=%s\n%s",
                 var_config.var_save_name,
+                traceback.format_exc(),
+            )
+
+    mc_path = getattr(args, "selected_mc_df", None) or os.environ.get("COSMICS_SELECTED_MC_DF")
+    if mc_path and syst_dict:
+        try:
+            mc_evt = pd.read_hdf(path.expanduser(mc_path), key="evt")
+            attach_selected_rate_to_syst_dict(syst_dict, mc_evt, var_configs)
+            logger.info(
+                "Attached SelectedRate using MC evt from %s (%d rows)",
+                mc_path,
+                len(mc_evt),
+            )
+        except Exception:
+            logger.error(
+                "FAILED SelectedRate attach from %s\n%s",
+                mc_path,
                 traceback.format_exc(),
             )
 

@@ -67,13 +67,15 @@ DEFAULT_KEYS2LOAD = [
     "evt_R_m",
 ]
 
+# Prefer dent_match_common_events.py --format sel_all for new WireMod campaigns
+# (hdr/evt/trk layout). This meta/evt_cv matcher is legacy only.
 DEFAULT_VARIATIONS = {
     "yz": "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/"
-    "2026_05_09_223419__sel_2prong-mc-BNB_cosmics-WireModYZ/merged_perTPC",
+    "SET_ME__sel_all-mc-BNB_cosmics-WireModYZ",
     "xtxw": "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/"
-    "2026_05_16_161556__sel_2prong-mc-BNB_cosmics-WireModXTXW",
-    # set the third sample directory for your CV / nominal / calovar production:
-    "cv": None,
+    "SET_ME__sel_all-mc-BNB_cosmics-WireModXTXW",
+    "cv": "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/"
+    "SET_ME__sel_all-mc-BNB_cosmics-calovar",
 }
 
 

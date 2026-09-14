@@ -132,13 +132,15 @@ MULTISIM_SYST_GLOBS_SEL_ALL: Dict[str, str] = {
 # MULTISIM_MC_GLOB_SEL_ALL = MULTISIM_SYST_GLOBS_SEL_ALL["Flux"]
 
 # -----------------------------------------------------------------------------
-# Detvar (WireMod + calo unisim) — typical chunk input dirs / globs
+# Detvar (WireMod + calo unisim) — sel_all + updatecalo productions only.
+# Replace SET_ME dirs after submitting ``sel_all-updatecalo.py`` jobs.
+# Prefer notebooks/wiremod.ipynb over the legacy syst_detvar_chunk path.
 # -----------------------------------------------------------------------------
 DETVAR_DF_GLOB_EXAMPLE_WIREMOD_YZ = str(
-    SPRING_GEN1_ROOT / "2026_05_09_223419__sel_2prong-mc-BNB_cosmics-WireModYZ/*.df"
+    SPRING_GEN1_ROOT / "SET_ME__sel_all-mc-BNB_cosmics-WireModYZ/*.df"
 )
 DETVAR_DF_GLOB_EXAMPLE_WIREMOD_XTXW = str(
-    SPRING_GEN1_ROOT / "2026_05_11_103733__sel_2prong-mc-BNB_cosmics-WireModXTXW/*df"
+    SPRING_GEN1_ROOT / "SET_ME__sel_all-mc-BNB_cosmics-WireModXTXW/*.df"
 )
 
 # -----------------------------------------------------------------------------
@@ -167,7 +169,7 @@ GENIE_GROUP_GLOBS: Dict[str, str] = {
     "nonRES": str(_SEL_MUP_DFS / "2026_08_24_125855__sel_mup-wgts_genie_nonRES/*.df"),
     "DIS": str(_SEL_MUP_DFS / "2026_08_24_130058__sel_mup-wgts_genie_DIS/*.df"),
     "Other": str(_SEL_MUP_DFS / "2026_08_24_130336__sel_mup-wgts_genie_Other/*.df"),
-    "Ar23p": str(_SEL_MUP_DFS / "2026_08_24_181643__sel_mup-wgts_genie_Ar23p/*.df"),
+    "Ar23p": str(_SEL_MUP_DFS / "2026_09_12_021900__sel_mup-wgts_genie_Ar23p/*.df"),
     # Scratch overrides (when pnfs unavailable on a given host):
     # "RES": str("/scratch/7DayLifetime/munjung/xsec/2026_08_24_125700__sel_mup-wgts_genie_RES/*.df"),
     # "Other": str("/scratch/7DayLifetime/munjung/xsec/2026_08_24_130336__sel_mup-wgts_genie_Other/*.df"),
@@ -193,7 +195,7 @@ GENIE_GROUP_GLOBS_SEL_ALL: Dict[str, str] = {
     "nonRES": str(_SEL_ALL_DFS / "2026_08_31_012312__sel_all-wgts_genie_nonRES/*.df"),
     "DIS": str(_SEL_ALL_DFS / "2026_09_01_054339__sel_all-wgts_genie_DIS/*.df"),
     "Other": str(_SEL_ALL_DFS / "2026_08_31_022313__sel_all-wgts_genie_Other/*.df"),
-    "Ar23p": str(_SEL_ALL_DFS / "2026_09_08_032343__sel_all-wgts_genie_Ar23p/*.df"),
+    "Ar23p": str(_SEL_ALL_DFS / "2026_09_13_203514__sel_all-wgts_genie_Ar23p/*.df"),
 }
 
 

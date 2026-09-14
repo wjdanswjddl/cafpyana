@@ -105,12 +105,11 @@ from analysis_village.numucc_1p0pi.dataset_locations import default_syst_disk_ro
 print(default_syst_disk_root())
 ")"
 
-# tag|glob (one entry per WireMod model).
+# tag|glob — sel_all + updatecalo productions only (replace SET_ME after jobs finish).
+# Prefer notebooks/wiremod.ipynb over this legacy chunk path.
 declare -a WIREMOD_DIRS=(
-    "wiremod_yz|/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_09_223419__sel_2prong-mc-BNB_cosmics-WireModYZ/*.df"
-    "wiremod_xtxw|/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_11_103733__sel_2prong-mc-BNB_cosmics-WireModXTXW/*df"
-    # add more WireMod variants here, e.g.:
-    # "wiremod_xtxw|/path/to/WireModXThetaXW/*.df"
+    "wiremod_yz|/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/SET_ME__sel_all-mc-BNB_cosmics-WireModYZ/*.df"
+    "wiremod_xtxw|/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/SET_ME__sel_all-mc-BNB_cosmics-WireModXTXW/*.df"
 )
 
 SKIP_AGGREGATE=${SKIP_AGGREGATE:-0}

@@ -220,6 +220,8 @@ def combine_indep_knob_cov_packs(packs: list, cv_events: np.ndarray) -> dict:
 
 
 combine_indep_g4_knob_cov_packs = combine_indep_knob_cov_packs
+# Alias used by histcounts / older call sites
+combine_indep_knob_frac_covs = combine_indep_knob_cov_packs
 
 
 def syst_acc_bucket_nonempty(category: str, block) -> bool:

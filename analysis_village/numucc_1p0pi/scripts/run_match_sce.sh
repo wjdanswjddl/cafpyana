@@ -1,16 +1,16 @@
 #!/bin/bash
-# Match events common to 0xSCE and 2xSCE; write *_matched.df under each merged_perTPC dir.
-#
-python sce_match_common_events.py \
-  --variation 0xSCE /pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_12_113644__sel_2prong-mc-BNB_cosmics-0xSCE/merged_perTPC \
-  --variation 2xSCE /pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_12_114000__sel_2prong-mc-BNB_cosmics-2xSCE/merged_perTPC \
-  --variation cv /pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_17_232429__sel_2prong-mc-BNB_cosmics-CV/merged_perTPC  \
-  --filename-str sel_2prong \
-  --summary-csv /pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/sce_matched_summary.csv
+# Prefer notebooks/systematics-detector-match.ipynb (this script remains a CLI backend).
+# SCE matching must use sel_all productions (same as WireMod / DENT).
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-python sce_match_common_events.py \
-  --variation 0xSCE /pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_17_172521__sel_mup-mc-BNB_cosmics-0xSCE/merged_perTPC \
-  --variation 2xSCE /pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_17_172736__sel_mup-mc-BNB_cosmics-2xSCE/merged_perTPC \
-  --variation cv /pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_17_184445__sel_mup-mc-BNB_cosmics-CV/merged_perTPC  \
-  --filename-str sel_mup \
-  --summary-csv /pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/sce_matched_summary-mup.csv
+DFS="/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs"
+
+python dent_match_common_events.py \
+  --format sel_all \
+  --variation 0xSCE "${DFS}/${SCE_0X_SEL_ALL:-SET_ME__sel_all-mc-BNB_cosmics-0xSCE}" \
+  --variation 2xSCE "${DFS}/${SCE_2X_SEL_ALL:-SET_ME__sel_all-mc-BNB_cosmics-2xSCE}" \
+  --variation cv    "${DFS}/${SCE_CV_SEL_ALL:-SET_ME__sel_all-mc-BNB_cosmics-CV}" \
+  --filename-str sel_all \
+  --summary-csv "${DFS}/sce_matched_summary-sel_all.csv"

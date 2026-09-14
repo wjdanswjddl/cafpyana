@@ -1,10 +1,15 @@
 """Grid-side systematic histogram counts (selection + xsec variables).
 
-Production path
----------------
+**Product A2 (default for selection-stage systematics)**
+------------------------------------------------------
 CAF → :func:`fill_syst_histcounts` (walk event selection, fill per-knob /
-per-universe bins) → long-format ``DataFrame`` stored as HDF key ``syst_hists``
-by ``run_df_maker`` → notebook loads + sums across files → covariance.
+per-universe bins) → long-format rows packed under **per-variable** HDF keys
+``syst_hists__<var_save_name>_<split>`` by ``run_df_maker`` → selective load /
+stream-sum → covariance.
+
+Legacy monolith keys ``syst_hists_<split>`` (all vars in one table) are still
+readable. Prefer per-variable keys so a notebook can open one var without
+materializing the full table.
 
 Each job also stores a frozen VariableConfig table under HDF key ``var_configs``
 (and grid submit writes ``variable_configs.json`` next to outputs). Plotting must
@@ -45,6 +50,7 @@ from __future__ import annotations
 import gc
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
@@ -82,6 +88,16 @@ from analysis_village.numucc_1p0pi.utils import (
     get_univ_rates,
     signal_hists,
 )
+
+from analysis_village.numucc_1p0pi.syst_genie_cov import (
+    accumulate_xsec_path_chunk,
+    empty_xsec_tensor_acc,
+    ensure_univ_aliases,
+    finalize_genie_xsec_cv as _finalize_genie_xsec_cv_shared,
+    finalize_genie_xsec_univ as _finalize_genie_xsec_univ_shared,
+)
+from analysis_village.numucc_1p0pi.syst_multisim_common import combine_indep_knob_cov_packs
+
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
 
 # Long-format column schema for HDF ``syst_hists`` tables.
@@ -95,6 +111,11 @@ HIST_DF_COLUMNS: Tuple[str, ...] = (
     "bin1",
     "value",
 )
+
+# Per-variable HDF keys: ``syst_hists__<var_save_name>_<split>``.
+# Legacy monolith: ``syst_hists_<split>`` (all vars in one table).
+SYST_HISTS_BY_VAR_PREFIX = "syst_hists__"
+SYST_HISTS_VAR_LIST_PREFIX = "syst_hists_var_list_"
 
 SystName = Tuple[str, str]
 
@@ -114,6 +135,99 @@ KIND_XSEC_RECO_VS_TRUE = "xsec_reco_vs_true"
 def empty_histcounts_df() -> pd.DataFrame:
     return pd.DataFrame({c: pd.Series(dtype=object if c in ("kind", "family", "knob", "var") else float)
                          for c in HIST_DF_COLUMNS})
+
+
+# ---------------------------------------------------------------------------
+# Per-variable HDF I/O (Product A2 default)
+# ---------------------------------------------------------------------------
+_LEGACY_MONOLITH_KEY_RE = re.compile(r"^syst_hists_(\d+)$")
+
+
+def syst_hists_hdf_key(var_save_name: str, split_idx: int = 0) -> str:
+    """HDF key for one variable's histcounts rows at a given split index."""
+    return f"{SYST_HISTS_BY_VAR_PREFIX}{var_save_name}_{int(split_idx)}"
+
+
+def syst_hists_var_list_key(split_idx: int = 0) -> str:
+    return f"{SYST_HISTS_VAR_LIST_PREFIX}{int(split_idx)}"
+
+
+def is_legacy_monolith_syst_hists_key(key: str) -> bool:
+    """True for ``syst_hists_0``-style keys (not per-variable ``syst_hists__…``)."""
+    return bool(_LEGACY_MONOLITH_KEY_RE.fullmatch(str(key)))
+
+
+def parse_syst_hists_hdf_key(key: str) -> Optional[Tuple[Optional[str], int]]:
+    """Return ``(var_save_name_or_None, split_idx)`` for a syst_hists HDF key.
+
+    * Per-variable: ``syst_hists__<var>_<split>`` → ``(var, split)``
+    * Legacy monolith: ``syst_hists_<split>`` → ``(None, split)``
+    """
+    k = str(key).lstrip("/")
+    if k.startswith(SYST_HISTS_BY_VAR_PREFIX):
+        body = k[len(SYST_HISTS_BY_VAR_PREFIX) :]
+        var, sep, split_s = body.rpartition("_")
+        if not sep or not split_s.isdigit():
+            return None
+        return var, int(split_s)
+    m = _LEGACY_MONOLITH_KEY_RE.fullmatch(k)
+    if m:
+        return None, int(m.group(1))
+    return None
+
+
+def list_syst_hists_vars_in_store(store: Any) -> List[str]:
+    """Variable slugs present as per-variable keys (empty if only legacy monolith)."""
+    keys = [str(k).lstrip("/") for k in store.keys()]
+    found: set[str] = set()
+    for k in keys:
+        if k.startswith(SYST_HISTS_VAR_LIST_PREFIX):
+            try:
+                df = store[k]
+                if "var" in getattr(df, "columns", []):
+                    found.update(str(v) for v in df["var"].tolist())
+            except Exception:
+                pass
+            continue
+        parsed = parse_syst_hists_hdf_key(k)
+        if parsed is not None and parsed[0] is not None:
+            found.add(parsed[0])
+    return sorted(found)
+
+
+def put_syst_hists_by_var(
+    store: Any,
+    hist_df: pd.DataFrame,
+    *,
+    split_idx: int = 0,
+    format: str = "fixed",
+) -> List[str]:
+    """Write histcounts split by ``var`` column into ``syst_hists__<var>_<split>``.
+
+    Also writes ``syst_hists_var_list_<split>`` (one-column manifest). Returns keys written.
+    """
+    written: List[str] = []
+    if hist_df is None or len(hist_df) == 0:
+        key = syst_hists_hdf_key("_empty", split_idx)
+        store.put(key, empty_histcounts_df(), format=format)
+        written.append(key)
+        return written
+
+    var_col = hist_df["var"].astype(str)
+    var_names = sorted(var_col.unique())
+    for var in var_names:
+        sub = hist_df.loc[var_col == var].reset_index(drop=True)
+        key = syst_hists_hdf_key(var, split_idx)
+        store.put(key, sub, format=format)
+        written.append(key)
+    manifest_key = syst_hists_var_list_key(split_idx)
+    store.put(
+        manifest_key,
+        pd.DataFrame({"var": var_names}),
+        format=format,
+    )
+    written.append(manifest_key)
+    return written
 
 
 def final_var_configs() -> List[VariableConfig]:
@@ -816,138 +930,24 @@ def clip_nonnegative_weight_leaves(
         df.loc[:, c] = np.clip(np.nan_to_num(vals, nan=1.0, posinf=1.0, neginf=0.0), 0.0, wgt_clip_hi)
 
 
-def _infer_n_univ_block(block: pd.DataFrame) -> int:
-    cols = block.columns
-    leaves = []
-    if isinstance(cols, pd.MultiIndex):
-        for c in cols:
-            if isinstance(c, tuple):
-                for part in c:
-                    if part:
-                        leaves.append(str(part))
-                        break
-            else:
-                leaves.append(str(c))
-    else:
-        leaves = [str(c) for c in cols]
-    n = 0
-    while f"univ_{n}" in leaves:
-        n += 1
-    if n > 0:
-        return n
-    leaf_set = set(leaves)
-    if "ps1" in leaf_set and "ms1" in leaf_set:
-        return 2
-    if "ps1" in leaf_set or "morph" in leaf_set:
-        return 1
-    return 0
-
-
 def _ensure_univ_aliases(evt_df: pd.DataFrame, mc_nu_df: Optional[pd.DataFrame], syst_name: SystName) -> int:
     """Map multisigma/morph leaves → ``univ_*`` (mutates frames). Returns n_univ.
 
-    Non-multisim knobs (``ps1``/``ms1``/``morph``) are treated as discrete universes for
-    covariance; their weights are clipped to ``≥ 0`` (never negative reweights).
-    If a ``cv`` leaf exists, multisigma universes are ``ps|ms / cv``.
+    Delegates to :func:`syst_genie_cov.ensure_univ_aliases`, then clips weights ≥ 0.
     """
-    key = tuple(syst_name)
-    try:
-        block = evt_df.loc[:, key]
-    except Exception:
-        return 0
-    n = _infer_n_univ_block(block)
-    if n > 0 and any(
-        (isinstance(c, tuple) and str(c[0]).startswith("univ_"))
-        or (not isinstance(c, tuple) and str(c).startswith("univ_"))
-        for c in block.columns
-    ):
+    n = ensure_univ_aliases(evt_df, mc_nu_df, syst_name)
+    if n > 0:
         clip_nonnegative_weight_leaves(evt_df, syst_name)
         if mc_nu_df is not None:
             clip_nonnegative_weight_leaves(mc_nu_df, syst_name)
-        return n
-
-    leaves = set()
-    for c in block.columns:
-        if isinstance(c, tuple):
-            for part in c:
-                if part:
-                    leaves.add(str(part))
-                    break
-        else:
-            leaves.add(str(c))
-
-    def _copy_leaf(df: pd.DataFrame, src: str, dst: str, *, divide_by_cv: bool = False) -> None:
-        if df is None or len(df) == 0:
-            return
-        # Resolve to a *full* MultiIndex column key (partial tuples can look "in"
-        # columns but cannot be used to create new leaves).
-        src_key = None
-        cv_key = None
-        for c in df.columns:
-            if not isinstance(c, tuple) or c[: len(key)] != key:
-                continue
-            leaf = next((str(p) for p in c[len(key) :] if p), "")
-            if leaf == src and src_key is None:
-                src_key = c
-            if leaf == "cv" and cv_key is None:
-                cv_key = c
-        if src_key is None:
-            return
-        dst_key = tuple(list(key) + [dst] + [""] * (len(src_key) - len(key) - 1))
-        vals = np.asarray(df.loc[:, src_key], dtype=np.float64)
-        # Physical: event weights cannot be negative (esp. ±σ / morph unisim).
-        vals = np.nan_to_num(vals, nan=1.0, posinf=1.0, neginf=0.0)
-        if divide_by_cv and cv_key is not None:
-            cv = np.asarray(df.loc[:, cv_key], dtype=np.float64)
-            cv = np.nan_to_num(cv, nan=1.0, posinf=1.0, neginf=1.0)
-            cv = np.where(cv == 0.0, 1.0, cv)
-            vals = vals / cv
-        vals = np.clip(vals, 0.0, None)
-        df.loc[:, dst_key] = vals
-
-    # Match get_systematics_genie: GENIE_MULTISIGMA_DIVIDE_BY_CV (default on).
-    _div_env = os.environ.get("GENIE_MULTISIGMA_DIVIDE_BY_CV", "1").strip().lower()
-    _div_on = _div_env not in ("0", "false", "no", "off")
-    div_cv = "cv" in leaves and _div_on
-    if "ps1" in leaves and "ms1" in leaves:
-        for src, dst in (("ps1", "univ_0"), ("ms1", "univ_1")):
-            _copy_leaf(evt_df, src, dst, divide_by_cv=div_cv)
-            if mc_nu_df is not None:
-                _copy_leaf(mc_nu_df, src, dst, divide_by_cv=div_cv)
-        clip_nonnegative_weight_leaves(evt_df, syst_name)
-        if mc_nu_df is not None:
-            clip_nonnegative_weight_leaves(mc_nu_df, syst_name)
-        return 2
-    if "ps1" in leaves:
-        _copy_leaf(evt_df, "ps1", "univ_0", divide_by_cv=div_cv)
-        if mc_nu_df is not None:
-            _copy_leaf(mc_nu_df, "ps1", "univ_0", divide_by_cv=div_cv)
-        clip_nonnegative_weight_leaves(evt_df, syst_name)
-        if mc_nu_df is not None:
-            clip_nonnegative_weight_leaves(mc_nu_df, syst_name)
-        return 1
-    if "morph" in leaves:
-        _copy_leaf(evt_df, "morph", "univ_0")
-        if mc_nu_df is not None:
-            _copy_leaf(mc_nu_df, "morph", "univ_0")
-        clip_nonnegative_weight_leaves(evt_df, syst_name)
-        if mc_nu_df is not None:
-            clip_nonnegative_weight_leaves(mc_nu_df, syst_name)
-        return 1
     return n
 
 
+
 def _empty_xsec_acc(n_univ: int, nb: int) -> Dict[str, np.ndarray]:
-    return {
-        "nevts_allmc": np.zeros(nb, dtype=np.float64),
-        "cv_sel_reco": np.zeros(nb, dtype=np.float64),
-        "cv_allsel_reco": np.zeros(nb, dtype=np.float64),
-        "bg_cv": np.zeros(nb, dtype=np.float64),
-        "reco_vs_true": np.zeros((n_univ, nb, nb), dtype=np.float64),
-        "signal_allmc": np.zeros((n_univ, nb), dtype=np.float64),
-        "signal_sel_truth": np.zeros((n_univ, nb), dtype=np.float64),
-        "bg_univ": np.zeros((n_univ, nb), dtype=np.float64),
-    }
+    """Alias for :data:`syst_genie_cov.empty_xsec_tensor_acc`."""
+    return empty_xsec_tensor_acc(n_univ, nb)
+
 
 
 def _accumulate_xsec_tensors(
@@ -958,114 +958,37 @@ def _accumulate_xsec_tensors(
     n_univ: int,
     acc: MutableMapping[str, np.ndarray],
 ) -> None:
-    """Additive xsec tensors — identical math to ``get_systematics_genie.accumulate_xsec_path_chunk``."""
-    from analysis_village.numucc_1p0pi.categories import topology_list
+    """Additive xsec tensors — :func:`syst_genie_cov.accumulate_xsec_path_chunk`."""
+    try:
+        accumulate_xsec_path_chunk(mc_evt_df, mc_nu_df, var_config, syst_name, n_univ, acc)
+    except ValueError as exc:
+        # histcounts rate path may lack mcnu truth; skip silently
+        if "nevts_allmc is None" in str(exc):
+            return
+        raise
 
-    bins = var_config.bins
-    nb = len(bins) - 1
-    evtdf_signal = mc_evt_df[mc_evt_df.topo_categ == 1]
-    nudf_signal = mc_nu_df[mc_nu_df.topo_categ == 1]
-    evtdf_div_topo = [mc_evt_df[mc_evt_df.topo_categ == mode] for mode in topology_list]
-
-    ret = signal_hists(mc_evt_df, mc_nu_df, var_config, return_data=True, plot=False)
-    nevts_allmc = ret["nevts_allmc"]
-    if nevts_allmc is None:
-        return
-    acc["nevts_allmc"] += np.asarray(nevts_allmc, dtype=np.float64)
-    acc["cv_sel_reco"] += np.asarray(ret["nevts_sel_reco"], dtype=np.float64)
-    acc["cv_allsel_reco"] += np.asarray(ret["nevts_allsel_reco"], dtype=np.float64)
-
-    wblock_evt = evtdf_signal[syst_name]
-    wblock_nu = nudf_signal[syst_name]
-    for uidx in range(n_univ):
-        w_evt_univ = np.clip(
-            np.asarray(genie_univ_weight_series(wblock_evt, uidx), dtype=np.float64), 0.0, 20.0
-        )
-        w_nu_univ = np.clip(
-            np.asarray(genie_univ_weight_series(wblock_nu, uidx), dtype=np.float64), 0.0, 20.0
-        )
-        if nb == 1:
-            reco_vs_true = np.array([[1.0]], dtype=np.float64)
-        else:
-            reco_vs_true, _, _ = np.histogram2d(
-                ret["var_sel_truth"],
-                ret["var_sel_reco"],
-                weights=ret["wgt_sel_truth"] * w_evt_univ,
-                bins=bins,
-            )
-        acc["reco_vs_true"][uidx] += reco_vs_true
-        sam, _ = np.histogram(ret["var_allmc"], weights=ret["wgt_allmc"] * w_nu_univ, bins=bins)
-        sst, _ = np.histogram(
-            ret["var_sel_truth"], weights=ret["wgt_sel_truth"] * w_evt_univ, bins=bins
-        )
-        acc["signal_allmc"][uidx] += sam
-        acc["signal_sel_truth"][uidx] += sst
-
-    for this_evtdf in evtdf_div_topo[1:]:
-        if this_evtdf is None or len(this_evtdf) == 0:
-            continue
-        var, wgt = get_clipped_evts(
-            this_evtdf,
-            var_config.var_evt_reco_col,
-            bins,
-            var_save_name=var_config.var_save_name,
-        )
-        acc["bg_cv"] += np.histogram(var, bins=bins, weights=wgt)[0].astype(np.float64)
-        wblock_bg = this_evtdf[syst_name]
-        for uidx in range(n_univ):
-            uw = np.asarray(genie_univ_weight_series(wblock_bg, uidx), dtype=np.float64).copy()
-            uw[np.isnan(uw)] = 1.0
-            uw = np.clip(uw, 0.0, 20.0)
-            acc["bg_univ"][uidx] += np.histogram(var, bins=bins, weights=wgt * uw)[0].astype(
-                np.float64
-            )
 
 
 def finalize_genie_xsec_univ(
     acc: Mapping[str, np.ndarray],
-    *,
     xsec_unit: float = 1.0,
 ) -> np.ndarray:
-    """Universe xsec spectra from stored tensors (response × CV gen + Δbg)."""
-    nevts_allmc = np.asarray(acc["nevts_allmc"], dtype=np.float64)
-    nb = int(nevts_allmc.shape[0])
-    n_univ = int(acc["reco_vs_true"].shape[0])
-    scale = float(xsec_unit)
-    rows: List[np.ndarray] = []
-    for uidx in range(n_univ):
-        if nb == 1:
-            reco_vs_true = np.array([[1.0]], dtype=np.float64)
-        else:
-            reco_vs_true = acc["reco_vs_true"][uidx]
-        denom = acc["signal_allmc"][uidx]
-        eff = np.divide(
-            acc["signal_sel_truth"][uidx],
-            denom,
-            out=np.zeros(nb, dtype=np.float64),
-            where=denom != 0,
-        )
-        response = get_response_matrix(reco_vs_true, eff)
-        signal_univ = response @ nevts_allmc
-        signal_univ = signal_univ + (acc["bg_univ"][uidx] - acc["bg_cv"])
-        signal_univ *= scale
-        rows.append(signal_univ)
-    return np.asarray(rows, dtype=np.float64)
+    """Universe xsec vector — :func:`syst_genie_cov.finalize_genie_xsec_univ`."""
+    return _finalize_genie_xsec_univ_shared(acc, xsec_unit)
+
 
 
 def finalize_genie_xsec_cv(
     acc: Mapping[str, np.ndarray],
-    *,
     xsec_unit: float = 1.0,
+    *,
     bkgd_subtract: bool = True,
 ) -> np.ndarray:
-    scale = float(xsec_unit)
-    base = acc["cv_sel_reco"] if bkgd_subtract else acc["cv_allsel_reco"]
-    return np.asarray(base, dtype=np.float64) * scale
+    """CV selected reco xsec — :func:`syst_genie_cov.finalize_genie_xsec_cv`."""
+    return _finalize_genie_xsec_cv_shared(acc, xsec_unit, bkgd_subtract=bkgd_subtract)
 
 
-# ---------------------------------------------------------------------------
-# Pack / unpack long DataFrame
-# ---------------------------------------------------------------------------
+
 def _rows_1d(
     kind: str,
     family: str,
@@ -1420,31 +1343,81 @@ def load_syst_hists_from_df_file(
     *,
     vars: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
-    """Read and sum all ``syst_hists_*`` splits from one ``run_df_maker`` output.
+    """Read and sum ``syst_hists`` splits from one ``run_df_maker`` output.
 
-    Optional ``vars`` drops other slugs immediately after read (HDF Fixed format
-    still loads the full table — this only shrinks the in-memory working set).
+    Prefers per-variable keys ``syst_hists__<var>_<split>``. When ``vars`` is set,
+    **only those HDF datasets are opened** (true selective I/O). Legacy monolith
+    keys ``syst_hists_<split>`` are still supported (full table load, then filter).
     """
     parts: List[pd.DataFrame] = []
+    want = {str(v) for v in vars} if vars is not None else None
+    by_var_keys: List[str] = []
     with pd.HDFStore(path, mode="r") as store:
-        keys = [k.lstrip("/") for k in store.keys()]
-        hist_keys = sorted(k for k in keys if k.startswith("syst_hists"))
-        for k in hist_keys:
-            parts.append(store[k])
+        keys = [str(k).lstrip("/") for k in store.keys()]
+        by_var_keys = [
+            k for k in keys
+            if k.startswith(SYST_HISTS_BY_VAR_PREFIX)
+            and parse_syst_hists_hdf_key(k) is not None
+        ]
+        legacy_keys = sorted(k for k in keys if is_legacy_monolith_syst_hists_key(k))
+
+        if by_var_keys:
+            for k in sorted(by_var_keys):
+                parsed = parse_syst_hists_hdf_key(k)
+                if parsed is None or parsed[0] is None:
+                    continue
+                var_name, _ = parsed
+                if var_name == "_empty":
+                    continue
+                if want is not None and var_name not in want:
+                    continue
+                parts.append(store[k])
+        elif legacy_keys:
+            for k in legacy_keys:
+                parts.append(store[k])
+        else:
+            # Bare key without split suffix (rare)
+            for k in keys:
+                if k == "syst_hists" or k.startswith("syst_hists/"):
+                    parts.append(store[k])
+
     out = sum_histcounts_dfs(parts)
-    if vars is not None and len(out) > 0:
-        keep = {str(v) for v in vars}
-        out = out[out["var"].astype(str).isin(keep)].reset_index(drop=True)
+    if want is not None and len(out) > 0 and not by_var_keys:
+        # Legacy monolith path: filter after load
+        out = out[out["var"].astype(str).isin(want)].reset_index(drop=True)
     return out
+
+
+def list_syst_hists_vars_in_file(path: str) -> List[str]:
+    """List ``var_save_name`` slugs available in a histcounts HDF (cheap key scan)."""
+    with pd.HDFStore(path, mode="r") as store:
+        vars_found = list_syst_hists_vars_in_store(store)
+        if vars_found:
+            return vars_found
+        # Legacy monolith: must peek at the table
+        keys = [str(k).lstrip("/") for k in store.keys()]
+        legacy = [k for k in keys if is_legacy_monolith_syst_hists_key(k)]
+        if not legacy:
+            return []
+        found: set[str] = set()
+        for k in legacy:
+            df = store[k]
+            if "var" in getattr(df, "columns", []):
+                found.update(str(v) for v in df["var"].unique())
+        return sorted(found)
 
 
 def sum_histcounts_paths_streaming(
     paths: Sequence[str],
     *,
+    vars: Optional[Sequence[str]] = None,
     progress_every: int = 10,
     progress_cb: Optional[Callable[[int, int, str], None]] = None,
 ) -> pd.DataFrame:
     """Sum histcounts across files **one file at a time** (never materialize all).
+
+    Optional ``vars`` is forwarded to :func:`load_syst_hists_from_df_file` for
+    selective per-variable HDF reads.
 
     Peak RAM is ~2× one file (current accumulator + next file during concat),
     not ``N_files ×`` one file. Prefer :func:`stream_sum_rate_dense` for Flux/G4
@@ -1453,7 +1426,7 @@ def sum_histcounts_paths_streaming(
     acc: Optional[pd.DataFrame] = None
     n_paths = len(paths)
     for i, p in enumerate(paths, start=1):
-        df = load_syst_hists_from_df_file(p)
+        df = load_syst_hists_from_df_file(p, vars=vars)
         if acc is None:
             acc = df
         else:
@@ -1756,23 +1729,14 @@ def combine_indep_knob_frac_covs(
     packs: Sequence[Mapping[str, np.ndarray]],
     cv: np.ndarray,
 ) -> Dict[str, np.ndarray]:
-    """Sum fractional covariances (independent knobs), rebuild absolute cov from ``cv``."""
+    """Sum fractional covariances (independent knobs) via :func:`combine_indep_knob_cov_packs`."""
     if not packs:
         nb = len(cv)
         z = np.zeros((nb, nb), dtype=float)
         return {"cov": z, "cov_frac": z, "corr": z}
-    cov_frac = np.sum([np.asarray(p["cov_frac"], dtype=float) for p in packs], axis=0)
-    v = np.asarray(cv, dtype=float).reshape(-1)
-    cov = cov_frac * np.outer(v, v)
-    corr = np.zeros_like(cov_frac)
-    eps = 1e-12
-    for i in range(cov_frac.shape[0]):
-        for j in range(cov_frac.shape[1]):
-            di = max(float(cov_frac[i, i]), 0.0)
-            dj = max(float(cov_frac[j, j]), 0.0)
-            denom = np.sqrt(di * dj)
-            corr[i, j] = (cov_frac[i, j] / denom) if denom > eps else 0.0
-    return {"cov": cov, "cov_frac": cov_frac, "corr": corr}
+    return combine_indep_knob_cov_packs(list(packs), cv)
+
+
 
 
 # ---------------------------------------------------------------------------

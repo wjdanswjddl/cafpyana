@@ -49,6 +49,7 @@ from analysis_village.numucc_1p0pi.syst_histcounts import (
     empty_histcounts_df,
     histcounts_var_configs_df,
     pack_blob_to_df,
+    put_syst_hists_by_var,
     slim_product_names,
     sum_histcounts_dfs,
 )
@@ -432,7 +433,7 @@ def process_one_file(args: argparse.Namespace) -> str:
     tmp = path.join(local_dir, path.basename(dest))
     try:
         with pd.HDFStore(tmp, mode="w", complevel=5, complib="zlib") as store:
-            store.put("syst_hists_0", out, format="table")
+            put_syst_hists_by_var(store, out, split_idx=0, format="table")
             store.put("var_configs_0", histcounts_var_configs_df(), format="table")
             store.put("split", pd.DataFrame({"n_split": [1]}), format="table")
         shutil.copy2(tmp, dest)

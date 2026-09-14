@@ -31,6 +31,7 @@ SUB_G4 = "G4"
 SUB_GENIE = "GENIE"
 SUB_COSMICS = "Cosmics"
 SUB_DETECTOR = "Detector"
+SUB_DETECTOR_SEL = "DetectorSelection"  # Product A (cut-stage) detector unisim
 SUB_CATEGORY_SUMMARY = "CategorySummary"
 
 FILE_MCSTAT = "mcstat_syst_dict.npz"
@@ -39,6 +40,7 @@ FILE_G4 = "g4_syst_dict.npz"
 FILE_GENIE = "cov_mat_dict.pkl"
 FILE_COSMICS = "cosmics_syst_dict.npz"
 FILE_DETECTOR = "detector_syst_dict.npz"
+FILE_DETECTOR_SEL = "detector_sel_syst_dict.npz"
 FILE_CATEGORY_SUMMARY = "category_syst_summary.npz"
 FILE_CATEGORY_SUMMARY_MANIFEST = "category_syst_summary_manifest.json"
 

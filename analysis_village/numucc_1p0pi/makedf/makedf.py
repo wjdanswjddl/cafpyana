@@ -488,45 +488,82 @@ def build_genie_knobgroup_config_sel_all(group_filter=None):
 # ================================================
 
 
-# ===== Calo / E-field variations =====
-# Configs should pass ``updatecalo=...`` / ``updateefield=...`` kwargs (see
-# ``configs/numucc_1p0pi/sel_mup-updatecalo.py``). Named wrappers below are thin
-# aliases kept for older job scripts.
+# ===== Calo / E-field variations (sel_all only) =====
+# Detector variations must be built at ``sel_all`` so matching can preserve
+# efficiency differences. Pass ``updatecalo=...`` / ``updateefield=...`` via
+# config ARGS (see ``configs/numucc_1p0pi/sel_all-updatecalo.py``).
+#
+# These makers must be top-level (pickleable) for multiprocessing Pool in
+# ``run_df_maker`` / ``NTupleGlob.dataframes``.
 
-def _pandora_updatecalo_maker(sel_level, updatecalo="CV", updateefield=False):
-    def _maker(f, sel_level=sel_level, include_weights=False, multisim_nuniv=0, wgt_types=[],
-               slim=True, trkScoreCut=False, trkDistCut=100., cutClearCosmic=True,
-               updatecalo=updatecalo, updateefield=updateefield, **trkArgs):
-        return make_pandora_evtdf(
-            f, sel_level=sel_level, include_weights=include_weights,
-            multisim_nuniv=multisim_nuniv, wgt_types=wgt_types, slim=slim,
-            trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic,
-            updatecalo=updatecalo, updateefield=updateefield, **trkArgs,
-        )
-    return _maker
-
-
-def _trkdf_updatecalo_maker(updatecalo=True):
-    def _maker(f, trkScoreCut=False, trkDistCut=100., updatecalo=updatecalo, **trkArgs):
-        return make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs)
-    return _maker
-
-
-make_pandora_evtdf_mup_updateefield = _pandora_updatecalo_maker("mup", updatecalo="CV", updateefield=True)
-make_pandora_evtdf_2prong_updateefield = _pandora_updatecalo_maker("2prong", updatecalo="CV", updateefield=True)
-make_pandora_evtdf_mup_updatecalo = _pandora_updatecalo_maker("mup", updatecalo="CV")
-make_pandora_evtdf_2prong_updatecalo = _pandora_updatecalo_maker("2prong", updatecalo="CV")
-make_pandora_evtdf_2prong_vtxdist_updatecalo = _pandora_updatecalo_maker("2prong_vtxdist", updatecalo="CV")
-make_pandora_evtdf_2prong_wcandidates_updatecalo = _pandora_updatecalo_maker("2prong_wcandidates", updatecalo="CV")
-make_pandora_evtdf_all_updatecalo = _pandora_updatecalo_maker("all", updatecalo="CV")
-make_trkdf_updatecalo = _trkdf_updatecalo_maker(True)
-
-# Legacy per-knob aliases (prefer ARGS={"updatecalo": ...} on the generic makers).
-for _calo_tag in ("ccal_p", "ccal_m", "alpha_p", "alpha_m", "beta_p", "beta_m", "R_p", "R_m"):
-    globals()[f"make_pandora_evtdf_mup_updatecalo_{_calo_tag}"] = _pandora_updatecalo_maker(
-        "mup", updatecalo=_calo_tag
+def make_pandora_evtdf_all_updatecalo(
+    f,
+    sel_level="all",
+    include_weights=False,
+    multisim_nuniv=0,
+    wgt_types=None,
+    slim=True,
+    trkScoreCut=False,
+    trkDistCut=100.0,
+    cutClearCosmic=True,
+    updatecalo="CV",
+    updateefield=False,
+    **trkArgs,
+):
+    if wgt_types is None:
+        wgt_types = []
+    return make_pandora_evtdf(
+        f,
+        sel_level=sel_level,
+        include_weights=include_weights,
+        multisim_nuniv=multisim_nuniv,
+        wgt_types=wgt_types,
+        slim=slim,
+        trkScoreCut=trkScoreCut,
+        trkDistCut=trkDistCut,
+        cutClearCosmic=cutClearCosmic,
+        updatecalo=updatecalo,
+        updateefield=updateefield,
+        **trkArgs,
     )
-    globals()[f"make_trkdf_updatecalo_{_calo_tag}"] = _trkdf_updatecalo_maker(_calo_tag)
+
+
+def make_pandora_evtdf_all_updateefield(
+    f,
+    sel_level="all",
+    include_weights=False,
+    multisim_nuniv=0,
+    wgt_types=None,
+    slim=True,
+    trkScoreCut=False,
+    trkDistCut=100.0,
+    cutClearCosmic=True,
+    updatecalo="CV",
+    updateefield=True,
+    **trkArgs,
+):
+    if wgt_types is None:
+        wgt_types = []
+    return make_pandora_evtdf_all_updatecalo(
+        f,
+        sel_level=sel_level,
+        include_weights=include_weights,
+        multisim_nuniv=multisim_nuniv,
+        wgt_types=wgt_types,
+        slim=slim,
+        trkScoreCut=trkScoreCut,
+        trkDistCut=trkDistCut,
+        cutClearCosmic=cutClearCosmic,
+        updatecalo=updatecalo,
+        updateefield=updateefield,
+        **trkArgs,
+    )
+
+
+def make_trkdf_updatecalo(f, trkScoreCut=False, trkDistCut=100.0, updatecalo=True, **trkArgs):
+    return make_trkdf(
+        f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, **trkArgs
+    )
 
 
 # for SystVar samples
@@ -644,7 +681,9 @@ def make_pandora_evtdf(f, sel_level="all",
 # ===========================================================================
 # Instead of writing heavy weight tables and re-histogramming offline, these
 # makers walk the event-selection pipeline on the CAF and store long-format
-# bin counts under HDF key ``syst_hists`` (see ``syst_histcounts.py``).
+# bin counts under per-variable HDF keys ``syst_hists__<var>_<split>``
+# (see ``syst_histcounts.put_syst_hists_by_var``; legacy monolith ``syst_hists_<split>``
+# still readable).
 #
 # GENIE: rate histcounts + xsec response tensors (rate ≠ xsec — see module doc).
 # Flux / G4: rate histcounts only (multisim).

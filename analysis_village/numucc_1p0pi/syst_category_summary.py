@@ -264,20 +264,42 @@ def _detector_subsystem_total_cov_frac(
 def detector_total_cov_frac(
     var_name: str,
     *,
-    wiremod_npz: Any = None,
-    sce_npz: Any = None,
     detector_npz: Any = None,
+    wiremod_npz: Any = None,
+    dent_npz: Any = None,
+    sce_npz: Any = None,
 ) -> Optional[np.ndarray]:
-    """WireMod + SCE combined detector total (matches ``systematics-summary.ipynb``)."""
+    """Detector category total from the combined Product **B** NPZ.
+
+    Canonical input is ``detector_npz`` from ``systematics-detector.ipynb``
+    (``Detector/detector_syst_dict.npz`` = WireMod YZ + XTXW + DENT).
+
+    ``wiremod_npz`` / ``dent_npz`` / ``sce_npz`` remain as optional legacy
+    fallbacks when the combined file is absent.
+    """
+    combined = _detector_subsystem_total_cov_frac(detector_npz, var_name)
+    if combined is not None:
+        return combined
+
     totals = []
-    for det_npz in (wiremod_npz, sce_npz):
+    for det_npz in (wiremod_npz, dent_npz):
         cov = _detector_subsystem_total_cov_frac(det_npz, var_name)
         if cov is not None:
             totals.append(cov)
     if totals:
         out = sum_cov_frac_matrices(totals)
         return None if out is None else np.asarray(out, dtype=np.float64)
-    return _detector_subsystem_total_cov_frac(detector_npz, var_name)
+
+    if sce_npz is not None:
+        totals = []
+        for det_npz in (wiremod_npz, sce_npz):
+            cov = _detector_subsystem_total_cov_frac(det_npz, var_name)
+            if cov is not None:
+                totals.append(cov)
+        if totals:
+            out = sum_cov_frac_matrices(totals)
+            return None if out is None else np.asarray(out, dtype=np.float64)
+    return None
 
 
 def mcstat_cov_frac(mcstat_npz: Any, var_name: str) -> Optional[np.ndarray]:
@@ -342,6 +364,7 @@ def build_category_cov_frac(
     cosmics_npz: Any,
     detector_npz: Any = None,
     wiremod_npz: Any = None,
+    dent_npz: Any = None,
     sce_npz: Any = None,
     mcstat_npz: Any = None,
     genie_blob: Optional[Mapping] = None,
@@ -355,7 +378,11 @@ def build_category_cov_frac(
     if mc is not None:
         covs[CAT_MCSTAT] = mc
     det = detector_total_cov_frac(
-        vsn, wiremod_npz=wiremod_npz, sce_npz=sce_npz, detector_npz=detector_npz
+        vsn,
+        detector_npz=detector_npz,
+        wiremod_npz=wiremod_npz,
+        dent_npz=dent_npz,
+        sce_npz=sce_npz,
     )
     if det is not None:
         covs[CAT_DETECTOR] = det
@@ -381,6 +408,7 @@ def build_variable_pack(
     cosmics_npz: Any,
     detector_npz: Any = None,
     wiremod_npz: Any = None,
+    dent_npz: Any = None,
     sce_npz: Any = None,
     mcstat_npz: Any = None,
     genie_blob: Optional[Mapping] = None,
@@ -397,6 +425,7 @@ def build_variable_pack(
         cosmics_npz=cosmics_npz,
         detector_npz=detector_npz,
         wiremod_npz=wiremod_npz,
+        dent_npz=dent_npz,
         sce_npz=sce_npz,
         mcstat_npz=mcstat_npz,
         genie_blob=genie_blob,
@@ -446,6 +475,7 @@ def export_category_syst_summary(
     cosmics_npz: Any,
     detector_npz: Any = None,
     wiremod_npz: Any = None,
+    dent_npz: Any = None,
     sce_npz: Any = None,
     mcstat_npz: Any = None,
     genie_blob: Optional[Mapping] = None,
@@ -471,6 +501,7 @@ def export_category_syst_summary(
                 cosmics_npz=cosmics_npz,
                 detector_npz=detector_npz,
                 wiremod_npz=wiremod_npz,
+                dent_npz=dent_npz,
                 sce_npz=sce_npz,
                 mcstat_npz=mcstat_npz,
                 genie_blob=genie_blob,

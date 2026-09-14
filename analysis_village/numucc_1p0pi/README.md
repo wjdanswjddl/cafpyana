@@ -39,6 +39,61 @@ Notebooks:
 | `notebooks/event_selection.ipynb` | Develop / tune cuts on a few files (tweak thresholds in-notebook) |
 | `notebooks/event_selection_batched.ipynb` | Live batched overlays on full samples + summary / efficiency |
 
+## Systematics products
+
+Weight DF production (`makedf/{getsyst,geniesyst,bnbsyst,g4syst,mcstat}.py`) is
+centralized — **do not fork it**. Everything below is about *using* those weights.
+
+| Product | Variables | Inputs | GENIE xsec? | Default path |
+|---|---|---|---|---|
+| **A — Selection-stage** | Cut-stage vars (nu_score, vtxdist, χ², …) + optional topology breakdown | Large tables | **No** (rate only) | **A2** histcounts |
+| **B — Measurement** | Integrated, μ/p kinematics, TKIs, … | `sel_mup` (+ `mcnu` for GENIE xsec) | **Yes** | Chunked / GENIE scripts with `MC_DF_STAGE=final` |
+
+### Product B — Measurement (`sel_mup` + `mcnu` for GENIE xsec)
+
+Entry points (all force the final / measurement stage):
+
+| Script | What it runs |
+|---|---|
+| `scripts/run_syst_measurement_multisim.sh` | Flux / G4 / MCstat (`MC_DF_STAGE=final`) |
+| `scripts/run_syst_measurement_genie.sh` | GENIE rate **+ xsec** (`MC_DF_STAGE=final`) |
+| `scripts/run_syst_measurement_cosmics.sh` | Cosmics (`INPUT_STAGE=final`) |
+
+For cosmics, set `COSMICS_SELECTED_MC_DF=/path/to/sel_mup.df` (HDF `evt`) so aggregate
+attaches contamination-scaled `SelectedRate` (needed by `systematics-summary.ipynb`).
+
+Interactive GENIE inspection: `notebooks/systematics-genie-inspect.ipynb`
+(retired group/mixed-summary notebooks live under `notebooks/archive_syst/`).
+
+Interactive Product **B** multisim (notebook production):
+`systematics-mcstat.ipynb`, `systematics-flux.ipynb`, `systematics-g4.ipynb`
+(helpers in `syst_multisim_inspect.py`).
+
+### Shared covariance math
+
+- `syst_genie_cov.py` — GENIE univ alias (`/cv`) + xsec accumulate/finalize
+- `syst_multisim_common.combine_indep_knob_cov_packs` — independent-knob total
+  (**sum of `cov_frac`**); histcounts / notebooks call this (no local twins)
+
+### Product A2 (default) — CAF / DF histcounts
+
+- Fill: `configs/numucc_1p0pi/syst_histcounts.py` → `make_syst_histcounts*`
+- HDF keys are **per variable**: `syst_hists__<var_save_name>_<split>`
+  (legacy monolith `syst_hists_<split>` still loads). Selective read::
+
+      load_syst_hists_from_df_file(path, vars=["nu_score"])
+
+- Sum / cov: `scripts/syst_histcounts_stream_sum.py`, `notebooks/systematics-histcounts.ipynb`
+
+### Product A1 (legacy) — existing sel_all weight DFs
+
+If you already built `sel_all` weight tables and need to walk the selection
+pipeline offline, use:
+
+`analysis_village/numucc_1p0pi/legacy_sel_all_syst/`
+
+(wrappers set `MC_DF_STAGE=sel_all`; see that README).
+
 ## Package modules (`analysis_village/numucc_1p0pi/`)
 
 - `categories.py` — truth topology, fiducial-volume, and signal-definition masks.
@@ -58,10 +113,16 @@ Notebooks:
 - `legacy_samples.py` — in-memory `SampleBundle` for small tests (`run_pipeline()` wraps `build_pipeline`).
 - `syst_disk_layout.py` — on-disk layout of the systematics NPZ/pickle tree (`MCstat/`, `Flux/`, `G4/`, `GENIE/`, `Cosmics/`, `Detector/`).
 - `syst_disk_cc_layout.py` — same for the joint (cross-variable) covariance tree.
-- `syst_multisim_common.py` — shared MCstat/Flux/G4 multisim helpers.
-- `syst_cosmics_common.py` — cosmics variable registry and NPZ helpers.
+- `syst_multisim_common.py` — shared MCstat/Flux/G4 multisim helpers; **canonical** `combine_indep_knob_cov_packs`.
+- `syst_genie_cov.py` — shared GENIE univ alias + xsec accumulate/finalize (used by `get_systematics_genie` and `syst_histcounts`).
+- `syst_genie_inspect.py` — load/plot helpers for GENIE `cov_mat_dict` inspection notebook.
+- `syst_cosmics_common.py` — cosmics variable registry, flat unc, **SelectedRate** contamination helpers.
+- `syst_detvar_common.py` — WireMod/DENT matching wrappers, batched hist fill, envelope/unisim packs, Detector combine/plots.
+- `syst_summary_inspect.py` — load multi-root syst disks + total-by-source plots for `systematics-summary.ipynb`.
 - `syst_cc_joint_multisim_common.py` — joint-pair layout and filename helpers.
-- `syst_pipeline_walker.py` — walks `build_pipeline` on sel_all dfs; cut-stage vars derived from PlotSpecs.
+- `syst_pipeline_walker.py` — walks `build_pipeline` on sel_all dfs (Product A1 / shared fill).
+- `syst_histcounts.py` — Product **A2** histcounts pack/unpack; per-variable HDF keys.
+- `legacy_sel_all_syst/` — Product **A1** runners + notebooks for existing sel_all weight DFs.
 - `syst_category_summary.py` — pack/load per-category systematic summary NPZ.
 - `cc_joint_cov.py` — builds the joint covariance for the conditional (muon → proton) constraint.
 - `genie_flat_helpers.py` — flat-GENIE / generator-comparison cross-section helpers.
@@ -81,18 +142,18 @@ Notebooks:
 - `sel_mup-g4wgts.py` — Geant4 reinteraction multisim weights.
 - `sel_mup-geniewgts-knobgroups.py` / `sel_mup-genieslimwgts.py` — GENIE knob-group / slimmed GENIE weights (`GENIE_KNOB_GROUP` env selects the group).
 - `sel_mup-mcstatwgts.py` — Poisson MC-statistics universe weights.
-- `sel_mup-updatecalo.py` / `sel_2prong-updatecalo.py` — recomputed calorimetry (±1σ parameter variations).
-- `sel_2prong-updateefield.py` — recomputed PID with the double-anode E-field map.
+- `sel_all-updatecalo.py` — detector variations at `sel_all`: CV + ±1σ calo universes (`evt_*` / `trk_*`) plus E-field redo (`evt_efield` / `trk_efield`).
 - `add_ar23p.py` — preprocess hook adding AR23_20i_00_000 reweight knobs to CAFs.
 
 ## Scripts (`scripts/`) — see `scripts/README.md` for details
 
 - `run_event_selection_batched.sh` + `event_selection_batch_{survey,map}.py` + `event_selection_aggregate.py` — map/reduce event selection and plotting.
+- `run_syst_measurement_{multisim,genie,cosmics}.sh` — Product **B** entry points (`MC_DF_STAGE`/`INPUT_STAGE=final`).
 - `run_syst_multisim_chunked.sh` + `syst_multisim_{chunk,parallel,aggregate}.py` — MCstat/Flux/G4 multisim covariances.
 - `run_syst_cosmics_chunked.sh` + `syst_cosmics_{chunk,aggregate}.py`, `get_systematics_cosmics.py` — cosmic-background unisim covariances.
 - `run_syst_genie_chunked.sh`, `run_genie_mp.sh` + `get_systematics_genie.py`, `syst_genie_{parallel,aggregate}.py`, `merge_integrated_genie_into_final.py` — GENIE covariances (rate and cross-section).
-- `run_syst_detvar_chunked.sh` + `syst_detvar_{chunk,aggregate}.py` — detector-variation covariances.
-- `run_match_detvars.sh` / `run_match_sce.sh` + `wiremod_match_common_events.py` / `sce_match_common_events.py` — event matching between CV and detector-variation samples.
+- `run_syst_detvar_chunked.sh` + `syst_detvar_{chunk,aggregate}.py` — detector-variation covariances (legacy chunk path).
+- `run_match_detvars.sh` / `run_match_dent.sh` / `run_match_sce.sh` + `wiremod_match_common_events.py` / `dent_match_common_events.py` / `sce_match_common_events.py` — backends for event matching; prefer `notebooks/systematics-detector-match.ipynb`.
 - `run_cc_systs.sh`, `run_syst_cc_joint_{multisim,genie}_chunked.sh` + `syst_cc_joint_*` — joint covariances for the conditional constraint.
 - `conditional_constraint_validation.py` — constraint validation plots and diagnostics.
 - `selected_events.py` / `selected_events_cumulative.py` + `run_event_rate_comp*.sh` — data/MC rate comparisons per exposure batch.
@@ -124,23 +185,28 @@ Data/MC comparison and validation:
 
 Systematics:
 
-- `systematics.ipynb` — MCstat / Flux / G4 multisim covariance production.
-- `systematics-genie.ipynb` — GENIE covariance production.
-- `systematics-cosmic.ipynb` — cosmic-background systematics.
-- `systematics-detector.ipynb` — detector-variation systematics orchestration.
-- `systematics-summary.ipynb` — per-category uncertainty breakdown export.
-- `systematics-flux_asymmetry.ipynb` — flux-universe asymmetry inspection.
+- `systematics-histcounts.ipynb` — Product **A2** (default): load/sum per-variable `syst_hists`, build covs.
+- `systematics-genie-inspect.ipynb` — **inspect** GENIE syst-disk outputs (per-knob / per-mode / top-10 plots; rate+xsec).
+- `systematics-mcstat.ipynb` / `systematics-flux.ipynb` / `systematics-g4.ipynb` — Product **B** multisim covariances (helpers in `syst_multisim_inspect.py`). Flux notebook includes integrated asymmetry (former `systematics-flux_asymmetry`).
+- `systematics-multisim-live.ipynb` — quick live walk of final-selected weight dfs (debug / spot-check).
+- `systematics-cosmic.ipynb` — cosmic-background systematics (`SelectedRate` via `syst_cosmics_common`).
+- `systematics-detector-match.ipynb` — match detector-variation events at **sel_all** by `(E, run, subrun, evt)` (WireMod + DENT).
+- `wiremod.ipynb` / `dent.ipynb` — Product **A** (cut-stage) + **B** (measurement) from matched sel_all pipeline walks; WireMod calo envelope / DENT unisim (`syst_detvar_common.py`).
+- `systematics-detector.ipynb` — combine WireMod YZ/XTXW + DENT → `Detector/detector_syst_dict.npz` + overlay plots.
+- `systematics-summary.ipynb` — combine source disks → CategorySummary + total-by-source plots; **Detector** is one source from `systematics-detector.ipynb`.
+- `prl-genie-syst-summary.ipynb` / `total_uncertainty_del_Tp.ipynb` — specialized GENIE / δp_T summaries.
 - `multisigma_to_multisim.ipynb` — multisigma → multisim conversion for GENIE knobs.
-- `wiremod.ipynb` / `sce.ipynb` / `dent.ipynb` — WireMod, SCE, and DENT matched-event detector studies.
+- `notebooks/archive_syst/` — retired near-duplicates (`systematics-genie.FULL`, group/mixed-summary, …).
+- `legacy_sel_all_syst/` — Product **A1** (existing sel_all weight DFs); see that README.
+- `sce.ipynb` — SCE matched-event study (legacy; Detector total now uses WireMod + DENT).
 - `detector_Efield_doubleanode.ipynb` — validation of the in-repo double-anode E-field map.
-- `total_uncertainty_del_Tp.ipynb` — total uncertainty example for δp_T.
 
 Unfolding and generators:
 
-- `unfolding-data.ipynb` — Wiener-SVD unfolding of beam data.
-- `unfolding-fake_data_tests.ipynb` — Asimov closure and fake-data tests.
-- `unfolding.ipynb` — unfolded data vs generator truth comparisons.
-- `generator_comparison.ipynb` — cross-section model comparisons on the measurement.
+- `unfolding.ipynb` — canonical Gen1 Wiener-SVD unfold (ingredients + results pickle/npz).
+- `unfolding-genie-comparison.ipynb` — same ingredients; Old vs New GENIE `total_xsec` extracted xsecs.
+- `generator_comparison.ipynb` — unfolded data vs generator predictions.
+- `notebooks/archive_unfolding/` — retired unfold notebooks (`unfolding-data`, fake-data tests, …).
 
 Style:
 
@@ -185,7 +251,7 @@ Style:
 - `submit_data_jobs.sh` — beam-on data dataframes.
 - `submit_offbeam_jobs.sh` / `submit_intime_jobs.sh` / `submit_dirt_jobs.sh` — off-beam data, in-time cosmics, and dirt MC dataframes.
 - `submit_mc_jobs_{flux,g4,GENIE,GENIEslim,mcstat}.sh` — systematic-weight dataframe jobs.
-- `submit_mc_jobs_detvar.sh` / `run_efieldvar.sh` — detector-variation dataframe jobs.
+- `submit_mc_jobs_detvar.sh` — detector-variation dataframe jobs (`sel_all-updatecalo` includes efield).
 - `makedf-lowE.sh` — low-energy dirt sample dataframes.
 - `merge_selection_chunks.sh` — template for aggregating selection chunk outputs.
 - `test_wgt_jobs.sh` — weight-config smoke test on a single CAF.

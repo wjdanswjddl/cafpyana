@@ -1,9 +1,10 @@
 """Shared variable registry for cosmics chunk + aggregate + ``get_systematics_cosmics``."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, MutableMapping, Sequence
+from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 import numpy as np
+import pandas as pd
 
 from pyanalib.covariance import cov_from_fraccov, corr_from_fraccov
 
@@ -156,3 +157,105 @@ def apply_flat_cosmic_uncertainty(
         rate["corr"] = new_corr
 
     return dict(pay)
+
+
+# ---------------------------------------------------------------------------
+# Selected-rate (contamination-scaled) cosmic uncertainty
+# ---------------------------------------------------------------------------
+
+
+def topo_cosmic_contamination_fraction(
+    mc_df: pd.DataFrame,
+    var_config: Any,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-bin weighted cosmic fraction in selected MC (``get_topo_category`` cut 0).
+
+    Returns ``(frac, n_cosmic, n_total)``.
+    """
+    from analysis_village.numucc_1p0pi.categories import get_topo_category
+    from analysis_village.numucc_1p0pi.utils import get_clipped_evts
+
+    cut_cosmic, *_ = get_topo_category(mc_df, ret_cuts=True)
+    mc_cosmic = mc_df.loc[cut_cosmic]
+
+    if getattr(var_config, "var_save_name", "") == "integrated":
+        if "pot_weight" in mc_df.columns:
+            n_total = np.array([float(mc_df["pot_weight"].sum())])
+            n_cosmic = np.array([float(mc_cosmic["pot_weight"].sum())])
+        else:
+            n_total = np.array([float(len(mc_df))])
+            n_cosmic = np.array([float(len(mc_cosmic))])
+    else:
+        var_all, w_all = get_clipped_evts(mc_df, var_config.var_evt_reco_col, var_config.bins)
+        var_cos, w_cos = get_clipped_evts(mc_cosmic, var_config.var_evt_reco_col, var_config.bins)
+        n_total, _ = np.histogram(var_all, bins=var_config.bins, weights=w_all)
+        n_cosmic, _ = np.histogram(var_cos, bins=var_config.bins, weights=w_cos)
+
+    frac = np.where(n_total > 0, n_cosmic / n_total, 0.0)
+    return frac.astype(float), n_cosmic.astype(float), n_total.astype(float)
+
+
+def scale_cov_frac_by_contamination(cov_frac: np.ndarray, contam_frac: np.ndarray) -> np.ndarray:
+    """``cov_selected = cov_template * outer(f, f)``."""
+    f = np.asarray(contam_frac, dtype=float).reshape(-1)
+    c = np.asarray(cov_frac, dtype=float)
+    return c * np.outer(f, f)
+
+
+def selected_rate_uncertainty_from_cosmics(
+    cosmic_pay: Mapping[str, Any],
+    contam_frac: np.ndarray,
+) -> Dict[str, Any]:
+    """Propagate cosmic-template fractional uncertainty onto the selected event rate."""
+    rate = cosmic_pay.get("rate") if isinstance(cosmic_pay.get("rate"), dict) else cosmic_pay
+    cov_template = np.asarray(rate["cov_frac"], dtype=float)
+    cov_selected = scale_cov_frac_by_contamination(cov_template, contam_frac)
+    frac_unc_template = frac_unc_from_cov_frac(cov_template)
+    f = np.asarray(contam_frac, dtype=float).reshape(-1)
+    frac_unc_selected = frac_unc_template * f
+    return {
+        "cov_frac": cov_selected,
+        "frac_unc": frac_unc_selected,
+        "frac_unc_template": frac_unc_template,
+        "contamination_fraction": f,
+    }
+
+
+def selected_rate_cell_from_cosmics(
+    cosmic_pay: Mapping[str, Any],
+    mc_df: pd.DataFrame,
+    var_config: Any,
+) -> Dict[str, Any]:
+    """Build the NPZ ``SelectedRate`` cell used by the summary notebook."""
+    contam_frac, n_cosmic, n_total = topo_cosmic_contamination_fraction(mc_df, var_config)
+    sel_pay = selected_rate_uncertainty_from_cosmics(cosmic_pay, contam_frac)
+    return {
+        "rate": {"cov_frac": sel_pay["cov_frac"]},
+        "contamination_fraction": sel_pay["contamination_fraction"],
+        "n_cosmic": n_cosmic,
+        "n_total": n_total,
+    }
+
+
+def attach_selected_rate_to_syst_dict(
+    syst_dict: MutableMapping[str, MutableMapping[str, Any]],
+    mc_df: pd.DataFrame,
+    var_configs: Optional[Sequence[Any]] = None,
+) -> None:
+    """In-place: add ``SelectedRate`` under each variable that has a ``Cosmics`` pack.
+
+    Summary notebooks read ``cell["SelectedRate"]["rate"]["cov_frac"]``. Without this
+    step, aggregate NPZs only carry the raw cosmic template under ``Cosmics``.
+    """
+    if mc_df is None or len(mc_df) == 0:
+        return
+    vcs = list(var_configs) if var_configs is not None else []
+    vsn_to_vc = {vc.var_save_name: vc for vc in vcs}
+    for slug, cell in syst_dict.items():
+        if not isinstance(cell, dict) or "Cosmics" not in cell:
+            continue
+        vc = vsn_to_vc.get(slug)
+        if vc is None:
+            # Best-effort: try integrated-style if bins unknown — skip
+            continue
+        cell["SelectedRate"] = selected_rate_cell_from_cosmics(cell["Cosmics"], mc_df, vc)

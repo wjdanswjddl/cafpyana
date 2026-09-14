@@ -1,34 +1,19 @@
 #!/usr/bin/env python3
 """
-Find events common to CV and DENT MC variations and write per-file ``_matched`` HDF5
-outputs.
+Find events common across detector-variation MC samples and write per-file
+``_matched`` HDF5 outputs.
 
-DENT is a detector unisim (like WireMod). Unlike WireMod / SCE comparisons that
-start from ``sel_mup`` or ``sel_2prong``, the DENT study matches events at
-``sel_all`` so early selection variables can be compared.
-
-Two input layouts are supported:
-
-* ``sel_all`` — raw ``evt`` / ``trk`` / ``hdr`` tables (no ``meta``). Event keys
-  are built from ``hdr`` (run, subrun, evt) plus generator neutrino energy ``E`` from
-  ``evt.mc``.
-* ``sel_mup`` — final-selection layout with ``meta`` and ``evt_cv`` (delegates to
-  ``wiremod_match_common_events``).
+Detector variations (DENT, WireMod, …) are always matched at ``sel_all`` so
+selection efficiency differences are preserved. Input layout is ``evt`` / ``trk``
+/ ``hdr`` (calo productions may also carry ``evt_*`` / ``trk_*``). Event keys are
+``(E, run, subrun, evt)`` from ``hdr`` + ``evt.mc``.
 
 Usage
 -----
-    # sel_all (primary DENT workflow)
     python dent_match_common_events.py --format sel_all \\
         --variation cv   /pnfs/.../2026_08_18_125707__sel_all-mc-CV \\
         --variation dent /pnfs/.../2026_08_18_125707__sel_all-mc-DENT \\
         --summary-csv /pnfs/.../dent_matched_summary-sel_all.csv
-
-    # sel_mup (final-selected variables, optional)
-    python dent_match_common_events.py --format sel_mup \\
-        --variation cv   /pnfs/.../2026_08_18_130158__sel_mup-mc-CV \\
-        --variation dent /pnfs/.../2026_08_18_130158__sel_mup-mc-DENT \\
-        --filename-str sel_mup \\
-        --summary-csv /pnfs/.../dent_matched_summary-sel_mup.csv
 """
 
 from __future__ import annotations
@@ -66,13 +51,7 @@ DEFAULT_VARIATIONS_SEL_ALL = {
     "dent": f"{_DFS_ROOT}/2026_08_18_120607__sel_all-mc-DENT",
 }
 
-DEFAULT_VARIATIONS_SEL_MUP = {
-    "cv": f"{_DFS_ROOT}/2026_08_19_031423__sel_mup-mc-CV",
-    "dent": f"{_DFS_ROOT}/2026_08_18_120753__sel_mup-mc-DENT",
-}
-
 SEL_ALL_KEYS = ["evt", "trk", "hdr"]
-SEL_MUP_KEYS = ["meta", "evt_cv", "evt"]
 
 
 def matched_out_path(
@@ -128,9 +107,18 @@ def _sel_all_keys_one_file(fpath: str) -> Set[EventKey]:
     for i in range(n_split):
         try:
             hdr = pd.read_hdf(fpath, key=f"hdr_{i}")
-            evt = pd.read_hdf(fpath, key=f"evt_{i}")
         except Exception as exc:
-            print(f"Error loading split {i} from {fpath}: {exc}", flush=True)
+            print(f"Error loading hdr_{i} from {fpath}: {exc}", flush=True)
+            continue
+        evt = None
+        for ek in (f"evt_{i}", f"evt_cv_{i}"):
+            try:
+                evt = pd.read_hdf(fpath, key=ek)
+                break
+            except Exception:
+                continue
+        if evt is None:
+            print(f"Error loading evt/evt_cv_{i} from {fpath}", flush=True)
             continue
         keys.update(hdr_event_keys(hdr, evt))
     return keys
@@ -349,15 +337,38 @@ def save_matched_sel_all_files(
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
+    # Calo / WireMod universe tables (optional): preserve when present.
+    _UNIV_STEMS = ("cv",) + tuple(
+        f"{c}_{s}" for c in ("ccal", "alpha", "beta", "R") for s in ("p", "m")
+    )
+
     for fpath in tqdm(files, desc=desc):
         out_path = matched_out_path(fpath, suffix=matched_suffix, out_dir=out_dir)
         n_split = get_n_split(fpath)
         written_splits = []
 
+        # Discover extra keys once (first readable split).
+        extra_evt_stems: List[str] = []
+        extra_trk_stems: List[str] = []
+        try:
+            with pd.HDFStore(fpath, "r") as store:
+                names = {k.lstrip("/") for k in store.keys()}
+            for stem in _UNIV_STEMS:
+                if any(n.startswith(f"evt_{stem}_") for n in names):
+                    extra_evt_stems.append(stem)
+                if any(n.startswith(f"trk_{stem}_") for n in names):
+                    extra_trk_stems.append(stem)
+        except Exception:
+            pass
+
         for i in range(n_split):
             try:
                 hdr = pd.read_hdf(fpath, key=f"hdr_{i}")
-                evt = pd.read_hdf(fpath, key=f"evt_{i}")
+                # Base evt for keying: prefer plain evt, else evt_cv
+                try:
+                    evt = pd.read_hdf(fpath, key=f"evt_{i}")
+                except Exception:
+                    evt = pd.read_hdf(fpath, key=f"evt_cv_{i}")
             except Exception as exc:
                 print(f"Error loading split {i} from {fpath}: {exc}", flush=True)
                 continue
@@ -379,6 +390,26 @@ def save_matched_sel_all_files(
                     split_out["trk"] = trk_out
             except Exception:
                 pass
+
+            # Preserve calo / WireMod universe tables (evt_cv, evt_ccal_p, …).
+            for stem in extra_evt_stems:
+                key = f"evt_{stem}"
+                try:
+                    edf = pd.read_hdf(fpath, key=f"{key}_{i}")
+                except Exception:
+                    continue
+                edf_out = _filter_df_by_entries(edf, matched_entries)
+                if edf_out is not None:
+                    split_out[key] = edf_out
+            for stem in extra_trk_stems:
+                key = f"trk_{stem}"
+                try:
+                    tdf = pd.read_hdf(fpath, key=f"{key}_{i}")
+                except Exception:
+                    continue
+                tdf_out = _filter_df_by_entries(tdf, matched_entries)
+                if tdf_out is not None:
+                    split_out[key] = tdf_out
 
             written_splits.append((split_out, len(hdr_out), len(evt_out)))
 
@@ -540,39 +571,15 @@ def run_sel_all_match(args) -> int:
     return 0
 
 
-def run_sel_mup_match(args) -> int:
-    import wiremod_match_common_events as _core
-
-    _core.DEFAULT_KEYS2LOAD = SEL_MUP_KEYS
-    _core.DEFAULT_VARIATIONS = DEFAULT_VARIATIONS_SEL_MUP
-
-    argv = []
-    if args.use_default_variations:
-        argv.append("--use-default-variations")
-    if args.variation:
-        for pair in args.variation:
-            argv.extend(["--variation", pair[0], pair[1]])
-    argv.extend(["--filename-str", args.filename_str])
-    argv.extend(["--phase", args.phase])
-    if args.common_keys_pkl:
-        argv.extend(["--common-keys-pkl", args.common_keys_pkl])
-    if args.summary_csv:
-        argv.extend(["--summary-csv", args.summary_csv])
-    argv.extend(["--matched-suffix", args.matched_suffix])
-    if args.max_files is not None:
-        argv.extend(["--max-files", str(args.max_files)])
-    return _core.main(argv)
-
-
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Match CV and DENT MC events and write _matched .df files.",
+        description="Match detector-variation MC events at sel_all and write _matched .df files.",
     )
     p.add_argument(
         "--format",
-        choices=("sel_all", "sel_mup"),
+        choices=("sel_all",),
         default="sel_all",
-        help="Input layout: sel_all (evt/trk/hdr) or sel_mup (meta/evt_cv).",
+        help="Input layout (sel_all only: evt/trk/hdr).",
     )
     p.add_argument(
         "--variation",
@@ -633,10 +640,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if not args.use_default_variations and not args.variation:
         raise SystemExit("pass --use-default-variations or --variation NAME DIR (twice)")
-
-    if args.format == "sel_all":
-        return run_sel_all_match(args)
-    return run_sel_mup_match(args)
+    return run_sel_all_match(args)
 
 
 if __name__ == "__main__":

@@ -49,7 +49,10 @@ _REPO_ROOT = path.abspath(path.join(path.dirname(__file__), "..", "..", ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from analysis_village.numucc_1p0pi.syst_cosmics_common import build_variable_configs
+from analysis_village.numucc_1p0pi.syst_cosmics_common import (
+    attach_selected_rate_to_syst_dict,
+    build_variable_configs,
+)
 from analysis_village.numucc_1p0pi.syst_disk_layout import SUB_COSMICS, SYST_DISK_ENV
 from analysis_village.numucc_1p0pi.syst_pipeline_walker import (
     CUT_STAGE_VAR_SPECS,
@@ -262,6 +265,30 @@ def run_aggregate(args: argparse.Namespace) -> None:
                 traceback.format_exc(),
             )
 
+    mc_path = getattr(args, "selected_mc_df", None) or os.environ.get("COSMICS_SELECTED_MC_DF")
+    if mc_path and syst_dict:
+        try:
+            import pandas as pd
+
+            mc_evt = pd.read_hdf(path.expanduser(mc_path), key="evt")
+            attach_selected_rate_to_syst_dict(syst_dict, mc_evt, var_configs)
+            logger.info(
+                "Attached SelectedRate (contamination-scaled) using MC evt from %s (%d rows)",
+                mc_path,
+                len(mc_evt),
+            )
+        except Exception:
+            logger.error(
+                "FAILED SelectedRate attach from %s\n%s",
+                mc_path,
+                traceback.format_exc(),
+            )
+    elif syst_dict:
+        logger.info(
+            "No --selected-mc-df / COSMICS_SELECTED_MC_DF: NPZ has Cosmics template only "
+            "(summary needs SelectedRate — pass selected MC evt HDF to attach)."
+        )
+
     if not getattr(args, "no_save_npz", False) and syst_dict:
         save_cosmics_npz(syst_dict, path.join(save_fig_dir, "cosmics_syst_dict.npz"))
 
@@ -299,6 +326,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="offbeam",
     )
     p.add_argument("--vars", nargs="*", default=None)
+    p.add_argument(
+        "--selected-mc-df",
+        default=None,
+        help=(
+            "Optional selected-MC .df (HDF with 'evt') for contamination-scaled "
+            "SelectedRate in the output NPZ. Env COSMICS_SELECTED_MC_DF also works."
+        ),
+    )
     args = p.parse_args(argv)
     root = args.syst_disk_root or os.environ.get(SYST_DISK_ENV)
     if not root:

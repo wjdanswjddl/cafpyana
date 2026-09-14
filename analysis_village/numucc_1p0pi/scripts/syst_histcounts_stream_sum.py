@@ -68,6 +68,7 @@ from analysis_village.numucc_1p0pi.syst_histcounts import (
     load_syst_hists_from_df_file,
     load_var_configs_from_df_file,
     nbins_by_var_from_configs,
+    put_syst_hists_by_var,
     rate_cov_from_univ_cv,
     rate_dense_to_hist_df,
     sum_histcounts_dfs,
@@ -202,7 +203,7 @@ def _write_out_df(
             tmp = out_df + ".tmp"
 
         with pd.HDFStore(tmp, mode="w", complevel=5, complib="zlib") as store:
-            store.put("syst_hists_0", hist, format="table")
+            put_syst_hists_by_var(store, hist, split_idx=0, format="table")
             if var_cfg_df is not None and len(var_cfg_df):
                 store.put("var_configs_0", var_cfg_df, format="table")
             store.put("split", pd.DataFrame({"n_split": [1]}), format="table")

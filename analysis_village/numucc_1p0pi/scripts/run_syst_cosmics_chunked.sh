@@ -190,6 +190,11 @@ if [[ "${SKIP_AGGREGATE:-0}" == "1" ]]; then
 fi
 
 echo "[cosmics-run] progress aggregate 1/1  BEGIN $(date -Is)"
-python "$agg_py" --chunks_dir "$CHUNKS_DIR" --syst-disk-root "$SYST_DISK_ROOT"
+_AGG_EXTRA=()
+if [[ -n "${COSMICS_SELECTED_MC_DF:-}" ]]; then
+    _AGG_EXTRA+=(--selected-mc-df "$COSMICS_SELECTED_MC_DF")
+    echo "[cosmics-run] SelectedRate attach from COSMICS_SELECTED_MC_DF=$COSMICS_SELECTED_MC_DF"
+fi
+python "$agg_py" --chunks_dir "$CHUNKS_DIR" --syst-disk-root "$SYST_DISK_ROOT" "${_AGG_EXTRA[@]}"
 echo "[cosmics-run] progress aggregate 1/1  END $(date -Is)"
 echo "[cosmics-run] $(date -Is) DONE -> ${SYST_DISK_ROOT}/Cosmics/"

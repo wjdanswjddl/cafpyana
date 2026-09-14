@@ -343,6 +343,8 @@ ar23p_genie_systematics = [
 
     "CCQEXSecCorr_SBN_v3_CCQEXSecCorr",
     "GENIEReWeight_SBN_v3_FrKin_PiProFix_N",
+
+    "PionAbsWeighter_SBN_v3_QuasiDeuteronFraction"
 ]
 
 

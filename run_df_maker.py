@@ -133,8 +133,21 @@ def run_pool(output, inputs, nproc):
                         concat_df = pd.concat(buffer, ignore_index=False)
                         this_key = k + "_" + str(k_idx)
                         try:
-                            hdf_pd.put(key=this_key, value=concat_df, format="fixed")
-                            print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
+                            if k == "syst_hists":
+                                from analysis_village.numucc_1p0pi.syst_histcounts import (
+                                    put_syst_hists_by_var,
+                                )
+                                written = put_syst_hists_by_var(
+                                    hdf_pd, concat_df, split_idx=k_idx, format="fixed"
+                                )
+                                print(
+                                    f"Saved syst_hists split {k_idx} "
+                                    f"({len(written)} keys, "
+                                    f"{concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB)"
+                                )
+                            else:
+                                hdf_pd.put(key=this_key, value=concat_df, format="fixed")
+                                print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
                         except Exception as e:
                             print(f"Table {this_key} failed to save, skipping. Exception: {str(e)}")
                         del concat_df
@@ -148,8 +161,21 @@ def run_pool(output, inputs, nproc):
                 concat_df = pd.concat(buffer, ignore_index=False)
                 this_key = k + "_" + str(k_idx)
                 try:
-                    hdf_pd.put(key=this_key, value=concat_df, format="fixed")
-                    print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
+                    if k == "syst_hists":
+                        from analysis_village.numucc_1p0pi.syst_histcounts import (
+                            put_syst_hists_by_var,
+                        )
+                        written = put_syst_hists_by_var(
+                            hdf_pd, concat_df, split_idx=k_idx, format="fixed"
+                        )
+                        print(
+                            f"Saved syst_hists split {k_idx} "
+                            f"({len(written)} keys, "
+                            f"{concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB)"
+                        )
+                    else:
+                        hdf_pd.put(key=this_key, value=concat_df, format="fixed")
+                        print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
                 except Exception as e:
                     print(f"Table {this_key} failed to save, skipping. Exception: {str(e)}")
                 del concat_df
@@ -200,6 +226,28 @@ def run_grid(inputfiles):
             _v = os.environ.get(_env, "").strip()
             if _v:
                 out.write("export %s=%s\n" % (_env, shlex.quote(_v)))
+        # Inject submit-host config (grid clones GitHub; local configs may be uncommitted).
+        _cfg_rel = args.config
+        _cfg_base = os.path.basename(_cfg_rel)
+        _cfg_dir = os.path.dirname(_cfg_rel) or "."
+        out.write(
+            'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/%s" ]; then\n'
+            '  mkdir -p %s\n'
+            '  cp -f "${CONDOR_DIR_INPUT}/bin_dir/%s" %s/\n'
+            '  echo "[run_%s.sh] injected config %s from submit host"\n'
+            'fi\n'
+            % (_cfg_base, shlex.quote(_cfg_dir), _cfg_base, shlex.quote(_cfg_dir), i_flist, _cfg_base)
+        )
+        # Inject pickleable updatecalo makers (and any other local makedf fixes).
+        out.write(
+            'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_makedf.py" ]; then\n'
+            '  mkdir -p analysis_village/numucc_1p0pi/makedf\n'
+            '  cp -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_makedf.py" '
+            'analysis_village/numucc_1p0pi/makedf/makedf.py\n'
+            '  echo "[run_%s.sh] injected analysis_village/.../makedf.py from submit host"\n'
+            'fi\n'
+            % i_flist
+        )
         cmd = 'python run_df_maker.py -c ' + args.config + ' -o ' + args.output + '_%d'%i_flist + '.df -ncpu 7 -i'
         for i_f in range(0,len(flist)):
             out.write('echo "[run_%s.sh] input %d : %s"\n'%(i_flist, i_f, flist[i_f]))
@@ -213,13 +261,41 @@ def run_grid(inputfiles):
         out.close()
 
     os.system('cp ./bin/grid_executable.sh %s' %MasterJobDir)
+    # Ship the exact config + local makedf (see inject block in run_*.sh).
+    try:
+        import shutil
+        shutil.copy2(os.path.abspath(args.config), os.path.join(MasterJobDir, os.path.basename(args.config)))
+        print("[run_df_maker] bundled config into job tarball:", os.path.basename(args.config))
+        _makedf_local = os.path.join(
+            os.environ.get("CAFPYANA_WD", os.getcwd()),
+            "analysis_village/numucc_1p0pi/makedf/makedf.py",
+        )
+        if os.path.isfile(_makedf_local):
+            shutil.copy2(_makedf_local, os.path.join(MasterJobDir, "numucc_makedf.py"))
+            print("[run_df_maker] bundled numucc makedf.py into job tarball")
+    except Exception as ex:
+        print("[run_df_maker] WARNING: could not bundle config/makedf into tarball:", ex)
 
-    # 5) prepare a package for xrootd
+    # 5) prepare a package for xrootd (prefer installed 5.6.9 build; fall back to legacy 5.6.1 path)
     CAFPYANA_WD = os.environ['CAFPYANA_WD']
-    cp_XRootD = "cp -r " + CAFPYANA_WD + "/envs/xrootd-5.6.1/build/lib.linux-x86_64-3.9/XRootD " + MasterJobDir
-    cp_pyxrootd = "cp -r " + CAFPYANA_WD + "/envs/xrootd-5.6.1/build/lib.linux-x86_64-3.9/pyxrootd " + MasterJobDir
-    os.system(cp_XRootD)
-    os.system(cp_pyxrootd)
+    xrd_candidates = [
+        CAFPYANA_WD + "/envs/xrootd-5.6.9/build/lib.linux-x86_64-cpython-310",
+        CAFPYANA_WD + "/envs/xrootd-5.6.9/build/lib.linux-x86_64-3.9",
+        CAFPYANA_WD + "/envs/xrootd-5.6.1/build/lib.linux-x86_64-3.9",
+    ]
+    xrd_lib = None
+    for cand in xrd_candidates:
+        if os.path.isdir(os.path.join(cand, "XRootD")) and os.path.isdir(os.path.join(cand, "pyxrootd")):
+            xrd_lib = cand
+            break
+    if xrd_lib is None:
+        raise RuntimeError(
+            "Could not find XRootD/pyxrootd under envs/xrootd-*; tried:\n  "
+            + "\n  ".join(xrd_candidates)
+        )
+    print("[run_df_maker] bundling XRootD from", xrd_lib)
+    os.system("cp -r " + xrd_lib + "/XRootD " + MasterJobDir)
+    os.system("cp -r " + xrd_lib + "/pyxrootd " + MasterJobDir)
 
     os.chdir(MasterJobDir)
     tar_cmd = 'tar cf bin_dir.tar ./'

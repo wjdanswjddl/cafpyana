@@ -1,19 +1,12 @@
 #!/usr/bin/env python
-"""Detector (calorimetry) unisim chunk processor.
+"""Legacy detector (calorimetry) unisim chunk processor.
 
-This is the **map** phase for the WireMod + calo unisim systematic. The input
-``.df`` files are the variation tables produced by configs like
-``configs/numucc_1p0pi/sel_2prong-updatecalo.py``: each HDF5 split holds a
-``evt_cv_<i>`` central value plus eight per-calo variations
-``evt_<calovar>_{p,m}_<i>`` (calovar in {ccal, alpha, beta, R}). All evt frames
-are already past the 2-prong selection (``trk1`` / ``trk2`` are saved on each
-slice). The recalculated PID columns carry the ``_new`` suffix.
+Prefer the sel_all match → ``wiremod.ipynb`` / ``dent.ipynb`` →
+``systematics-detector.ipynb`` path. This script still expects mid-selection
+``evt_cv`` tables with ``trk1``/``trk2`` and is kept only for old pickles.
 
-For every universe in a split, we re-run the rest of the selection
-(2prong-contained -> trackscore -> vtxdist -> mu/p candidates -> kinematics ->
-TKI), histogram each plot variable per stage, and accumulate per-bin POT-weighted
-counts. One pickle is written per .df file and aggregated downstream by
-``syst_detvar_aggregate.py``.
+New WireMod productions use ``configs/numucc_1p0pi/sel_all-updatecalo.py``
+(``evt_*`` + ``trk_*`` at ``sel_all``).
 
 Usage
 -----

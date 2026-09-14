@@ -1,8 +1,10 @@
 # Systematic histogram counts on the grid (BNB / dirt MC with weights, or unisim samples).
 #
-# Walks the numuCC 1p0pi event selection on each CAF and writes long-format bin
-# counts under HDF key ``syst_hists`` (+ ``hdr`` for POT/gates). No heavy weight
-# event tables — see ``analysis_village.numucc_1p0pi.syst_histcounts``.
+# Product A2 (default selection-stage path): walks the numuCC 1p0pi event selection
+# on each CAF and writes long-format bin counts under **per-variable** HDF keys
+# ``syst_hists__<var_save_name>_<split>`` (+ ``hdr``, ``var_configs``). Selective load:
+#   load_syst_hists_from_df_file(path, vars=["nu_score"])
+# See ``analysis_village.numucc_1p0pi.syst_histcounts``.
 #
 # Modes via env ``SYST_HIST_MODE`` (default: genie):
 #   all         — all non-Ar23p GENIE knobs + Flux + G4 in one CAF pass
