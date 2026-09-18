@@ -170,6 +170,8 @@ GENIE_GROUP_GLOBS: Dict[str, str] = {
     "DIS": str(_SEL_MUP_DFS / "2026_08_24_130058__sel_mup-wgts_genie_DIS/*.df"),
     "Other": str(_SEL_MUP_DFS / "2026_08_24_130336__sel_mup-wgts_genie_Other/*.df"),
     "Ar23p": str(_SEL_MUP_DFS / "2026_09_12_021900__sel_mup-wgts_genie_Ar23p/*.df"),
+    # VecFFCCQEshape only — knob missed in the Ar23p pass (see GENIE_KNOB_GROUPS["VecFF"]).
+    "VecFF": str(_SEL_MUP_DFS / "2026_09_18_184018__sel_mup-wgts_genie_VecFF/*.df"),
     # Scratch overrides (when pnfs unavailable on a given host):
     # "RES": str("/scratch/7DayLifetime/munjung/xsec/2026_08_24_125700__sel_mup-wgts_genie_RES/*.df"),
     # "Other": str("/scratch/7DayLifetime/munjung/xsec/2026_08_24_130336__sel_mup-wgts_genie_Other/*.df"),
