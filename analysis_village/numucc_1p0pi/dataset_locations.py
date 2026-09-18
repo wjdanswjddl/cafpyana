@@ -219,6 +219,7 @@ GENIE_GROUP_KNOBS: Dict[str, List[str]] = dict(
     )
 )
 GENIE_GROUP_KNOBS["slim"] = slim_genie_knobs()
+GENIE_GROUP_KNOBS["VecFF"] = list(vecff_genie_systematics)
 
 
 def iter_detvar_chunk_jobs(

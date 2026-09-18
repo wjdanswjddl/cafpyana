@@ -355,6 +355,14 @@ forgot_knobs = [
     'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_DecayAngMEC'
 ]
 
+# ``forgot_knobs`` uses the retired SBNNuSyst reweight naming; the Ar23+ flat CAFs
+# carry these dials as ``SBN_v1_*`` instead. CoulombCCQE / NormCCMEC / NormNCMEC /
+# DecayAngMEC are already covered by the CCQE and MEC groups, so only VecFFCCQEshape
+# still needs a run — its home group ``ZExp`` has no GENIE_GROUP_GLOBS entry.
+vecff_genie_systematics = [
+    "GENIEReWeight_SBN_v1_multisigma_VecFFCCQEshape",
+]
+
 
 # Registry for grouped GENIE knob lists (used by numucc configs / build_genie_knobgroup_config).
 GENIE_KNOB_GROUPS = {
@@ -366,6 +374,7 @@ GENIE_KNOB_GROUPS = {
     "nonRES": nonres_genie_systematics,
     "DIS": dis_genie_systematics,
     "Other": other_genie_systematics,
+    "VecFF": vecff_genie_systematics,
 }
 
 
