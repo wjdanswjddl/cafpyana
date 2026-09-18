@@ -539,6 +539,7 @@ def process_sel_all_file(
     stage_specs: Dict[str, List[Tuple[str, Any, str]]],
     keyed_maps: Optional[Dict[str, Dict[PairKey, float]]] = None,
     final_var_defs: Optional[Dict[str, dict]] = None,
+    mu_p_candidate_kwargs: Optional[Dict[str, Any]] = None,
 ) -> float:
     """Walk the selection pipeline on one matched sel_all file.
 
@@ -551,6 +552,7 @@ def process_sel_all_file(
     chunk_pot = 0.0
     n_split = get_n_split(df_file)
     final_defs = final_var_defs or {}
+    pid_kw = dict(mu_p_candidate_kwargs) if mu_p_candidate_kwargs else None
 
     for i in range(n_split):
         split: Dict[str, Optional[pd.DataFrame]] = {}
@@ -574,6 +576,8 @@ def process_sel_all_file(
         attach_intrinsic_weights(evt, trk, "mc", use_mc_genweight=False)
         evt, _ = ensure_phi_and_kinematics_cols(evt, trk, None)
         state = {"evt": evt, "trk": trk, "hdr": hdr, "mcnu": None}
+        if pid_kw:
+            state["_mu_p_candidate_kwargs"] = dict(pid_kw)
 
         for stage_key, cur in walk_pipeline(state, sample="mc"):
             sm = _count_stage(cur, None)

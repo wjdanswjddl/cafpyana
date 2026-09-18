@@ -79,8 +79,8 @@ EVENT_SELECTION_GLOBS: Dict[str, str] = {
     #"mc": str(SPRING_GEN1_ROOT / "2026_05_11_183347__sel_all-mc-BNB_cosmics-EField_R00/*df"),
     "mc": str(SPRING_GEN1_ROOT / "2026_05_11_041007__sel_all-mc-BNB_cosmics/*.df"),
     "data": str(SPRING_GEN1_ROOT / "2026_05_16_230859__sel_all-data-1e20/*.df"),
-    "intime": str(SPRING_GEN1_ROOT / "2026_05_11_040132__sel_all-mc-Intime/*.df"),
-    "offbeam": str(SPRING_GEN1_ROOT / "2026_05_11_035756__sel_all-data-OffBeamLight/*.df"),
+    "intime": str(SPRING_GEN1_ROOT / "2026_09_01_135508__sel_all-mc-Intime_updated/*.df"),
+    "offbeam": str(SPRING_GEN1_ROOT / "2026_09_01_140024__sel_all-data-OffBeamLight_updated/*.df"),
     "dirt": str(SPRING_GEN1_ROOT / "2026_05_11_040638__sel_all-mc-dirt/*.df"),
 }
 

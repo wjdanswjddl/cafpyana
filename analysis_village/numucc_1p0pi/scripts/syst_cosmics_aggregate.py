@@ -178,6 +178,37 @@ def _sel_all_var_configs() -> List[Any]:
 # ---------------------------------------------------------------------------
 # Aggregate driver
 # ---------------------------------------------------------------------------
+def _load_selected_mc_evt(mc_path: str):
+    """Load selected-MC ``evt`` from a single HDF or a directory of split ``*.df`` files.
+
+    Accepts key ``evt`` (legacy merged) or ``evt_0`` (current sel_mup shards).
+    """
+    import pandas as pd
+
+    p = os.path.expanduser(mc_path)
+    if os.path.isdir(p):
+        files = sorted(glob.glob(os.path.join(p, "*.df")))
+        if not files:
+            raise FileNotFoundError("no *.df under %s" % p)
+    else:
+        files = [p]
+    frames = []
+    for fp in files:
+        loaded = None
+        for key in ("evt", "evt_0"):
+            try:
+                loaded = pd.read_hdf(fp, key=key)
+                break
+            except (KeyError, ValueError, OSError):
+                continue
+        if loaded is None or len(loaded) == 0:
+            continue
+        frames.append(loaded)
+    if not frames:
+        raise FileNotFoundError("no evt/evt_0 tables in %s" % p)
+    return pd.concat(frames, ignore_index=False)
+
+
 def run_aggregate(args: argparse.Namespace) -> None:
     """Shared entry for CLI and ``get_systematics_cosmics.py aggregate``."""
     tag = getattr(args, "out_tag", None) or datetime.now().strftime("%Y%m%d")
@@ -268,12 +299,18 @@ def run_aggregate(args: argparse.Namespace) -> None:
     mc_path = getattr(args, "selected_mc_df", None) or os.environ.get("COSMICS_SELECTED_MC_DF")
     if mc_path and syst_dict:
         try:
-            import pandas as pd
-
-            mc_evt = pd.read_hdf(path.expanduser(mc_path), key="evt")
-            attach_selected_rate_to_syst_dict(syst_dict, mc_evt, var_configs)
+            mc_evt = _load_selected_mc_evt(mc_path)
+            # Contamination is defined on the final-selected sample (Product B).
+            attach_vcs = list(final_stage_var_configs()) if input_stage == "sel_all" else var_configs
+            attach_selected_rate_to_syst_dict(syst_dict, mc_evt, attach_vcs)
+            n_sr = sum(
+                1
+                for cell in syst_dict.values()
+                if isinstance(cell, dict) and "SelectedRate" in cell
+            )
             logger.info(
-                "Attached SelectedRate (contamination-scaled) using MC evt from %s (%d rows)",
+                "Attached SelectedRate for %d vars using MC evt from %s (%d rows)",
+                n_sr,
                 mc_path,
                 len(mc_evt),
             )

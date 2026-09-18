@@ -283,11 +283,16 @@ def sel_trks_concat_not_mu(state, sample):
     )
     chimu_avg = trks.pfp.trk.chi2pid.avg.chi2_muon
     chip_avg = trks.pfp.trk.chi2pid.avg.chi2_proton
+    pid_kw = dict(state.get("_mu_p_candidate_kwargs") or {})
+    mu_chi2mu_th = float(pid_kw.get("mu_chi2mu_th", MU_CHI2MU_TH))
+    mu_chi2p_th = float(pid_kw.get("mu_chi2p_th", MU_CHI2P_TH))
+    mu_len_th = float(pid_kw.get("mu_len_th", MU_LEN_TH))
+    qual_th = float(pid_kw.get("qual_th", QUAL_TH))
     mu_cut = (
-        (chimu_avg > 0) & (chimu_avg < MU_CHI2MU_TH) &
-        (chip_avg > MU_CHI2P_TH) &
-        (trks.pfp.trk.len > MU_LEN_TH) &
-        (mcs_range_diff < QUAL_TH)
+        (chimu_avg > 0) & (chimu_avg < mu_chi2mu_th) &
+        (chip_avg > mu_chi2p_th) &
+        (trks.pfp.trk.len > mu_len_th) &
+        (mcs_range_diff < qual_th)
     )
     return pd.concat([trks[~mu_cut], trks[mu_cut].groupby(level=list(range(nlevels))).nth(1)])
 

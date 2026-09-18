@@ -263,11 +263,11 @@ gen1_systematics = [
     'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrInel_pi',
     'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrAbs_pi',
     'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrPiProd_pi',
-    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_MFP_N',
-    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrCEx_N',
-    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrInel_N',
-    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrAbs_N',
-    # 'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrPiProd_N',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_MFP_N',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrCEx_N',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrInel_N',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrAbs_N',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_FrPiProd_N',
 
     'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin0',
     'MECq0q3InterpWeighting_SuSAv2ToValenica_q0binned_MECResponse_q0bin1',
@@ -345,6 +345,14 @@ ar23p_genie_systematics = [
     "GENIEReWeight_SBN_v3_FrKin_PiProFix_N",
 
     "PionAbsWeighter_SBN_v3_QuasiDeuteronFraction"
+]
+
+forgot_knobs = [
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_VecFFCCQEshape',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_CoulombCCQE',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_NormCCMEC',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_NormNCMEC',
+    'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_DecayAngMEC'
 ]
 
 

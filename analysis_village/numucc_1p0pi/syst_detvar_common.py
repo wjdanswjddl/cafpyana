@@ -50,8 +50,13 @@ WIREMOD_EFIELD_UNIV = "efield"
 WIREMOD_CALO_UNIVERSES = ("cv",) + tuple(f"{c}_{s}" for c in CALO_PARAMS for s in ("p", "m"))
 # Full walk set: CV + eight calo ± + efield redo (``evt_efield`` / ``trk_efield``).
 WIREMOD_UNIVERSES = WIREMOD_CALO_UNIVERSES + (WIREMOD_EFIELD_UNIV,)
-WIREMOD_ENVELOPE_SHIFTED = tuple(u for u in WIREMOD_UNIVERSES if u != "cv")
+# All WireMod universes (in-file cv + calo ± + efield) vs the external matched CV sample.
+WIREMOD_ENVELOPE_SHIFTED = tuple(WIREMOD_UNIVERSES)
 WIREMOD_KNOB_TAGS = {"YZ": "wiremod_yz", "XTXW": "wiremod_xtxw"}
+
+# WireMod updatecalo products live in ``chi2_*_new`` (calo) / ``chi2_*_new_efield``.
+_WIREMOD_CHI2_PLANES = ("I0", "I1", "I2")
+_WIREMOD_CHI2_QUANTS = ("chi2_muon", "chi2_proton")
 
 
 def wiremod_component_shifted_univs() -> Dict[str, Tuple[str, ...]]:
@@ -275,6 +280,12 @@ def run_dent_match(
     matched_out_dir: Optional[str] = None,
     matched_suffix: Optional[str] = None,
     max_files: Optional[int] = None,
+    common_keys_pkl: Optional[str] = None,
+    phase: Optional[str] = None,
+    n_workers: Optional[int] = None,
+    file_timeout: Optional[float] = None,
+    meta_retries: Optional[int] = None,
+    skip_existing_matched: bool = False,
 ) -> int:
     """Run ``dent_match_common_events.main`` (sel_all or sel_mup)."""
     from analysis_village.numucc_1p0pi.scripts import dent_match_common_events as dm
@@ -291,6 +302,18 @@ def run_dent_match(
         argv += ["--matched-suffix", matched_suffix]
     if max_files is not None:
         argv += ["--max-files", str(int(max_files))]
+    if common_keys_pkl:
+        argv += ["--common-keys-pkl", str(common_keys_pkl)]
+    if phase:
+        argv += ["--phase", str(phase)]
+    if n_workers is not None:
+        argv += ["--n-workers", str(int(n_workers))]
+    if file_timeout is not None:
+        argv += ["--file-timeout", str(float(file_timeout))]
+    if meta_retries is not None:
+        argv += ["--meta-retries", str(int(meta_retries))]
+    if skip_existing_matched:
+        argv += ["--skip-existing-matched"]
     return int(dm.main(argv))
 
 
@@ -406,6 +429,7 @@ def accumulate_matched_sel_all_products(
     final_var_defs: Optional[Mapping[str, dict]] = None,
     cut_var_defs: Optional[Mapping[str, dict]] = None,
     include_cut_stage: bool = True,
+    mu_p_candidate_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     """Walk matched sel_all files; return cut-stage + final hist products + POT.
 
@@ -423,6 +447,7 @@ def accumulate_matched_sel_all_products(
     stage_specs = dc._stage_specs_by_key() if cut_defs else {}
     summary = dc.SampleSummary(variation="", n_matched_files=len(matched_files))
     tot_pot = 0.0
+    pid_kw = dict(mu_p_candidate_kwargs) if mu_p_candidate_kwargs else None
 
     for fpath in tqdm(matched_files, desc="matched sel_all walk"):
         pot = dc.process_sel_all_file(
@@ -433,6 +458,7 @@ def accumulate_matched_sel_all_products(
             stage_specs=stage_specs,
             keyed_maps=None,
             final_var_defs=final_defs,
+            mu_p_candidate_kwargs=pid_kw,
         )
         tot_pot += float(pot)
         gc.collect()
@@ -446,6 +472,7 @@ def accumulate_matched_sel_all_products(
         "cut_var_names": list(cut_defs.keys()),
         "final_var_names": list(final_defs.keys()),
         "stages": {k: sm.__dict__ for k, sm in summary.stages.items()},
+        "mu_p_candidate_kwargs": dict(pid_kw) if pid_kw else {},
     }
 
 
@@ -555,6 +582,34 @@ def assert_wiremod_calo_universes(
 assert_wiremod_universes = assert_wiremod_calo_universes
 
 
+def apply_wiremod_chi2_variation(trk: Optional[pd.DataFrame], univ: str) -> Optional[pd.DataFrame]:
+    """Overwrite standard ``chi2_*`` columns with WireMod variation products.
+
+    Selection / PID use ``chi2_muon`` / ``chi2_proton``. WireMod updatecalo stores
+    the varied values in ``chi2_*_new`` (calo univ tables, including in-file cv)
+    and ``chi2_*_new_efield`` (efield table). Without this remap every universe
+    walks identical standard χ² and the envelope collapses.
+    """
+    if trk is None or len(trk) == 0:
+        return trk
+    suf = "_new_efield" if univ == WIREMOD_EFIELD_UNIV else "_new"
+    trk = trk.copy()
+    n_applied = 0
+    for plane in _WIREMOD_CHI2_PLANES:
+        for quant in _WIREMOD_CHI2_QUANTS:
+            src = ("pfp", "trk", "chi2pid", plane, f"{quant}{suf}", "")
+            dst = ("pfp", "trk", "chi2pid", plane, quant, "")
+            if src in trk.columns and dst in trk.columns:
+                trk[dst] = trk[src]
+                n_applied += 1
+    if n_applied == 0:
+        raise RuntimeError(
+            f"WireMod chi2 remap failed for univ={univ!r}: expected columns "
+            f"*{{chi2_muon,chi2_proton}}{suf} on planes {_WIREMOD_CHI2_PLANES}"
+        )
+    return trk
+
+
 def _load_univ_sel_all_tables(fpath: str, split_i: int, univ: str):
     """Load (evt, trk, hdr) for one universe from a matched sel_all(+calo) file."""
     hdr = None
@@ -580,6 +635,8 @@ def _load_univ_sel_all_tables(fpath: str, split_i: int, univ: str):
             break
         except Exception:
             continue
+    if trk is not None:
+        trk = apply_wiremod_chi2_variation(trk, univ)
     return evt, trk, hdr
 
 
@@ -592,6 +649,7 @@ def _walk_fill_state(
     var_defs: Mapping[str, dict],
     stage_specs: dict,
     final_defs: Mapping[str, dict],
+    mu_p_candidate_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> float:
     """Fill cut+final hists by walking one in-memory sel_all split (DENT-compatible)."""
     from pyanalib.variable_calculator import add_reco_cc1p0pi_tki_evtdf
@@ -613,6 +671,8 @@ def _walk_fill_state(
     attach_intrinsic_weights(evt, trk, "mc", use_mc_genweight=False)
     evt, _ = ensure_phi_and_kinematics_cols(evt, trk, None)
     state = {"evt": evt, "trk": trk, "hdr": hdr, "mcnu": None}
+    if mu_p_candidate_kwargs:
+        state["_mu_p_candidate_kwargs"] = dict(mu_p_candidate_kwargs)
     for stage_key, cur in walk_pipeline(state, sample="mc"):
         cur_evt = cur.get("evt")
         for var_name, vc, target in stage_specs.get(stage_key, []):
@@ -638,18 +698,54 @@ def _walk_fill_state(
     return pot
 
 
+def _filter_tables_drop_entries(evt, trk, hdr, drop_entries: set):
+    """Drop rows whose (__ntuple, entry) is in *drop_entries* (cross-file artkey dups)."""
+    if not drop_entries:
+        return evt, trk, hdr
+
+    def _mask(df):
+        if df is None or len(df) == 0:
+            return None if df is None else df
+        df_r = df.reset_index()
+        if "__ntuple" not in df_r.columns or "entry" not in df_r.columns:
+            return df
+        keep = np.fromiter(
+            (
+                (int(nt), int(en)) not in drop_entries
+                for nt, en in zip(df_r["__ntuple"], df_r["entry"])
+            ),
+            dtype=bool,
+            count=len(df_r),
+        )
+        if keep.all():
+            return df
+        if not keep.any():
+            return df.iloc[0:0]
+        return df.iloc[np.flatnonzero(keep)]
+
+    return _mask(evt), _mask(trk), _mask(hdr)
+
+
 def accumulate_wiremod_matched_products(
     matched_files: Sequence[str],
     *,
     universes: Sequence[str] = WIREMOD_UNIVERSES,
     final_var_defs: Optional[Mapping[str, dict]] = None,
     include_cut_stage: bool = True,
+    drop_map: Optional[Mapping[str, Mapping[int, set]]] = None,
+    mu_p_candidate_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     """Walk matched WireMod sel_all(+calo/efield) files for every universe.
 
     Default *universes* are CV + eight calo ± + ``efield``. Requires those
     tables (aborts via :func:`assert_wiremod_calo_universes`).  Returns
     ``{univ: {hists_cut, hists_final}, pot, ...}``.
+
+    *drop_map* (optional): ``{abspath: {split_i: set[(__ntuple, entry)]}}`` from
+    :mod:`dedupe_matched_artkeys` — skips cross-file duplicate artkeys.
+
+    *mu_p_candidate_kwargs* (optional): forwarded to ``get_mu_p_candidate``
+    (e.g. ``{"mu_chi2mu_th": 25}``). Default selection uses ``MU_CHI2MU_TH=30``.
     """
     from analysis_village.numucc_1p0pi.scripts import dent_compare as dc
 
@@ -660,6 +756,7 @@ def accumulate_wiremod_matched_products(
     cut_defs = dc.build_sel_all_var_defs() if include_cut_stage else {}
     var_defs = {**cut_defs, **final_defs}
     stage_specs = dc._stage_specs_by_key() if cut_defs else {}
+    pid_kw = dict(mu_p_candidate_kwargs) if mu_p_candidate_kwargs else None
 
     per_univ = {
         u: {v: np.zeros(len(cfg["bins"]) - 1, dtype=float) for v, cfg in var_defs.items()}
@@ -674,13 +771,20 @@ def accumulate_wiremod_matched_products(
         except Exception as ex:
             log(f"  skip {path.basename(fpath)}: {ex}")
             continue
-        # POT once per file (from hdr)
+        abs_f = path.abspath(fpath)
+        file_drops = (drop_map or {}).get(abs_f) or {}
+        # POT once per file (from hdr); informational when envelopes are unscaled
         tot_pot += sum_pot_from_matched_file(fpath)
         for i in range(n_split):
+            drop_entries = file_drops.get(i) or file_drops.get(str(i)) or set()
             for univ in universes:
                 evt, trk, hdr = _load_univ_sel_all_tables(fpath, i, univ)
                 if evt is None:
                     continue
+                if drop_entries:
+                    evt, trk, hdr = _filter_tables_drop_entries(evt, trk, hdr, drop_entries)
+                    if evt is None or len(evt) == 0:
+                        continue
                 # Embedded trk1/trk2 without a trk table: cannot do true sel_all walk.
                 if trk is None:
                     top = set(evt.columns.get_level_values(0).unique()) if hasattr(evt.columns, "get_level_values") else set()
@@ -702,6 +806,7 @@ def accumulate_wiremod_matched_products(
                     var_defs=var_defs,
                     stage_specs=stage_specs,
                     final_defs=final_defs,
+                    mu_p_candidate_kwargs=pid_kw,
                 )
                 n_filled += 1
                 del evt, trk, hdr
@@ -722,6 +827,7 @@ def accumulate_wiremod_matched_products(
         "cut_var_names": list(cut_defs.keys()),
         "final_var_names": list(final_defs.keys()),
         "universes": list(universes),
+        "mu_p_candidate_kwargs": dict(pid_kw) if pid_kw else {},
     }
 
 
@@ -884,19 +990,38 @@ def sanitize_matrix_pack(ret: Mapping[str, Any]) -> dict:
 
 
 def max_envelope_univ_counts(n_cv, hists, var_name, shifted_univs) -> np.ndarray:
-    """Per-bin CV + larger-magnitude shift among *shifted_univs* (calo ± and/or efield)."""
+    """Per-bin counts used to encode ``max_u |n_u - n_cv|`` in a two-univ pack.
+
+    Plots show the **actual** min/max among universes. The uncertainty on each
+    bin is the larger absolute deviation from CV (either direction). Returns
+    ``n_cv + delta`` so ``|n_var - n_cv| = delta`` in the unisim cov.
+    """
     n_cv = np.asarray(n_cv, dtype=float)
-    keys = [u for u in shifted_univs if u in hists and u != "cv" and var_name in hists[u]]
+    keys = [u for u in shifted_univs if u in hists and var_name in hists[u]]
     if not keys:
         return n_cv.copy()
     stacked = np.stack([np.asarray(hists[u][var_name], dtype=float) for u in keys], axis=0)
-    lo = stacked.min(axis=0)
-    hi = stacked.max(axis=0)
-    diffs_hi = hi - n_cv
-    diffs_lo = lo - n_cv
-    pick_hi = np.abs(diffs_hi) >= np.abs(diffs_lo)
-    chosen = np.where(pick_hi, diffs_hi, diffs_lo)
-    return n_cv + chosen
+    delta = np.maximum(np.abs(stacked.max(axis=0) - n_cv), np.abs(stacked.min(axis=0) - n_cv))
+    return n_cv + delta
+
+
+def envelope_delta_counts(n_cv, hists, var_name, shifted_univs) -> np.ndarray:
+    """Per-bin ``max_u |n_u - n_cv|`` (uncertainty magnitude, not a plot band)."""
+    n_cv = np.asarray(n_cv, dtype=float)
+    keys = [u for u in shifted_univs if u in hists and var_name in hists[u]]
+    if not keys:
+        return np.zeros_like(n_cv)
+    stacked = np.stack([np.asarray(hists[u][var_name], dtype=float) for u in keys], axis=0)
+    return np.maximum(np.abs(stacked.max(axis=0) - n_cv), np.abs(stacked.min(axis=0) - n_cv))
+
+
+def envelope_univ_lo_hi(hists, var_name, shifted_univs) -> tuple[np.ndarray, np.ndarray]:
+    """Per-bin actual min/max counts among *shifted_univs* (no symmetrization)."""
+    keys = [u for u in shifted_univs if u in hists and var_name in hists[u]]
+    if not keys:
+        raise KeyError(f"no universes in {list(shifted_univs)} for {var_name}")
+    stacked = np.stack([np.asarray(hists[u][var_name], dtype=float) for u in keys], axis=0)
+    return stacked.min(axis=0), stacked.max(axis=0)
 
 
 def cov_pack_two_universe(n_cv, n_var) -> dict:
@@ -914,11 +1039,17 @@ def build_wiremod_detector_dict(
     wiremod_labels: Sequence[str] = ("YZ", "XTXW"),
     knob_tags: Optional[Mapping[str, str]] = None,
     shifted_univs: Optional[Sequence[str]] = None,
+    cv_hists: Optional[Mapping[str, np.ndarray]] = None,
 ) -> dict:
     """WireMod-only detector dict (per-geometry + combined WireMod total).
 
     Default *shifted_univs* is the **total** envelope: all calo ± plus efield.
     Pass a subset (e.g. ``(\"ccal_p\", \"ccal_m\")``) for component inspection.
+
+    *cv_hists* is the **external matched CV sample** ``{var: counts}`` (Sep-4 CV
+    campaign). Envelope = max deviation of each WireMod/calo univ from that CV.
+    If omitted, falls back to each geometry's in-file ``cv`` (legacy; prefer
+    passing external CV — matched event sets should not be POT-scaled).
     """
     knob_tags = dict(knob_tags or WIREMOD_KNOB_TAGS)
     shifted = list(shifted_univs) if shifted_univs is not None else list(WIREMOD_ENVELOPE_SHIFTED)
@@ -931,15 +1062,25 @@ def build_wiremod_detector_dict(
     for var_name in var_names:
         per_tag = {}
         packs = []
-        n_cv_ref = None
+        n_cv_ext = None
+        if cv_hists is not None and var_name in cv_hists:
+            n_cv_ext = np.asarray(cv_hists[var_name], dtype=float)
+            if float(n_cv_ext.sum()) <= 0:
+                n_cv_ext = None
         for lab in wiremod_labels:
             if lab not in all_hists:
                 continue
             hists = all_hists[lab]
-            if "cv" not in hists or var_name not in hists["cv"]:
-                continue
-            n_cv = np.asarray(hists["cv"][var_name], dtype=float)
-            if float(n_cv.sum()) <= 0:
+            if n_cv_ext is not None:
+                n_cv = n_cv_ext
+            else:
+                if "cv" not in hists or var_name not in hists["cv"]:
+                    continue
+                n_cv = np.asarray(hists["cv"][var_name], dtype=float)
+                if float(n_cv.sum()) <= 0:
+                    continue
+            # Need at least one envelope univ hist for this var
+            if not any(u in hists and var_name in hists[u] for u in shifted):
                 continue
             n_var = max_envelope_univ_counts(n_cv, hists, var_name, shifted)
             pack = cov_pack_two_universe(n_cv, n_var)
@@ -947,10 +1088,13 @@ def build_wiremod_detector_dict(
             per_tag[tag] = pack
             detector_dict[f"detector-{tag}"][var_name] = pack
             packs.append(pack)
-            if n_cv_ref is None:
-                n_cv_ref = n_cv
-        if not packs or n_cv_ref is None:
+        if not packs:
             continue
+        if n_cv_ext is not None:
+            n_cv_ref = n_cv_ext
+        else:
+            lab0 = next(lab for lab in wiremod_labels if lab in all_hists and "cv" in all_hists[lab])
+            n_cv_ref = np.asarray(all_hists[lab0]["cv"][var_name], dtype=float)
         combined = combine_indep_knob_cov_packs(packs, n_cv_ref)
         detector_dict["detector"][var_name] = sanitize_matrix_pack(combined)
         detector_by_wiremod[var_name] = per_tag

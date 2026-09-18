@@ -21,6 +21,7 @@ export JOBSUB_LIFETIME="${JOBSUB_LIFETIME:-12h}"
 export JOBSUB_CPU="${JOBSUB_CPU:-7}"
 
 CFG=configs/numucc_1p0pi/sel_all-updatecalo.py
+CV_LIST=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/2025Spring_v10_06_00_10/mc_MCP2025B_1e20_10_prodgenie_corsika_proton_rockbox_sbnd_SystVar_CV_caf_flat_caf_sbnd_xrootd.list
 YZ_LIST=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/WireMod/mc_SBND2026A_prodgenie_corsika_proton_rockbox_sbnd_SV_v10_06_00_10_flatcaf_sbnd_xrootd.list
 XTXW_LIST=/exp/sbnd/app/users/munjung/misc/filelists/MC/SBND/WireMod/mc_SBND2026A_prodgenie_corsika_proton_rockbox_sbnd_wiremod_X-ThetaXW_v10_06_00_10_flatcaf_sbnd_xrootd.list
 
@@ -29,10 +30,14 @@ wc -l "$YZ_LIST" "$XTXW_LIST"
 
 # shellcheck disable=SC1090
 source ~/get_token.sh
-python run_df_maker.py -c "$CFG" -l "$YZ_LIST" -o sel_all-mc-BNB_cosmics-WireModYZ -ngrid 3000
+python run_df_maker.py -c "$CFG" -l "$CV_LIST" -o sel_all-mc-BNB_cosmics-WireModCV -ngrid 3000
 
-# shellcheck disable=SC1090
-source ~/get_token.sh
-python run_df_maker.py -c "$CFG" -l "$XTXW_LIST" -o sel_all-mc-BNB_cosmics-WireModXTXW -ngrid 3000
-
-echo "Submitted WireMod YZ + XTXW. Monitor: jobsub_q -G sbnd --user munjung"
+## shellcheck disable=SC1090
+#source ~/get_token.sh
+#python run_df_maker.py -c "$CFG" -l "$YZ_LIST" -o sel_all-mc-BNB_cosmics-WireModYZ -ngrid 3000
+#
+## shellcheck disable=SC1090
+#source ~/get_token.sh
+#python run_df_maker.py -c "$CFG" -l "$XTXW_LIST" -o sel_all-mc-BNB_cosmics-WireModXTXW -ngrid 3000
+#
+#echo "Submitted WireMod YZ + XTXW. Monitor: jobsub_q -G sbnd --user munjung"

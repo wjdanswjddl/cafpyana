@@ -59,6 +59,7 @@ if _REPO_ROOT not in sys.path:
 
 from pyanalib.split_df_helpers import get_n_split
 
+from analysis_village.numucc_1p0pi.evt_derived_kinematics import ensure_derived_trk_kinematics_cols
 from analysis_village.numucc_1p0pi.selection_framework import multicol_get_series
 from analysis_village.numucc_1p0pi.syst_cosmics_common import build_variable_configs
 from analysis_village.numucc_1p0pi.syst_pipeline_walker import (
@@ -220,6 +221,10 @@ def accumulate_file_sel_all(
         state: Dict[str, Any] = {"evt": evt, "trk": trk, "hdr": hdr, "mcnu": None}
         for stage_key, post_state in walk_pipeline(state, pipeline_sample,
                                                    trace=vlog if verbose and i == 0 else None):
+            post_evt = post_state.get("evt")
+            if post_evt is not None and len(post_evt) > 0:
+                post_evt = ensure_derived_trk_kinematics_cols(post_evt)
+                post_state["evt"] = post_evt
             # Cut-variable histograms for this stage (if any).
             for spec in cut_by_stage.get(stage_key, ()):
                 got = get_var_series(post_state, spec.var_config, spec.target)

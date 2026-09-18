@@ -192,14 +192,39 @@ def collect_sel_all_event_keys(
                 if not _submit_one():
                     break
             while in_flight:
-                time.sleep(0.2)
+                time.sleep(0.05)
                 now = time.monotonic()
                 still = []
                 for proc, q, fpath, t0 in in_flight:
+                    # Drain the queue while the worker may still be alive.
+                    # Large pickled key sets exceed the pipe buffer (~64 KiB) and
+                    # deadlock if we only read after the child exits.
+                    got = False
+                    status = payload = None
+                    try:
+                        status, payload = q.get_nowait()
+                        got = True
+                    except Exception:
+                        pass
+
+                    if got:
+                        if proc.is_alive():
+                            proc.join(timeout=5)
+                        else:
+                            proc.join(timeout=1)
+                        if status == "ok":
+                            keys_local.update(payload)
+                        else:
+                            n_err += 1
+                            print(f"Error keys for {fpath}: {payload}", flush=True)
+                        pbar.update(1)
+                        _submit_one()
+                        continue
+
                     if not proc.is_alive():
                         proc.join(timeout=1)
                         try:
-                            status, payload = q.get_nowait()
+                            status, payload = q.get(timeout=2)
                         except Exception:
                             status, payload = "err", "no-result"
                         if status == "ok":
@@ -210,6 +235,7 @@ def collect_sel_all_event_keys(
                         pbar.update(1)
                         _submit_one()
                         continue
+
                     if now - t0 > timeout_s:
                         print(
                             f"TIMEOUT ({timeout_s:.0f}s) killing hung worker: {fpath}",
@@ -227,6 +253,11 @@ def collect_sel_all_event_keys(
                             except Exception:
                                 pass
                             proc.join(timeout=2)
+                        # Discard any partial queue payload.
+                        try:
+                            q.get_nowait()
+                        except Exception:
+                            pass
                         pbar.update(1)
                         _submit_one()
                         continue
@@ -331,19 +362,24 @@ def save_matched_sel_all_files(
     matched_suffix: str = "_matched",
     variation_name: str = "",
     out_dir: str | None = None,
+    skip_existing: bool = False,
 ) -> pd.DataFrame:
     summary = []
     desc = f"write sel_all {variation_name}" if variation_name else "write sel_all matched"
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    # Calo / WireMod universe tables (optional): preserve when present.
-    _UNIV_STEMS = ("cv",) + tuple(
+    # Calo / WireMod / efield universe tables (optional): preserve when present.
+    _UNIV_STEMS = ("cv", "efield") + tuple(
         f"{c}_{s}" for c in ("ccal", "alpha", "beta", "R") for s in ("p", "m")
     )
 
+    n_skipped = 0
     for fpath in tqdm(files, desc=desc):
         out_path = matched_out_path(fpath, suffix=matched_suffix, out_dir=out_dir)
+        if skip_existing and path.exists(out_path) and path.getsize(out_path) > 0:
+            n_skipped += 1
+            continue
         n_split = get_n_split(fpath)
         written_splits = []
 
@@ -440,6 +476,8 @@ def save_matched_sel_all_files(
             }
         )
 
+    if n_skipped:
+        print(f"  [{variation_name or '?'}] skipped existing: {n_skipped}", flush=True)
     return pd.DataFrame(summary)
 
 
@@ -551,6 +589,7 @@ def run_sel_all_match(args) -> int:
                     matched_suffix=args.matched_suffix,
                     variation_name=name,
                     out_dir=var_out,
+                    skip_existing=bool(getattr(args, "skip_existing_matched", False)),
                 )
                 summaries.append(summary)
                 if len(summary):
@@ -613,6 +652,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="If set, write matched .df files under DIR/<variation>/ instead of "
         "alongside the input files (avoids pnfs write hangs). Writes a "
         "<out>.source sidecar with the original input path.",
+    )
+    p.add_argument(
+        "--skip-existing-matched",
+        action="store_true",
+        help="Skip inputs whose matched output already exists (resume writes).",
     )
     p.add_argument("--max-files", type=int, default=None)
     p.add_argument(

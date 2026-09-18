@@ -258,4 +258,8 @@ def attach_selected_rate_to_syst_dict(
         if vc is None:
             # Best-effort: try integrated-style if bins unknown — skip
             continue
-        cell["SelectedRate"] = selected_rate_cell_from_cosmics(cell["Cosmics"], mc_df, vc)
+        try:
+            cell["SelectedRate"] = selected_rate_cell_from_cosmics(cell["Cosmics"], mc_df, vc)
+        except Exception:
+            # Cut-stage slugs often lack the reco column on a sel_mup table.
+            continue
