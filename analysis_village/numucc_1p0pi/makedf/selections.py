@@ -19,7 +19,7 @@ VTXDIST_TH    = 1.2
 MU_CHI2MU_TH = 30
 MU_CHI2P_TH   = 100
 MU_LEN_TH     = 50
-QUAL_TH = 1.0
+QUAL_TH = 0.2
 P_CHI2MU_TH   = -1   # unused / disabled in standard mu+p PID
 P_CHI2P_TH    = 90
 P_LEN_TH      = 0
@@ -32,7 +32,7 @@ P_PHI_TH      = 1
 # Optional slice-vertex z exclusion after the standard FV cut.
 # Default None = no extra cut (nominal). For cut campaigns set e.g. (200.0, 300.0)
 # to drop events with vertex z in [lo, hi] inclusive. Undo by setting back to None.
-VERTEX_Z_EXCLUDE = None
+VERTEX_Z_EXCLUDE = (200.0, 300.0)
 
 
 def cut_clear_cosmic(df):
