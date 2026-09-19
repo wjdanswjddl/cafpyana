@@ -198,6 +198,8 @@ GENIE_GROUP_GLOBS_SEL_ALL: Dict[str, str] = {
     "DIS": str(_SEL_ALL_DFS / "2026_09_01_054339__sel_all-wgts_genie_DIS/*.df"),
     "Other": str(_SEL_ALL_DFS / "2026_08_31_022313__sel_all-wgts_genie_Other/*.df"),
     "Ar23p": str(_SEL_ALL_DFS / "2026_09_13_203514__sel_all-wgts_genie_Ar23p/*.df"),
+    # VecFFCCQEshape only — parallel to GENIE_GROUP_GLOBS["VecFF"] (sel_mup Product B).
+    "VecFF": str(_SEL_ALL_DFS / "STAMP_PENDING__sel_all-wgts_genie_VecFF/*.df"),
 }
 
 
