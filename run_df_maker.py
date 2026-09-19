@@ -36,6 +36,10 @@ Examples:
   invoking run_df_maker; it is forwarded into each grid worker so single-group jobs (HDF keys
   evt, mcnu, hdr) work under -ngrid. Flux multisim uses a single evt table (sel_mup-fluxwgts-knobgroups.py);
   FLUX_GROUP is not used.
+
+  -- Cut / campaign nesting
+  Pass -gsubdir <tag> (or export CAFPYANA_GRID_SUBDIR=<tag>) so all sample outputs for one cut
+  land under $CAFPYANA_GRID_OUT_DIR/dfs/<tag>/<timestamp>__<output>/ (logs mirror under logs/<tag>/).
 """,
     formatter_class=argparse.RawTextHelpFormatter  # Ensures line breaks are preserved
 )
@@ -47,8 +51,40 @@ parser.add_argument('-ncpu', dest='NCPU', default=-1, type=int, help="Number of 
 parser.add_argument('-ngrid', dest='NGridJobs', default=0, type=int, help="Number of grid jobs. Default = 0, no grid submission.")
 parser.add_argument('-nfile', dest='NFiles', default=0, type=int, help="Number of files to run. Default = 0, run all input files.")
 parser.add_argument('-split', dest='SplitSize', default=1.0, type=float, help="Split size in GB before writing to HDF5. Default = 1.0 GB.")
+parser.add_argument(
+    '-gsubdir',
+    dest='grid_subdir',
+    default="",
+    help=(
+        "Optional subdirectory under dfs/ and logs/ for this campaign "
+        "(e.g. a cut tag like fvfix). Overrides CAFPYANA_GRID_SUBDIR when set.\n"
+        "Layout: $CAFPYANA_GRID_OUT_DIR/dfs/<subdir>/<timestamp>__<output>/"
+    ),
+)
 
 args = parser.parse_args()
+
+
+def _resolve_grid_subdir():
+    """Return a safe relative path segment for nesting grid dfs/logs, or \"\"."""
+    raw = (args.grid_subdir or os.environ.get("CAFPYANA_GRID_SUBDIR", "") or "").strip()
+    if not raw:
+        return ""
+    # Allow nested tags (a/b) but reject absolute paths and ``..``.
+    cleaned = raw.replace("\\", "/").strip("/")
+    parts = []
+    for part in cleaned.split("/"):
+        part = part.strip()
+        if not part or part == ".":
+            continue
+        if part == ".." or part.startswith("."):
+            raise ValueError(
+                "Invalid grid subdir %r (no '..' or hidden segments)" % raw
+            )
+        parts.append(part)
+    if not parts:
+        return ""
+    return "/".join(parts)
 
 
 def _maybe_write_syst_hist_var_config_snapshot(dest_dir):
@@ -191,9 +227,17 @@ def run_grid(inputfiles):
     timestamp =  JobStartTime.strftime('%Y_%m_%d_%H%M%S')
 
     # 2) Define MasterJobDir -- produce grid job submission scripts in $CAFPYANA_GRID_OUT_DIR
+    # Optional cut/campaign nesting: dfs/<subdir>/<stamp>__<tag>/  (and same under logs/)
     CAFPYANA_GRID_OUT_DIR = os.environ['CAFPYANA_GRID_OUT_DIR']
-    MasterJobDir = CAFPYANA_GRID_OUT_DIR + "/logs/" + timestamp + '__' + args.output + "_log"
-    OutputDir = CAFPYANA_GRID_OUT_DIR + "/dfs/" + timestamp + '__' + args.output
+    grid_subdir = _resolve_grid_subdir()
+    dfs_root = os.path.join(CAFPYANA_GRID_OUT_DIR, "dfs")
+    logs_root = os.path.join(CAFPYANA_GRID_OUT_DIR, "logs")
+    if grid_subdir:
+        dfs_root = os.path.join(dfs_root, grid_subdir)
+        logs_root = os.path.join(logs_root, grid_subdir)
+        print("[run_df_maker] grid subdir: %s" % grid_subdir)
+    MasterJobDir = os.path.join(logs_root, timestamp + '__' + args.output + "_log")
+    OutputDir = os.path.join(dfs_root, timestamp + '__' + args.output)
     os.system('mkdir -p ' + MasterJobDir)
     os.system('mkdir -p ' + OutputDir)
     # Freeze VariableConfig at submit time into the campaign output + log dirs.
@@ -248,6 +292,31 @@ def run_grid(inputfiles):
             'fi\n'
             % i_flist
         )
+        # Inject cut thresholds / VERTEX_Z_EXCLUDE (cut campaigns; must match pushed branch).
+        out.write(
+            'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_selections.py" ]; then\n'
+            '  mkdir -p analysis_village/numucc_1p0pi/makedf\n'
+            '  cp -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_selections.py" '
+            'analysis_village/numucc_1p0pi/makedf/selections.py\n'
+            '  echo "[run_%s.sh] injected analysis_village/.../selections.py from submit host"\n'
+            'fi\n'
+            % i_flist
+        )
+        # FSI_compare / slim-throw packs: ship local geniesyst + syst_histcounts (not yet on GitHub).
+        out.write(
+            'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_geniesyst.py" ]; then\n'
+            '  mkdir -p makedf\n'
+            '  cp -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_geniesyst.py" makedf/geniesyst.py\n'
+            '  echo "[run_%s.sh] injected makedf/geniesyst.py from submit host"\n'
+            'fi\n'
+            'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_syst_histcounts.py" ]; then\n'
+            '  mkdir -p analysis_village/numucc_1p0pi\n'
+            '  cp -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_syst_histcounts.py" '
+            'analysis_village/numucc_1p0pi/syst_histcounts.py\n'
+            '  echo "[run_%s.sh] injected analysis_village/.../syst_histcounts.py from submit host"\n'
+            'fi\n'
+            % (i_flist, i_flist)
+        )
         cmd = 'python run_df_maker.py -c ' + args.config + ' -o ' + args.output + '_%d'%i_flist + '.df -ncpu 7 -i'
         for i_f in range(0,len(flist)):
             out.write('echo "[run_%s.sh] input %d : %s"\n'%(i_flist, i_f, flist[i_f]))
@@ -266,13 +335,29 @@ def run_grid(inputfiles):
         import shutil
         shutil.copy2(os.path.abspath(args.config), os.path.join(MasterJobDir, os.path.basename(args.config)))
         print("[run_df_maker] bundled config into job tarball:", os.path.basename(args.config))
-        _makedf_local = os.path.join(
-            os.environ.get("CAFPYANA_WD", os.getcwd()),
-            "analysis_village/numucc_1p0pi/makedf/makedf.py",
-        )
+        _wd = os.environ.get("CAFPYANA_WD", os.getcwd())
+        _makedf_local = os.path.join(_wd, "analysis_village/numucc_1p0pi/makedf/makedf.py")
         if os.path.isfile(_makedf_local):
             shutil.copy2(_makedf_local, os.path.join(MasterJobDir, "numucc_makedf.py"))
             print("[run_df_maker] bundled numucc makedf.py into job tarball")
+        _sel_local = os.path.join(
+            _wd, "analysis_village/numucc_1p0pi/makedf/selections.py"
+        )
+        if os.path.isfile(_sel_local):
+            shutil.copy2(_sel_local, os.path.join(MasterJobDir, "numucc_selections.py"))
+            print("[run_df_maker] bundled numucc selections.py into job tarball")
+        _geniesyst_local = os.path.join(_wd, "makedf/geniesyst.py")
+        if os.path.isfile(_geniesyst_local):
+            shutil.copy2(_geniesyst_local, os.path.join(MasterJobDir, "numucc_geniesyst.py"))
+            print("[run_df_maker] bundled makedf/geniesyst.py into job tarball")
+        _syst_hc_local = os.path.join(
+            _wd, "analysis_village/numucc_1p0pi/syst_histcounts.py"
+        )
+        if os.path.isfile(_syst_hc_local):
+            shutil.copy2(
+                _syst_hc_local, os.path.join(MasterJobDir, "numucc_syst_histcounts.py")
+            )
+            print("[run_df_maker] bundled syst_histcounts.py into job tarball")
     except Exception as ex:
         print("[run_df_maker] WARNING: could not bundle config/makedf into tarball:", ex)
 

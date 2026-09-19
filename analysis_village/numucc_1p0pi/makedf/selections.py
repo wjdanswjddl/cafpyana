@@ -29,6 +29,11 @@ MU_PHI_TH     = 1
 P_PLO_TH      = 0.3
 P_PHI_TH      = 1
 
+# Optional slice-vertex z exclusion after the standard FV cut.
+# Default None = no extra cut (nominal). For cut campaigns set e.g. (200.0, 300.0)
+# to drop events with vertex z in [lo, hi] inclusive. Undo by setting back to None.
+VERTEX_Z_EXCLUDE = None
+
 
 def cut_clear_cosmic(df):
     return df[df.slc.is_clear_cosmic == 0]
@@ -77,10 +82,21 @@ def event_contained_per_tpc(df, incathode=PER_TPC_INCATHODE_CM):
     return all_in_fv & (all_in_tpc1 | all_in_tpc2)
 
 
+def _apply_vertex_z_exclude(df):
+    """Drop rows whose slice vertex z lies in ``VERTEX_Z_EXCLUDE`` (inclusive)."""
+    if VERTEX_Z_EXCLUDE is None or df is None or len(df) == 0:
+        return df
+    lo, hi = VERTEX_Z_EXCLUDE
+    z = df.slc.vertex.z
+    return df[~((z >= lo) & (z <= hi))]
+
+
 def cut_vertex_in_fv(df, det=DETECTOR):
     if _is_gen1_or_per_tpc_det(det):
-        return vertex_in_gen1_fv(df)
-    return df[InFV(df.slc.vertex, det=det)]
+        out = vertex_in_gen1_fv(df)
+    else:
+        out = df[InFV(df.slc.vertex, det=det)]
+    return _apply_vertex_z_exclude(out)
 
 def cut_nu_score(df, th=NU_SCORE_TH):
     return df[df.slc.nu_score > th]
