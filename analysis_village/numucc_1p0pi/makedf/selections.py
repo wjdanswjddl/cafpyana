@@ -10,16 +10,16 @@ from analysis_village.numucc_1p0pi.categories import DETECTOR, PER_TPC_INCATHODE
 # ==== events selection cuts ====
 # Canonical thresholds — cut helpers below default to these constants.
 # slice cuts
-NU_SCORE_TH   = 0.45
+NU_SCORE_TH = 0
 SAVE_NTRKS    = 2
 # track quality cuts
 TRACKSCORE_TH = 0.5
 VTXDIST_TH    = 1.2
 # pid cuts
-MU_CHI2MU_TH  = 30
+MU_CHI2MU_TH = 30
 MU_CHI2P_TH   = 100
 MU_LEN_TH     = 50
-QUAL_TH       = 0.2
+QUAL_TH = 0.2
 P_CHI2MU_TH   = -1   # unused / disabled in standard mu+p PID
 P_CHI2P_TH    = 90
 P_LEN_TH      = 0
