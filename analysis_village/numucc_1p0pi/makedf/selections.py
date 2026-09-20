@@ -32,7 +32,7 @@ P_PHI_TH      = 1
 # Optional slice-vertex z exclusion after the standard FV cut.
 # Default None = no extra cut (nominal). For cut campaigns set e.g. (200.0, 300.0)
 # to drop events with vertex z in [lo, hi] inclusive. Undo by setting back to None.
-VERTEX_Z_EXCLUDE = (200.0, 300.0)
+VERTEX_Z_EXCLUDE = None
 
 
 def cut_clear_cosmic(df):
