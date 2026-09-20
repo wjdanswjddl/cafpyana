@@ -16,10 +16,10 @@ SAVE_NTRKS    = 2
 TRACKSCORE_TH = 0.5
 VTXDIST_TH    = 1.2
 # pid cuts
-MU_CHI2MU_TH = 45
+MU_CHI2MU_TH = 30
 MU_CHI2P_TH   = 100
 MU_LEN_TH     = 50
-QUAL_TH = 0.2
+QUAL_TH = 1.0
 P_CHI2MU_TH   = -1   # unused / disabled in standard mu+p PID
 P_CHI2P_TH    = 90
 P_LEN_TH      = 0
