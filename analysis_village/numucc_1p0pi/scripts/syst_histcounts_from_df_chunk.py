@@ -62,6 +62,7 @@ from analysis_village.numucc_1p0pi.syst_multisim_common import (
 from analysis_village.numucc_1p0pi.syst_pipeline_walker import (
     CUT_STAGE_VAR_SPECS,
     FINAL_STAGE_KEY,
+    active_cut_stage_specs,
     final_stage_var_configs,
     get_var_series,
     histogram_var,
@@ -183,10 +184,15 @@ def _weight_matrix(evt_df: pd.DataFrame, knob: str, n_univ: int) -> Optional[np.
 
 def _stage_plots(stage_key: str, final_vcs: Sequence[Any]) -> List[Tuple[Any, str]]:
     out: List[Tuple[Any, str]] = []
-    for spec in CUT_STAGE_VAR_SPECS:
+    for spec in active_cut_stage_specs():
         if spec.stage_key == stage_key:
             out.append((spec.var_config, spec.target))
-    if stage_key == FINAL_STAGE_KEY:
+    skip_final = os.environ.get("NUMUCC_SKIP_FINAL_STAGE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if stage_key == FINAL_STAGE_KEY and not skip_final:
         for vc in final_vcs:
             out.append((vc, "evt"))
     return out

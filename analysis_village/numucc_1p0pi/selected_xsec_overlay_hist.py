@@ -18,6 +18,12 @@ import pandas as pd
 
 from analysis_village.numucc_1p0pi.selection_framework import OverlayHistData
 from analysis_village.numucc_1p0pi.utils import overlay_hists_from_histdata
+from analysis_village.numucc_1p0pi.makedf.selections import (
+    MU_PHI_TH,
+    MU_PLO_TH,
+    P_PHI_TH,
+    P_PLO_TH,
+)
 
 HISTDATA_PKL_NAME = "overlay_histdata.pkl"
 PAYLOAD_FORMAT = "selected_xsec_overlay_histdata_v1"
@@ -144,6 +150,15 @@ def overlay_hists_from_counts(
     )
 
 
+def _final_sel_vlines(var_save_name: str):
+    """Kinematic cut markers for final-sample overlays (keep-between window)."""
+    if var_save_name == "muon-p":
+        return [[MU_PLO_TH, 1], [MU_PHI_TH, 0]]
+    if var_save_name == "proton-p":
+        return [[P_PLO_TH, 1], [P_PHI_TH, 0]]
+    return None
+
+
 def plot_overlay_counts_map(
     histdata_map: Mapping[HistKey, OverlayHistData],
     var_configs: Sequence,
@@ -156,6 +171,7 @@ def plot_overlay_counts_map(
     ratio: bool = True,
     textloc=None,
     approval: str = "internal",
+    pot_text=None,
     save_fig: bool = True,
     plot: bool = True,
     textchi2: bool = True,
@@ -169,6 +185,7 @@ def plot_overlay_counts_map(
 
     for var_config in var_configs:
         syst = get_syst(var_config) if get_syst is not None else None
+        vline = _final_sel_vlines(var_config.var_save_name)
         for breakdown_type in breakdown_types:
             key = (var_config.var_save_name, breakdown_type)
             hd = histdata_map.get(key)
@@ -186,9 +203,11 @@ def plot_overlay_counts_map(
                 ratio=ratio,
                 textloc=textloc,
                 approval=approval,
+                pot_text=pot_text if pot_text is not None else pot_label,
                 save_fig=save_fig,
                 plot=plot,
                 textchi2=textchi2,
                 syst=syst,
+                vline=vline,
                 save_name=save_name,
             )

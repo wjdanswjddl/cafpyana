@@ -73,7 +73,8 @@ SOURCE_DISPLAY: Dict[str, str] = {
 
 def _flat_cov_frac(nbins: int, frac_unc_pct_val: float) -> np.ndarray:
     u = float(frac_unc_pct_val) / 100.0
-    return np.diag(np.full(nbins, u * u, dtype=np.float64))
+    v = u * u
+    return np.full((int(nbins), int(nbins)), v, dtype=np.float64)
 
 
 def _try_load_npz(path: Path | str):

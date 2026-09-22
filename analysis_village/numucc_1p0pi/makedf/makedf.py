@@ -117,6 +117,159 @@ def make_mcnudf_genieslimwgts(f, multisim_nuniv=100, genie_multisim_nuniv=100, g
     return make_mcnudf(f, include_weights=True, multisim_nuniv=multisim_nuniv, genie_multisim_nuniv=genie_multisim_nuniv, wgt_types=["genie"], slim=slim, genie_systematics=genie_systematics)
 
 
+def _attach_fsi_compare_packs(df, genie_multisim_nuniv=100):
+    from analysis_village.numucc_1p0pi.syst_histcounts import attach_fsi_compare_packs
+
+    out, _ = attach_fsi_compare_packs(df, n_univ=int(genie_multisim_nuniv))
+    return out
+
+
+def make_pandora_evtdf_mup_fsi_compare(
+    f,
+    sel_level="mup",
+    include_weights=True,
+    genie_multisim_nuniv=100,
+    wgt_types=None,
+    slim=True,
+    genie_systematics=None,
+    trkScoreCut=False,
+    trkDistCut=100.0,
+    cutClearCosmic=True,
+    **trkArgs,
+):
+    """sel_mup + FSI_compare knobs (slim) + GENIE_base / FSI packs / three slim totals."""
+    from makedf.geniesyst import fsi_compare_genie_systematics
+
+    if wgt_types is None:
+        wgt_types = ["genie"]
+    if genie_systematics is None:
+        genie_systematics = fsi_compare_genie_systematics()
+    df = make_pandora_evtdf_mup_genieslimwgts(
+        f,
+        sel_level=sel_level,
+        include_weights=include_weights,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        wgt_types=wgt_types,
+        slim=slim,
+        genie_systematics=genie_systematics,
+        trkScoreCut=trkScoreCut,
+        trkDistCut=trkDistCut,
+        cutClearCosmic=cutClearCosmic,
+        **trkArgs,
+    )
+    return _attach_fsi_compare_packs(df, genie_multisim_nuniv=genie_multisim_nuniv)
+
+
+def make_mcnudf_fsi_compare(
+    f,
+    multisim_nuniv=100,
+    genie_multisim_nuniv=100,
+    genie_systematics=None,
+    slim=True,
+):
+    from makedf.geniesyst import fsi_compare_genie_systematics
+
+    if genie_systematics is None:
+        genie_systematics = fsi_compare_genie_systematics()
+    df = make_mcnudf_genieslimwgts(
+        f,
+        multisim_nuniv=multisim_nuniv,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        genie_systematics=genie_systematics,
+        slim=slim,
+    )
+    return _attach_fsi_compare_packs(df, genie_multisim_nuniv=genie_multisim_nuniv)
+
+
+def make_pandora_evtdf_all_fsi_compare(
+    f,
+    sel_level="all",
+    include_weights=True,
+    genie_multisim_nuniv=100,
+    wgt_types=None,
+    slim=True,
+    genie_systematics=None,
+    trkScoreCut=False,
+    trkDistCut=1000.0,
+    cutClearCosmic=False,
+    **trkArgs,
+):
+    """sel_all + FSI_compare knobs (slim) + GENIE_base / FSI packs / three slim totals."""
+    from makedf.geniesyst import fsi_compare_genie_systematics
+
+    if wgt_types is None:
+        wgt_types = ["genie"]
+    if genie_systematics is None:
+        genie_systematics = fsi_compare_genie_systematics()
+    df = make_pandora_evtdf_all_genieslimwgts(
+        f,
+        sel_level=sel_level,
+        include_weights=include_weights,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        wgt_types=wgt_types,
+        slim=slim,
+        genie_systematics=genie_systematics,
+        trkScoreCut=trkScoreCut,
+        trkDistCut=trkDistCut,
+        cutClearCosmic=cutClearCosmic,
+        **trkArgs,
+    )
+    return _attach_fsi_compare_packs(df, genie_multisim_nuniv=genie_multisim_nuniv)
+
+
+def build_genie_fsi_compare_config_sel_mup(genie_multisim_nuniv=100):
+    """Product B: one pass BASE∪FSI_v1∪FSI_v3 with three slim products + atomic FSI."""
+    from makedf.geniesyst import fsi_compare_genie_systematics
+
+    syst = fsi_compare_genie_systematics()
+    evt_kw = dict(
+        include_weights=True,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        wgt_types=["genie"],
+        slim=True,
+        genie_systematics=syst,
+    )
+    mcnu_kw = dict(
+        genie_systematics=syst,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        slim=True,
+    )
+    DFS = [make_pandora_evtdf_mup_fsi_compare, make_hdrdf, make_mcnudf_fsi_compare]
+    ARGS = [evt_kw, {}, mcnu_kw]
+    NAMES = ["evt", "hdr", "mcnu"]
+    assert len(DFS) == len(ARGS) == len(NAMES)
+    return DFS, ARGS, NAMES
+
+
+def build_genie_fsi_compare_config_sel_all(genie_multisim_nuniv=100):
+    """Product A: loose sel_all + FSI_compare packs."""
+    from makedf.geniesyst import fsi_compare_genie_systematics
+
+    syst = fsi_compare_genie_systematics()
+    evt_kw = dict(
+        include_weights=True,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        wgt_types=["genie"],
+        slim=True,
+        genie_systematics=syst,
+    )
+    mcnu_kw = dict(
+        genie_systematics=syst,
+        genie_multisim_nuniv=genie_multisim_nuniv,
+        slim=True,
+    )
+    DFS = [
+        make_pandora_evtdf_all_fsi_compare,
+        make_trkdf,
+        make_mcnudf_fsi_compare,
+        make_hdrdf,
+    ]
+    ARGS = [evt_kw, {}, mcnu_kw, {}]
+    NAMES = ["evt", "trk", "mcnu", "hdr"]
+    assert len(DFS) == len(ARGS) == len(NAMES)
+    return DFS, ARGS, NAMES
+
+
 def make_pandora_evtdf_mup_mc_multisim(
     f,
     sel_level="mup",

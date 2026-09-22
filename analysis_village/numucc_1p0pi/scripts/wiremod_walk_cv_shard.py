@@ -58,10 +58,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         all_files = list(pickle.load(fh))
     files = [f for i, f in enumerate(all_files) if i % args.n_shards == args.shard_id]
     pid_kw = {"mu_chi2mu_th": float(args.mu_chi2mu_th)} if args.mu_chi2mu_th is not None else None
+    # Pin / log selection thresholds — cut campaigns mutate selections.py in-tree.
+    from analysis_village.numucc_1p0pi.makedf import selections as _sel
+
     log(
         f"[CV s{args.shard_id}/{args.n_shards}] {len(files)}/{len(all_files)} files "
-        f"mu_chi2mu_th={None if pid_kw is None else pid_kw['mu_chi2mu_th']}"
+        f"mu_chi2mu_th={None if pid_kw is None else pid_kw['mu_chi2mu_th']} "
+        f"NU_SCORE_TH={_sel.NU_SCORE_TH} MU_CHI2MU_TH={_sel.MU_CHI2MU_TH}"
     )
+    if float(_sel.NU_SCORE_TH) != 0.45:
+        raise RuntimeError(
+            f"Refuse CV walk with NU_SCORE_TH={_sel.NU_SCORE_TH} "
+            f"(nominal 0.45). Cut-campaign pollution would fake WireMod Product A unc."
+        )
+    if pid_kw is None and int(_sel.MU_CHI2MU_TH) != 30:
+        raise RuntimeError(
+            f"Refuse CV walk with MU_CHI2MU_TH={_sel.MU_CHI2MU_TH} "
+            f"(nominal 30) when --mu-chi2mu-th is unset."
+        )
     if not files:
         return 0
 

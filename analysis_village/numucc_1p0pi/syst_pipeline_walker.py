@@ -16,6 +16,7 @@ histogram the columns already present in the saved ``evt`` table.
 """
 from __future__ import annotations
 
+import os
 import sys
 from os import path
 from typing import Any, Callable, Dict, Iterator, List, NamedTuple, Optional, Sequence, Tuple
@@ -38,12 +39,18 @@ from analysis_village.numucc_1p0pi.final_selected_evt_vars import (
 )
 from analysis_village.numucc_1p0pi.selection_framework import multicol_get_series
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig
+from analysis_village.numucc_1p0pi.makedf.selections import (
+    MU_CHI2MU_TH,
+    MU_CHI2P_TH,
+    MU_LEN_TH,
+    QUAL_TH,
+)
 
 
 # ---------------------------------------------------------------------------
 # Stage → variable mapping derived from ``build_pipeline()`` PlotSpecs.
 # ``target`` is either "evt" (column on the event df) or "trk" (column on the
-# concat of evt.trk1 / evt.trk2).
+# concat of evt.trk1 / evt.trk2), or track subsets ``trk_len50`` / ``trk_not_mu``.
 # ---------------------------------------------------------------------------
 class CutStageVarSpec(NamedTuple):
     stage_key: str
@@ -57,7 +64,20 @@ CHI2_CUT_STAGES: Tuple[str, ...] = ("2prong-vtxdist", "2prong-muX", "2prong-mup"
 CHI2_PLANES: Tuple[str, ...] = ("I0", "I1", "I2", "avg")
 
 # Skip PlotSpecs that are not cut-driving diagnostics for syst rate histos.
+# ``not_mu`` PlotSpecs are skipped here; dedicated subset specs below fill them.
 _SKIP_NAME_SUFFIXES = frozenset({"final", "not_mu"})
+
+# Stage for the dedicated track-subset χ² packs (avg plane only).
+CHI2_SUBSET_STAGE_KEY: str = "2prong-vtxdist"
+
+# Slugs for len>50 / not_mu avg-χ² at vtxdist (added to Product A without replacing
+# existing all-track ``chi2_avg_*__at_2prong-vtxdist`` packs).
+CHI2_TRACK_SUBSET_SLUGS: Tuple[str, ...] = (
+    "chi2_avg_mu_len50__at_2prong-vtxdist",
+    "chi2_avg_p_len50__at_2prong-vtxdist",
+    "chi2_avg_mu_not_mu__at_2prong-vtxdist",
+    "chi2_avg_p_not_mu__at_2prong-vtxdist",
+)
 
 
 def clone_var_config(vc: VariableConfig, *, var_save_name: str) -> VariableConfig:
@@ -135,6 +155,46 @@ def _build_cut_stage_specs() -> List[CutStageVarSpec]:
                     "trk",
                 )
             )
+
+    # Track-subset avg-χ² at vtxdist (len>50 and not_mu). Distinct slugs so they
+    # never collide with all-track ``chi2_avg_*__at_2prong-vtxdist``.
+    stage = CHI2_SUBSET_STAGE_KEY
+    specs.extend(
+        [
+            CutStageVarSpec(
+                stage,
+                clone_var_config(
+                    VariableConfig.chi2_avg_mu(),
+                    var_save_name="chi2_avg_mu_len50__at_2prong-vtxdist",
+                ),
+                "trk_len50",
+            ),
+            CutStageVarSpec(
+                stage,
+                clone_var_config(
+                    VariableConfig.chi2_avg_proton(),
+                    var_save_name="chi2_avg_p_len50__at_2prong-vtxdist",
+                ),
+                "trk_len50",
+            ),
+            CutStageVarSpec(
+                stage,
+                clone_var_config(
+                    VariableConfig.chi2_avg_mu(),
+                    var_save_name="chi2_avg_mu_not_mu__at_2prong-vtxdist",
+                ),
+                "trk_not_mu",
+            ),
+            CutStageVarSpec(
+                stage,
+                clone_var_config(
+                    VariableConfig.chi2_avg_proton(),
+                    var_save_name="chi2_avg_p_not_mu__at_2prong-vtxdist",
+                ),
+                "trk_not_mu",
+            ),
+        ]
+    )
     return specs
 
 
@@ -144,6 +204,19 @@ CUT_STAGE_VAR_SPECS: Tuple[CutStageVarSpec, ...] = tuple(_build_cut_stage_specs(
 CUT_STAGE_RATE_ONLY_SLUGS: frozenset = frozenset(
     spec.var_config.var_save_name for spec in CUT_STAGE_VAR_SPECS
 )
+
+
+def active_cut_stage_specs() -> Tuple[CutStageVarSpec, ...]:
+    """``CUT_STAGE_VAR_SPECS``, optionally filtered by ``NUMUCC_CUT_STAGE_SLUGS``.
+
+    Set ``NUMUCC_CUT_STAGE_SLUGS=slug1,slug2,...`` to histogram only those cut-stage
+    variables (used for focused chi2 subset campaigns without redoing all packs).
+    """
+    raw = os.environ.get("NUMUCC_CUT_STAGE_SLUGS", "").strip()
+    if not raw:
+        return CUT_STAGE_VAR_SPECS
+    allow = {p.strip() for p in raw.split(",") if p.strip()}
+    return tuple(s for s in CUT_STAGE_VAR_SPECS if s.var_config.var_save_name in allow)
 
 # Stage at which final-selected variables are histogrammed (after the full chain).
 FINAL_STAGE_KEY: str = "2prong-mup"
@@ -205,6 +278,10 @@ def get_var_series(
     output row to its source event index (so per-universe weights can be
     broadcast). For ``target == "trk"`` each event contributes 2 rows
     (trk1 + trk2) so the returned indices repeat.
+
+    Track subsets:
+    * ``trk_len50`` — concat trk1+trk2 with ``pfp.trk.len > MU_LEN_TH`` (50 cm)
+    * ``trk_not_mu`` — same population as :func:`sel_trks_concat_not_mu`
     """
     evt = state.get("evt")
     if evt is None or len(evt) == 0:
@@ -218,21 +295,125 @@ def get_var_series(
         idx = np.arange(len(v), dtype=np.int64)
         return v, idx
     if target == "trk":
-        if not _evt_has_trk1_trk2(evt):
-            return None
+        return _trk_concat_series(evt, var_config)
+    if target == "trk_len50":
+        return _trk_len50_series(evt, var_config)
+    if target == "trk_not_mu":
+        return _trk_not_mu_series(state, var_config)
+    raise ValueError(
+        f"target must be 'evt', 'trk', 'trk_len50', or 'trk_not_mu', got {target!r}"
+    )
+
+
+def _trk_concat_series(
+    evt: pd.DataFrame, var_config: VariableConfig
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    if not _evt_has_trk1_trk2(evt):
+        return None
+    try:
+        s1 = multicol_get_series(evt.trk1, var_config.var_evt_reco_col)
+        s2 = multicol_get_series(evt.trk2, var_config.var_evt_reco_col)
+    except KeyError:
+        return None
+    v1 = np.asarray(s1, dtype=float)
+    v2 = np.asarray(s2, dtype=float)
+    n = len(evt)
+    idx = np.arange(n, dtype=np.int64)
+    v = np.concatenate([v1, v2])
+    idx_full = np.concatenate([idx, idx])
+    return v, idx_full
+
+
+def _trk_len_series(evt: pd.DataFrame) -> Optional[np.ndarray]:
+    """Concatenated ``pfp.trk.len`` for trk1+trk2, or None."""
+    if not _evt_has_trk1_trk2(evt):
+        return None
+    try:
+        l1 = multicol_get_series(evt.trk1, ("pfp", "trk", "len"))
+        l2 = multicol_get_series(evt.trk2, ("pfp", "trk", "len"))
+    except KeyError:
         try:
-            s1 = multicol_get_series(evt.trk1, var_config.var_evt_reco_col)
-            s2 = multicol_get_series(evt.trk2, var_config.var_evt_reco_col)
-        except KeyError:
+            l1 = evt.trk1.pfp.trk.len
+            l2 = evt.trk2.pfp.trk.len
+        except Exception:
             return None
-        v1 = np.asarray(s1, dtype=float)
-        v2 = np.asarray(s2, dtype=float)
-        n = len(evt)
-        idx = np.arange(n, dtype=np.int64)
-        v = np.concatenate([v1, v2])
-        idx_full = np.concatenate([idx, idx])
-        return v, idx_full
-    raise ValueError(f"target must be 'evt' or 'trk', got {target!r}")
+    return np.concatenate([np.asarray(l1, dtype=float), np.asarray(l2, dtype=float)])
+
+
+def _trk_len50_series(
+    evt: pd.DataFrame, var_config: VariableConfig
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    got = _trk_concat_series(evt, var_config)
+    if got is None:
+        return None
+    v, idx = got
+    lengths = _trk_len_series(evt)
+    if lengths is None or lengths.shape[0] != v.shape[0]:
+        return None
+    mask = np.asarray(lengths, dtype=float) > float(MU_LEN_TH)
+    if not mask.any():
+        return (
+            np.zeros(0, dtype=np.float64),
+            np.zeros(0, dtype=np.int64),
+        )
+    return v[mask], idx[mask]
+
+
+def _trk_not_mu_series(
+    state: Dict[str, Any], var_config: VariableConfig
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Avg/plane χ² on the not-muon-candidate track population (same as plot selector)."""
+    evt = state.get("evt")
+    if evt is None or len(evt) == 0 or not _evt_has_trk1_trk2(evt):
+        return None
+    got = _trk_concat_series(evt, var_config)
+    if got is None:
+        return None
+    v, idx = got
+    n = len(evt)
+    if v.shape[0] != 2 * n:
+        return None
+
+    try:
+        trks = pd.concat([evt.trk1, evt.trk2])
+        mcs_range_diff = np.abs(
+            (trks.pfp.trk.rangeP.p_muon - trks.pfp.trk.mcsP.fwdP_muon)
+            / trks.pfp.trk.rangeP.p_muon
+        )
+        chimu_avg = trks.pfp.trk.chi2pid.avg.chi2_muon
+        chip_avg = trks.pfp.trk.chi2pid.avg.chi2_proton
+        lengths = trks.pfp.trk.len
+    except Exception:
+        return None
+
+    pid_kw = dict(state.get("_mu_p_candidate_kwargs") or {})
+    mu_chi2mu_th = float(pid_kw.get("mu_chi2mu_th", MU_CHI2MU_TH))
+    mu_chi2p_th = float(pid_kw.get("mu_chi2p_th", MU_CHI2P_TH))
+    mu_len_th = float(pid_kw.get("mu_len_th", MU_LEN_TH))
+    qual_th = float(pid_kw.get("qual_th", QUAL_TH))
+    mu_cut = np.asarray(
+        (chimu_avg > 0)
+        & (chimu_avg < mu_chi2mu_th)
+        & (chip_avg > mu_chi2p_th)
+        & (lengths > mu_len_th)
+        & (mcs_range_diff < qual_th),
+        dtype=bool,
+    )
+    if mu_cut.shape[0] != 2 * n:
+        return None
+    mu1 = mu_cut[:n]
+    mu2 = mu_cut[n:]
+    # Match sel_trks_concat_not_mu: keep non-mu tracks; if both tracks are mu,
+    # keep the second (trk2) only.
+    keep1 = ~mu1
+    keep2 = (~mu2) | (mu1 & mu2)
+    keep = np.concatenate([keep1, keep2])
+    if not keep.any():
+        return (
+            np.zeros(0, dtype=np.float64),
+            np.zeros(0, dtype=np.int64),
+        )
+    return v[keep], idx[keep]
 
 
 # ---------------------------------------------------------------------------

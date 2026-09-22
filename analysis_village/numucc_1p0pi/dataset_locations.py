@@ -18,9 +18,9 @@ Edit paths **here only** so drivers stay thin:
   publishes ``GENIE/cov_mat_dict.pkl`` on the syst disk (phase 3 of the shell driver).
 - ``run_syst_cosmics_chunked.sh`` — ``syst_cosmics_chunk.py`` / ``syst_cosmics_aggregate.py``;
   globs reuse ``EVENT_SELECTION_GLOBS`` ``offbeam`` / ``intime``.
-- ``default_syst_disk_root()`` — unified ``syst_disk_layout`` root (``Cosmics/``, ``MCstat/``,
-  ``Detector/``, …) used by the ``run_syst_*`` drivers unless ``NUMUCC_SYST_DISK_ROOT`` is set
-  or a script passes an explicit override.
+- ``default_syst_disk_root()`` — PRL Product **B** ``syst_disk_layout`` root
+  (``…/PRL/systematics/productB_sel_mup``) used by consumers / ``run_syst_*`` unless
+  ``NUMUCC_SYST_DISK_ROOT`` is set. Product **A** is ``prl_syst_disk_root("A")``.
 
 **Naming:** *HDF splits*, *map shards* (one ``.df`` file), and *exposure batches* (time-ordered
 data slices for staged access) are different concepts — see ``exposure_access``.
@@ -112,7 +112,12 @@ SELECTED_EVENTS_GLOBS: Dict[str, str] = {
 # ``final``: tight-selection-style bundles; ``sel_all``: loose + wgts.
 # -----------------------------------------------------------------------------
 MULTISIM_SYST_GLOBS_FINAL: Dict[str, str] = {
-    "MCstat": str(SPRING_GEN1_ROOT / "2026_05_18_145611__sel_mup-wgts_mcstat/merged_perTPC/*.df"),
+    # Sep-4 2026 sel_mup MCstat weights (PRL Product B).
+    "MCstat": str(
+        Path("/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs")
+        / "2026_09_04_173044__sel_mup-wgts_mcstat/*.df"
+    ),
+    # "MCstat": str(SPRING_GEN1_ROOT / "2026_05_18_145611__sel_mup-wgts_mcstat/merged_perTPC/*.df"),
     "Flux": str(SPRING_GEN1_ROOT / "2026_05_11_155745__sel_mup-wgts_flux/merged_perTPC/*.df"),
     # "Flux": str(SPRING_GEN1_ROOT_EAF / "2026_05_11_155745__sel_mup-wgts_flux/*.df"),
     "G4": str(SPRING_GEN1_ROOT / "2026_05_11_031351__sel_mup-wgts_g4/merged_perTPC/*.df"),
@@ -172,6 +177,11 @@ GENIE_GROUP_GLOBS: Dict[str, str] = {
     "Ar23p": str(_SEL_MUP_DFS / "2026_09_12_021900__sel_mup-wgts_genie_Ar23p/*.df"),
     # VecFFCCQEshape only — knob missed in the Ar23p pass (see GENIE_KNOB_GROUPS["VecFF"]).
     "VecFF": str(_SEL_MUP_DFS / "2026_09_18_184018__sel_mup-wgts_genie_VecFF/*.df"),
+    # FSI compare (retired v1 _N vs v3 + three slim totals). ``_ok`` excludes tiny
+    # failed dfs from the MultiIndex 5-vs-7 concat bug (~2.6% of jobs).
+    "FSI_compare": str(
+        _SEL_MUP_DFS / "2026_09_19_200848__sel_mup-wgts_genie_FSI_compare_ok/*.df"
+    ),
     # Scratch overrides (when pnfs unavailable on a given host):
     # "RES": str("/scratch/7DayLifetime/munjung/xsec/2026_08_24_125700__sel_mup-wgts_genie_RES/*.df"),
     # "Other": str("/scratch/7DayLifetime/munjung/xsec/2026_08_24_130336__sel_mup-wgts_genie_Other/*.df"),
@@ -200,6 +210,10 @@ GENIE_GROUP_GLOBS_SEL_ALL: Dict[str, str] = {
     "Ar23p": str(_SEL_ALL_DFS / "2026_09_13_203514__sel_all-wgts_genie_Ar23p/*.df"),
     # VecFFCCQEshape only — parallel to GENIE_GROUP_GLOBS["VecFF"] (sel_mup Product B).
     "VecFF": str(_SEL_ALL_DFS / "2026_09_19_002000__sel_all-wgts_genie_VecFF/*.df"),
+    # FSI compare packs on sel_all (Product A). Full 2000/2000 good.
+    "FSI_compare": str(
+        _SEL_ALL_DFS / "2026_09_19_201401__sel_all-wgts_genie_FSI_compare_ok/*.df"
+    ),
 }
 
 
@@ -224,6 +238,26 @@ GENIE_GROUP_KNOBS: Dict[str, List[str]] = dict(
 )
 GENIE_GROUP_KNOBS["slim"] = slim_genie_knobs()
 GENIE_GROUP_KNOBS["VecFF"] = list(vecff_genie_systematics)
+
+
+def fsi_compare_syst_knobs() -> List[str]:
+    """Product packs on FSI_compare dfs (family + three slim totals + base).
+
+    Atomic ±σ knobs are omitted from the default syst pass for speed; re-add
+    ``fsi_v1_n_genie_systematics`` / ``fsi_v3_n_genie_systematics`` for per-knob
+    atomics plots.
+    """
+    return [
+        "GENIE_base",
+        "FSI_v1_N",
+        "FSI_v3_N",
+        "GENIE_slim_v1",
+        "GENIE_slim_v3",
+        "GENIE_slim_both",
+    ]
+
+
+GENIE_GROUP_KNOBS["FSI_compare"] = fsi_compare_syst_knobs()
 
 
 def iter_detvar_chunk_jobs(
@@ -423,19 +457,40 @@ def default_detvar_syst_work_root(tag: str | None = None) -> Path:
     )
 
 
+# PRL publication collection (canonical consumer syst disk).
+PRL_SYSTEMATICS_ROOT = Path(
+    f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/PRL/systematics"
+)
+PRL_PRODUCT_B_DIR = "productB_sel_mup"
+PRL_PRODUCT_A_DIR = "productA_sel_all"
+
+
+def prl_syst_disk_root(product: str = "B") -> Path:
+    """PRL ``syst_disk_layout`` root for Product **B** (measurement) or **A** (selection).
+
+    ``product`` accepts ``B`` / ``productB`` / ``sel_mup`` / ``productB_sel_mup`` (and A analogues).
+    """
+    key = str(product).strip().lower().replace("-", "_")
+    if key in ("b", "productb", "sel_mup", "productb_sel_mup", "mup"):
+        return PRL_SYSTEMATICS_ROOT / PRL_PRODUCT_B_DIR
+    if key in ("a", "producta", "sel_all", "producta_sel_all", "all"):
+        return PRL_SYSTEMATICS_ROOT / PRL_PRODUCT_A_DIR
+    raise ValueError(
+        f"Unknown PRL syst product {product!r}; use 'A'/'B' or productA_sel_all/productB_sel_mup"
+    )
+
+
 def default_syst_disk_root() -> Path:
     """Default root for the unified ``syst_disk_layout`` tree (``Cosmics/``, ``MCstat/``, …).
 
     Same logical tree that ``utils.get_syst_unc`` reads when ``NUMUCC_SYST_DISK_ROOT`` is set.
     If that environment variable is set, this function returns that path (expanded). If not,
-    returns a stable per-user default so ``run_syst_*`` scripts can aggregate without extra args.
+    returns the PRL Product **B** tree (``…/PRL/systematics/productB_sel_mup``).
     """
     env = os.environ.get("NUMUCC_SYST_DISK_ROOT")
     if env:
         return Path(env).expanduser()
-    return Path(
-        f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/syst_disk"
-    )
+    return prl_syst_disk_root("B")
 
 
 def default_syst_disk_cc_root() -> Path:

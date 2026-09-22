@@ -272,7 +272,10 @@ def get_syst_unc(
 
 
 _CATEGORY_SYST_SUMMARY_CACHE = {}
-_DEFAULT_SYST_DISK_ROOT = "/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final"
+# Canonical consumer tree: PRL Product B (see dataset_locations.prl_syst_disk_root).
+_DEFAULT_SYST_DISK_ROOT = (
+    "/exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/PRL/systematics/productB_sel_mup"
+)
 
 
 # ====== category-summary & GENIE-SB covariance loaders ======
@@ -584,15 +587,51 @@ def _resolve_overlay_syst_cov_frac(
 
 # ====== general helpers: formatting, arrays, event clipping ======
 def get_pot_str(tot_pot):
-    pot_str = "{:.2e}".format(tot_pot).replace("e+0", "e").replace("e+", "e")\
-        .replace("e", " $\\times 10^{") + "}$"
-    pot_str = pot_str.replace(".00", "")
-    pot_str = pot_str.replace("$\\times 10^{", "$\\times 10^{")  
-    pot_str = pot_str.replace("}$", "}") 
-    pot_str = pot_str if pot_str.endswith("$") else pot_str + "$"
-    pot_str = pot_str.replace(" $", "$")
-    # print(pot_str)
-    return pot_str
+    """Format POT with two significant digits: ``$X.Y\\times 10^{YY}$``."""
+    tot_pot = float(tot_pot)
+    if not np.isfinite(tot_pot) or tot_pot <= 0:
+        return r"$0$"
+    exp_i = int(np.floor(np.log10(tot_pot)))
+    mant = tot_pot / (10.0 ** exp_i)
+    mant_r = round(mant, 1)  # two sig digs for mantissa in [1, 10)
+    if mant_r >= 10.0:
+        mant_r = 1.0
+        exp_i += 1
+    return rf"${mant_r:.1f}\times 10^{{{exp_i}}}$"
+
+
+def format_pot_corner_text(pot) -> str:
+    """Corner label ``SBND BNB $X.Y\\times 10^{Y}$ POT`` (two significant digits)."""
+    import re
+
+    prefix = r"$\mathbf{SBND\ BNB}$ "
+    if pot is None or pot == "":
+        return ""
+    if isinstance(pot, (int, float)):
+        return f"{prefix}{get_pot_str(float(pot))} POT"
+    s = str(pot).strip()
+    s = re.sub(r"\$\\mathbf\{SBND\\?\s*BNB\}\$\s*", "", s)
+    s = re.sub(r"SBND\s+BNB\s*", "", s, flags=re.IGNORECASE)
+    m = re.search(r"POT=\s*([^)]*)", s)
+    if m:
+        s = m.group(1).strip()
+    s = re.sub(r"\s*POT\s*$", "", s).strip()
+    if not s:
+        return ""
+    # Prefer parsing a scientific-notation value so we can reformat to 2 sig digs.
+    m2 = re.search(
+        r"([0-9]+\.?[0-9]*)\s*(?:\\times|×|x)\s*10\^?\{(-?\d+)\}",
+        s.replace("$", ""),
+    )
+    if m2:
+        val = float(m2.group(1)) * (10.0 ** int(m2.group(2)))
+        return f"{prefix}{get_pot_str(val)} POT"
+    try:
+        return f"{prefix}{get_pot_str(float(s))} POT"
+    except (TypeError, ValueError):
+        pass
+    inner = s.replace("$", "").strip()
+    return f"{prefix}${inner}$ POT"
 
 
 def generate_tags(end_tag=""):
@@ -1045,18 +1084,85 @@ def add_approval_text(approval, textloc_x, textloc_y, textloc_ha, fontsize=20):
         approval_text,
         transform=ax.transAxes,
         ha=textloc_ha, va='top',
-        fontsize=fontsize, color=textcolor
+        fontsize=fontsize, color=textcolor,
+        clip_on=False,
     )
 
+
+def strip_pot_from_ylabel(label: str) -> str:
+    """Remove ``(POT=...)`` from overlay y-axis labels."""
+    import re
+
+    if not label:
+        return label
+    return re.sub(r"\s*\(POT=[^)]*\)", "", str(label)).strip()
+
+
+def set_ratio_panel_ylim(
+    ax_r,
+    *,
+    data_ratio=None,
+    data_ratio_eyhigh=None,
+    data_ratio_eylow=None,
+    syst_err_ratio=None,
+    pad: float = 1.2,
+    y_center: float = 1.0,
+    y_min_floor: float = 0.0,
+    y_max_ceil: float = 2.0,
+):
+    """Set Data/MC ylim centered at 1 using ``pad * max`` extent, clamped to ``[0, 2]``."""
+    peaks = []
+    troughs = []
+    if data_ratio is not None and data_ratio_eyhigh is not None:
+        ratio = np.asarray(data_ratio, dtype=float)
+        top = ratio + np.asarray(data_ratio_eyhigh, dtype=float)
+        top = top[np.isfinite(top)]
+        if top.size:
+            peaks.append(float(np.max(top)))
+        if data_ratio_eylow is not None:
+            bot = ratio - np.asarray(data_ratio_eylow, dtype=float)
+            bot = bot[np.isfinite(bot)]
+            if bot.size:
+                troughs.append(float(np.min(bot)))
+    if syst_err_ratio is not None:
+        err = np.asarray(syst_err_ratio, dtype=float)
+        env_hi = 1.0 + err
+        env_lo = 1.0 - err
+        env_hi = env_hi[np.isfinite(env_hi)]
+        env_lo = env_lo[np.isfinite(env_lo)]
+        if env_hi.size:
+            peaks.append(float(np.max(env_hi)))
+        if env_lo.size:
+            troughs.append(float(np.min(env_lo)))
+    if not peaks:
+        ax_r.set_ylim(y_min_floor, y_max_ceil)
+        return
+    ymax_raw = pad * max(peaks)
+    if ymax_raw <= 0:
+        ymax_raw = y_center
+    half = max(0.0, ymax_raw - y_center)
+    if troughs:
+        half = max(half, y_center - min(troughs))
+    ymax = min(y_max_ceil, y_center + half)
+    ymin = max(y_min_floor, y_center - half)
+    ax_r.set_ylim(ymin, ymax)
+
 def add_pot_text(pot_text, textloc_x, textloc_y, textloc_ha, fontsize=20):
-    textcolor = 'black'
-    ax = plt.gcf().axes[0]  # get the first axes of the current figure
+    """Draw POT label just above the top-right of the upper panel (outside the box)."""
+    ax = plt.gcf().axes[0]
+    y = float(textloc_y) if textloc_y is not None else 1.01
+    if y < 1.0:
+        y = 1.01
     ax.text(
-        textloc_x, textloc_y,
+        textloc_x,
+        y,
         pot_text,
         transform=ax.transAxes,
-        ha=textloc_ha, va='top',
-        fontsize=fontsize, color=textcolor
+        ha=textloc_ha,
+        va="bottom",
+        fontsize=fontsize,
+        color="black",
+        clip_on=False,
     )
 
 def add_chi2_text(
@@ -1071,36 +1177,36 @@ def add_chi2_text(
     p_val_shape=None,
     ndof_shape=None,
 ):
+    """Draw total χ²/ndof only (no shape χ², no p-value)."""
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
     prefix = f"{label} " if label else ""
-    lines = [
-        f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)} (p-value = {p_val:.2f})"
-    ]
-    if chi2_shape is not None and p_val_shape is not None:
-        ndof_s = int(ndof_shape) if ndof_shape is not None else max(int(ndof) - 1, 1)
-        lines.append(
-            f"{prefix}$\\chi^2_{{\\mathrm{{shape}}}}$/ndof = "
-            f"{chi2_shape:.1f}/{ndof_s} (p-value = {p_val_shape:.2f})"
-        )
     ax.text(
         textloc_x,
         textloc_y,
-        "\n".join(lines),
+        f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)}",
         transform=ax.transAxes,
         ha=textloc_ha,
         va="top",
-        fontsize=12,
+        fontsize=16,
         color="black",
-        linespacing=1.35,
     )
 
-def add_genie_version_text(textloc_x, textloc_y, textloc_ha):
-    ax = plt.gcf().axes[0]  # get the first axes of the current figure
-    ax.text(textloc_x, textloc_y, 
-            r"GENIE v3.4.0 AR23_00i_00_000", 
-            transform=ax.transAxes, 
-            ha=textloc_ha, va='top',
-            fontsize=12, color='gray')
+def add_genie_version_text(textloc_x, textloc_y, textloc_ha, *, va="top", fontsize=12):
+    """Draw GENIE tune label inside the axes (two lines so it fits under legends)."""
+    ax = plt.gcf().axes[0]
+    ax.text(
+        textloc_x,
+        textloc_y,
+        "GENIE v3.6.0\nAR23_00i_00_000",
+        transform=ax.transAxes,
+        ha=textloc_ha,
+        va=va,
+        fontsize=fontsize,
+        color="gray",
+        linespacing=1.15,
+        clip_on=True,
+        zorder=200,
+    )
 
 def format_singlebin_plot():
     ax = plt.gcf().axes[0]
@@ -1212,6 +1318,7 @@ def overlay_hists_from_histdata(histdata,
                                 vline=None,
                                 textloc=[0.05, 0.55],
                                 approval="internal",
+                                pot_text=None,
                                 plot=True,
                                 save_fig=False,
                                 save_name=None,
@@ -1321,15 +1428,38 @@ def overlay_hists_from_histdata(histdata,
         )
         total_mc = np.asarray(total_mc, dtype=float) + np.asarray(cosmic_hist_bins, dtype=float)
 
-    # ---- Dirt: prepend a new category at front (cuts order: dirt-first)
-    if histdata.has_dirt:
+    # ---- Dirt ----
+    # For pdg breakdowns with per-category dirt (truth PDG available), fold into
+    # μ/p/π/Other instead of a single "Low E Dirt" legend entry. Keep aggregate
+    # dirt_hist path for topology/genie (and legacy pdg pickles).
+    dirt_cat = getattr(histdata, "dirt_cat_hist", None)
+    dirt_folded_into_pdg = (
+        breakdown_type == "pdg"
+        and dirt_cat is not None
+        and np.any(np.asarray(dirt_cat, dtype=float))
+        and var_categ is not None
+    )
+    if dirt_folded_into_pdg:
+        dirt_cat = np.asarray(dirt_cat, dtype=float)
+        n_fold = min(len(weights_categ), dirt_cat.shape[0])
+        for ic in range(n_fold):
+            weights_categ[ic] = np.asarray(weights_categ[ic], dtype=float) + dirt_cat[ic]
+        total_mc = np.asarray(total_mc, dtype=float) + dirt_cat.sum(axis=0)
+        dirt_err2 = getattr(histdata, "dirt_cat_err2", None)
+        if dirt_err2 is not None and total_mc_err2 is not None:
+            total_mc_err2 = total_mc_err2 + np.asarray(dirt_err2, dtype=float).sum(axis=0)
+            mc_stat_err = np.sqrt(total_mc_err2)
+    elif histdata.has_dirt:
         total_dirt = histdata.dirt_hist.astype(float)
-        if var_categ is not None:
+        if var_categ is not None and np.any(total_dirt):
             var_categ = [bin_centers] + var_categ
             weights_categ = [total_dirt.copy()] + weights_categ
             colors = colors + ["black"]
             labels = labels + ["Low E\nDirt"]
             total_mc = total_mc + total_dirt
+            if total_mc_err2 is not None and histdata.dirt_err2 is not None:
+                total_mc_err2 = total_mc_err2 + histdata.dirt_err2.astype(float)
+                mc_stat_err = np.sqrt(total_mc_err2)
     else:
         total_dirt = None
 
@@ -1393,13 +1523,21 @@ def overlay_hists_from_histdata(histdata,
         )
 
     # ============ plot template ============
+    plot_labels = list(plot_labels)
+    if len(plot_labels) > 1:
+        plot_labels[1] = strip_pot_from_ylabel(plot_labels[1])
+    if breakdown_type == "pdg":
+        # Particle-ID overlays count tracks, not events.
+        if len(plot_labels) > 1:
+            plot_labels[1] = "Tracks"
+
+    mc_stat_err_ratio = None
     if ratio:
         fig, axs = plt.subplots(2, 1, figsize=(8.5, 8.5),
                                sharex=True, gridspec_kw={'height_ratios': [4, 1]})
         ax, ax_r = axs[0], axs[1]
         fig.subplots_adjust(hspace=0.1)
         ax_r.axhline(1.0, color='red', linestyle='--', linewidth=1)
-        ax_r.set_ylim(0., 2.)
         ax_r.set_xlabel(plot_labels[0], fontsize=20)
         ax_r.set_ylabel("Data/MC", fontsize=20)
         ax_r.grid(True)
@@ -1410,6 +1548,7 @@ def overlay_hists_from_histdata(histdata,
     else:
         fig, ax = plt.subplots(figsize=(8.5, 7))
         ax.set_xlabel(plot_labels[0], fontsize=20)
+        ax_r = None
 
     ax.set_xlim(bins[0], bins[-1])
     ax.set_ylabel(plot_labels[1], fontsize=20)
@@ -1588,9 +1727,11 @@ def overlay_hists_from_histdata(histdata,
                     r_norm = np.where(total_mc != 0, syst_err_norm / total_mc, 0.0)
                     r_mixed = np.where(total_mc != 0, syst_err_mixed / total_mc, 0.0)
                     r_shape = np.where(total_mc != 0, syst_err_shape / total_mc, 0.0)
+                    mc_stat_err_ratio = np.where(total_mc != 0, syst_err / total_mc, 0.0)
                 r_norm = np.nan_to_num(r_norm, nan=0.)
                 r_mixed = np.nan_to_num(r_mixed, nan=0.)
                 r_shape = np.nan_to_num(r_shape, nan=0.)
+                mc_stat_err_ratio = np.nan_to_num(mc_stat_err_ratio, nan=0.)
 
                 ax_r.bar(bin_centers, 2*r_shape, width=np.diff(bins),
                          bottom=mc_content_ratio - r_shape,
@@ -1611,6 +1752,14 @@ def overlay_hists_from_histdata(histdata,
                           fmt='o', color='black',
                           markersize=5, capsize=3, linewidth=1.5, zorder=10)
         ax_r.set_xlim(bins[0], bins[-1])
+        set_ratio_panel_ylim(
+            ax_r,
+            data_ratio=data_ratio if histdata.has_data else None,
+            data_ratio_eyhigh=data_ratio_eyhigh if histdata.has_data else None,
+            data_ratio_eylow=data_ratio_eylow if histdata.has_data else None,
+            syst_err_ratio=mc_stat_err_ratio,
+            pad=1.2,
+        )
 
     # Legend: Data first; MC rows = νμ CC 1p0π → … → Low-E Dirt → Cosmic (topology /
     # pdg / genie). MC patches match stacked-layer colors (no cosmic-uncertainty band).
@@ -1647,7 +1796,8 @@ def overlay_hists_from_histdata(histdata,
             ordered_labels.extend(legend_labels[::-1])
         else:
             idx_order = _overlay_histdata_legend_mc_index_order(
-                len(labels), histdata.has_dirt
+                len(labels),
+                histdata.has_dirt and not dirt_folded_into_pdg,
             )
             for i in idx_order:
                 ordered_handles.append(Patch(facecolor=colors[i], edgecolor='none'))
@@ -1678,7 +1828,7 @@ def overlay_hists_from_histdata(histdata,
                 'Syst. Unc. (Norm)',
             ])
 
-    fontsize = 12
+    fontsize = 14 if breakdown_type == "pdg" else 11
     ncol = 3
     if breakdown_type == "genie_sb":
         textloc_x_tmp, textloc_ha_tmp = get_textloc_x(total_mc, bins, textloc)
@@ -1707,20 +1857,26 @@ def overlay_hists_from_histdata(histdata,
     elif total_data is not None and np.max(total_data) > 0:
         ax.set_ylim(0., ax_ylim_ratio * np.max(total_data))
 
-    # vertical lines
+    # vertical lines (main panel + ratio panel when present)
     if vline is not None:
         for v in vline:
             ymax = ax.get_ylim()[1]
             ax.vlines(x=v[0], ymin=0, ymax=ymax*0.75, color='red', linestyle='--', zorder=50)
-            if len(v) > 1:
+            if ax_r is not None:
+                ax_r.axvline(x=v[0], color='red', linestyle='--', zorder=50)
+            # direction: 0 = keep left (< cut), 1 = keep right (> cut)
+            if len(v) > 1 and v[1] is not None:
                 direction = v[1]
+                xspan = ax.get_xlim()[1] - ax.get_xlim()[0]
+                yspan = ax.get_ylim()[1] - ax.get_ylim()[0]
+                # Keep arrows short so dual-edge windows (e.g. |Δp|/p < QUAL_TH) don't cross.
                 arrow_params = {
                     'y': ymax * 0.4,
-                    'dx': 0.18 * (ax.get_xlim()[1] - ax.get_xlim()[0]),
-                    'width': 0.01 * (ax.get_ylim()[1] - ax.get_ylim()[0]),
+                    'dx': 0.04 * xspan,
+                    'width': 0.01 * yspan,
                     'color': 'red',
-                    'head_width': 0.04 * (ax.get_ylim()[1] - ax.get_ylim()[0]),
-                    'head_length': 0.03 * (ax.get_xlim()[1] - ax.get_xlim()[0]),
+                    'head_width': 0.04 * yspan,
+                    'head_length': 0.02 * xspan,
                     'length_includes_head': True
                 }
                 if direction == 0:
@@ -1743,13 +1899,18 @@ def overlay_hists_from_histdata(histdata,
                              zorder=60)
 
     # textboxes
-    if total_mc is not None:
+    var_save = getattr(var_config, "var_save_name", None) if var_config is not None else None
+    # mcs_range_diff cut arrows sit near center — keep χ² on the left half.
+    if var_save == "mcs_range_diff":
+        textloc_x, textloc_ha = float(textloc[0]), "left"
+    elif total_mc is not None:
         textloc_x, textloc_ha = get_textloc_x(total_mc, bins, textloc)
     elif total_data is not None:
         textloc_x, textloc_ha = get_textloc_x(total_data, bins, textloc)
     else:
         textloc_x, textloc_ha = textloc[0], 'left'
     textloc_y = textloc[1]
+    chi2_y = textloc_y + 0.08
 
     if textchi2 and chi2_val is not None:
         add_chi2_text(
@@ -1757,18 +1918,18 @@ def overlay_hists_from_histdata(histdata,
             p_val,
             ndof,
             textloc_x,
-            textloc_y + 0.08,
+            chi2_y,
             textloc_ha,
-            chi2_shape=chi2_shape_val,
-            p_val_shape=p_val_shape,
-            ndof_shape=ndof_shape,
         )
 
     fig.subplots_adjust(top=0.9)
     add_approval_text(approval, 0.03, 1.07, "left")
-    add_pot_text("8.8 $\\times 10^{19}$ POT", 0.99, 1.06, "right", fontsize=16)
+    if pot_text:
+        add_pot_text(format_pot_corner_text(pot_text), 0.99, 1.01, "right", fontsize=16)
     if breakdown_type != "pdg":
-        add_genie_version_text(0.035, 0.83, "left")
+        # Directly under χ² (same x / ha); two-line GENIE at legend fontsize.
+        genie_y = chi2_y - 0.07 if (textchi2 and chi2_val is not None) else textloc_y
+        add_genie_version_text(textloc_x, genie_y, textloc_ha, fontsize=fontsize)
 
     if var_config is not None and getattr(var_config, "var_save_name", None) == "integrated":
         format_singlebin_plot()
@@ -1823,6 +1984,7 @@ def overlay_hists(breakdown_type="topology",
                   vline = None,
                   textloc=[0.05, 0.55],
                   approval="internal",
+                  pot_text=None,
                   plot=True,
                   save_fig=False, 
                   save_name=None,
@@ -1855,6 +2017,7 @@ def overlay_hists(breakdown_type="topology",
             vline=vline,
             textloc=textloc,
             approval=approval,
+            pot_text=pot_text,
             plot=plot,
             save_fig=save_fig,
             save_name=save_name,
@@ -2040,13 +2203,17 @@ def overlay_hists(breakdown_type="topology",
     # ========================================================
 
     # ==== plot template ====
+    plot_labels = list(plot_labels)
+    if len(plot_labels) > 1:
+        plot_labels[1] = strip_pot_from_ylabel(plot_labels[1])
+
+    mc_stat_err_ratio = None
     if ratio:
         fig, axs = plt.subplots(2, 1, figsize=(8.5, 8.5), 
                                sharex=True, gridspec_kw={'height_ratios': [4, 1]})
         ax, ax_r = axs[0], axs[1]
         fig.subplots_adjust(hspace=0.1)
         ax_r.axhline(1.0, color='red', linestyle='--', linewidth=1)
-        ax_r.set_ylim(0., 2.)
         ax_r.set_xlabel(plot_labels[0], fontsize=20)
         ax_r.set_ylabel("Data/MC", fontsize=20)
         ax_r.grid(True)
@@ -2226,6 +2393,14 @@ def overlay_hists(breakdown_type="topology",
                             yerr=np.vstack((data_ratio_eylow, data_ratio_eyhigh)),
                             fmt='o', color='black',
                             markersize=5, capsize=3, linewidth=1.5)
+        set_ratio_panel_ylim(
+            ax_r,
+            data_ratio=data_ratio if data_df is not None else None,
+            data_ratio_eyhigh=data_ratio_eyhigh if data_df is not None else None,
+            data_ratio_eylow=data_ratio_eylow if data_df is not None else None,
+            syst_err_ratio=mc_stat_err_ratio,
+            pad=1.2,
+        )
 
     # ===============================
 
@@ -2284,7 +2459,7 @@ def overlay_hists(breakdown_type="topology",
         ordered_labels.extend(unc_label)
 
     # adjust fontsize so that legend fits in the figure
-    fontsize = 12
+    fontsize = 11
     ncol = 3
     if breakdown_type == "genie_sb":
         textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
@@ -2353,16 +2528,18 @@ def overlay_hists(breakdown_type="topology",
         for v in vline:
             ymax = ax.get_ylim()[1]
             ax.vlines(x=v[0], ymin=0, ymax=ymax*0.75, color='red', linestyle='--')
-            # Plot arrow if v[1] is specified (0: left, 1: right)
-            if len(v) > 1:
+            # direction: 0 = keep left (< cut), 1 = keep right (> cut)
+            if len(v) > 1 and v[1] is not None:
                 direction = v[1]
+                xspan = ax.get_xlim()[1] - ax.get_xlim()[0]
+                yspan = ax.get_ylim()[1] - ax.get_ylim()[0]
                 arrow_params = {
                     'y': ymax * 0.4,
-                    'dx': 0.18 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable length
-                    'width': 0.01 * (ax.get_ylim()[1] - ax.get_ylim()[0]),  # adjustable width
+                    'dx': 0.04 * xspan,
+                    'width': 0.01 * yspan,
                     'color': 'red',
-                    'head_width': 0.04 * (ax.get_ylim()[1] - ax.get_ylim()[0]),  # adjustable head width
-                    'head_length': 0.03 * (ax.get_xlim()[1] - ax.get_xlim()[0]),  # adjustable head length
+                    'head_width': 0.04 * yspan,
+                    'head_length': 0.02 * xspan,
                     'length_includes_head': True
                 }
                 if direction == 0:
@@ -2387,6 +2564,7 @@ def overlay_hists(breakdown_type="topology",
     # textboxes
     textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
     textloc_y = textloc[1]
+    chi2_y = textloc_y + 0.08
 
     # Use χ² from ``_overlay_compute_chi2`` (absolute cov matching the band).
     # Do NOT pass fractional ``syst`` into ``get_chi2`` — that treats frac.
@@ -2397,19 +2575,18 @@ def overlay_hists(breakdown_type="topology",
             p_val,
             ndof,
             textloc_x,
-            textloc_y + 0.08,
+            chi2_y,
             textloc_ha,
-            chi2_shape=chi2_shape_val,
-            p_val_shape=p_val_shape,
-            ndof_shape=ndof_shape,
         )
 
     fig.subplots_adjust(top=0.9)
-    # add_approval_text(approval, 0.1, 1.07, "left")
-    # add_pot_text("8.8 $\\times 10^{19}$ POT", 0.99, 1.06, "right", fontsize=16)
+    add_approval_text(approval, 0.03, 1.07, "left")
+    if pot_text:
+        add_pot_text(format_pot_corner_text(pot_text), 0.99, 1.01, "right", fontsize=16)
 
-    # if breakdown_type != "pdg":
-        # add_genie_version_text(textloc_x, 0.75, textloc_ha)
+    if breakdown_type != "pdg":
+        genie_y = chi2_y - 0.07 if (textchi2 and chi2_val is not None) else textloc_y
+        add_genie_version_text(textloc_x, genie_y, textloc_ha, fontsize=fontsize)
 
     if var_config.var_save_name == "integrated":
         format_singlebin_plot()

@@ -17,6 +17,21 @@ import pandas as pd
 BEAM_COLS = ("TOR875", "TOR860", "FOM", "THCURR", "spill_time")
 
 
+def _flatten_single_level_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Unwrap 1-tuple MultiIndex columns to a plain Index (``('FOM',)`` → ``FOM``).
+
+    Some grid outputs pad flat tables into a depth-1 MultiIndex; ``df['FOM']``
+    then returns a one-column DataFrame and breaks scalar assignments.
+    """
+    if not isinstance(df.columns, pd.MultiIndex):
+        return df
+    if df.columns.nlevels != 1:
+        return df
+    out = df.copy(deep=False)
+    out.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+    return out
+
+
 @dataclass
 class BeamQualitySummary:
     n_evt_prefilter: int
@@ -30,13 +45,17 @@ class BeamQualitySummary:
 
 def match_beam_spills(data_hdr_df: pd.DataFrame, pot_df: pd.DataFrame) -> pd.DataFrame:
     """Attach nearest preceding spill quantities to each triggered hdr row."""
-    hdr = data_hdr_df.copy()
-    pot_reset = pot_df.reset_index()
+    hdr = _flatten_single_level_columns(data_hdr_df.copy())
+    pot_reset = _flatten_single_level_columns(pot_df).reset_index()
+    # reset_index may reintroduce a 1-level MultiIndex for former index names
+    pot_reset = _flatten_single_level_columns(pot_reset)
     pot_reset["spill_time"] = (
         pot_reset["spill_time_sec"] + pot_reset["spill_time_nsec"] * 1e-9
     )
 
-    hdr_reset = hdr.reset_index()[["__ntuple", "entry", "evt", "global_trigger_time"]]
+    hdr_reset = _flatten_single_level_columns(hdr.reset_index())[
+        ["__ntuple", "entry", "evt", "global_trigger_time"]
+    ]
     hdr_reset["trigger_time_s"] = hdr_reset["global_trigger_time"] * 1e-9
     hdr_reset["_orig_idx"] = np.arange(len(hdr_reset))
 

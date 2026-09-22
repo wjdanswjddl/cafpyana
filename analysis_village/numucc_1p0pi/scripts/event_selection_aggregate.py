@@ -78,6 +78,8 @@ from analysis_village.numucc_1p0pi.utils import (
     add_approval_text,
     format_singlebin_plot,
     get_syst_unc,
+    strip_pot_from_ylabel,
+    format_pot_corner_text,
 )
 from analysis_village.numucc_1p0pi.categories import (
     topology_labels, topology_colors,
@@ -285,16 +287,27 @@ def render_overlay_plots(
         kwargs.setdefault("save_fig", save_fig)
         kwargs.setdefault("save_name", save_name)
         kwargs.setdefault("plot", show_fig)
-        kwargs["plot_labels"] = plot_labels
+        kwargs["plot_labels"] = [
+            plot_labels[0],
+            strip_pot_from_ylabel(plot_labels[1]) if len(plot_labels) > 1 else "",
+            plot_labels[2] if len(plot_labels) > 2 else "",
+        ]
         kwargs.setdefault("verbose_hist", (ps.name_suffix or "") == "final")
         # Match ``selected_events.ipynb``: combined syst as hatched band (not norm/shape/mixed fill).
         kwargs.setdefault("syst_decomp", False)
+        kwargs.setdefault("approval", "")  # no "SBND Internal"
+        kwargs.setdefault("textchi2", True)
+        kwargs["pot_text"] = format_pot_corner_text(pot_str)
         # Drop retired overlay kwargs if any pipeline PlotSpec still sets them.
         kwargs.pop("show_cosmic_model_unc", None)
         kwargs.pop("legend_percentages", None)
         kwargs["cosmic_estimate"] = cosmic_estimate
 
         # Pre-saved fractional covariance (custom loader, syst disk, or none).
+        # When a disk / custom loader is active, do not fall back to
+        # CategorySummary (Product A has none; avoids noisy FileNotFoundError).
+        if syst_cov_loader is not None or syst_disk_root is not None:
+            kwargs.setdefault("load_syst_from_summary", False)
         if kwargs.get("syst") is None and syst_cov_loader is not None:
             cov_custom = syst_cov_loader(ps, stage_key)
             if cov_custom is not None and np.any(cov_custom):
@@ -405,6 +418,7 @@ def render_summary_breakdown_plot(merged: dict, save_fig_dir: str,
         ax_i.set_yticks([])
 
     fig.tight_layout()
+    add_approval_text("", 0.98, 0.97, "right", fontsize=14)
     if save_fig:
         plt.savefig(path.join(save_fig_dir, "event_selection_summary.png"),
                     dpi=300, bbox_inches="tight")
@@ -529,7 +543,7 @@ def render_efficiency_plots(merged: dict, save_fig_dir: str, pot_str: str,
             frameon=False,
         )
 
-        add_approval_text("internal", 0.98, 0.97, "right", fontsize=14)
+        add_approval_text("", 0.98, 0.97, "right", fontsize=14)
         if var_config.var_save_name == "integrated":
             format_singlebin_plot()
         if save_fig:

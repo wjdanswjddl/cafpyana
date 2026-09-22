@@ -40,13 +40,22 @@ _DEFAULT_MERGED = (
 
 
 def resolve_genie_slug(stage_key: str, var_save_name: str, name_suffix: str | None) -> tuple[str, str]:
-    """Map a PlotSpec to ``(slug, cov_key)`` in ``cov_mat_dict.pkl``."""
+    """Map a PlotSpec to ``(slug, cov_key)`` in ``cov_mat_dict.pkl``.
+
+    Avg-χ² plots use ``chi2_avg_*`` packs (never I2). ``not_mu`` uses dedicated
+    subset packs — never a proxy for the all-track sample.
+    """
     if name_suffix == "final":
         return var_save_name, "genie_rate"
+    if name_suffix == "not_mu":
+        if var_save_name == "chi2_mu":
+            return f"chi2_avg_mu_not_mu__at_{stage_key}", "genie_rate"
+        if var_save_name == "chi2_p":
+            return f"chi2_avg_p_not_mu__at_{stage_key}", "genie_rate"
     if var_save_name == "chi2_mu":
-        return f"chi2_mu_I2__at_{stage_key}", "genie_rate"
+        return f"chi2_avg_mu__at_{stage_key}", "genie_rate"
     if var_save_name == "chi2_p":
-        return f"chi2_p_I2__at_{stage_key}", "genie_rate"
+        return f"chi2_avg_p__at_{stage_key}", "genie_rate"
     return var_save_name, "genie_rate"
 
 

@@ -11,7 +11,7 @@ import csv
 import pickle
 import re
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -128,6 +128,227 @@ def load_groups(sources: Mapping[str, Path | str]) -> Dict[str, dict]:
     return out
 
 
+def _knob_to_mode_lookup() -> Dict[str, str]:
+    """Exact knob name → physics mode from ``GENIE_KNOB_GROUPS`` (+ Ar23p / VecFF).
+
+    Skips composite packs (``FSI_compare``, ``slim``) that re-list knobs already
+    owned by a physics mode — those would otherwise overwrite CCQE/MEC/… with
+    ``FSI_compare``. ``FSI_v1_N`` / ``FSI_v3_N`` map to ``FSI`` only via
+    ``setdefault`` so they do not steal knobs already claimed by ``Other``/Ar23p.
+    """
+    from makedf.geniesyst import GENIE_KNOB_GROUPS, ar23p_genie_systematics
+
+    skip = {"slim", "FSI_compare"}
+    pack_dest = {
+        "VecFF": "CCQE",
+        "ZExp": "CCQE",
+        "FSI_v1_N": "FSI",
+        "FSI_v3_N": "FSI",
+    }
+    rev: Dict[str, str] = {}
+    for mode, knobs in GENIE_KNOB_GROUPS.items():
+        if mode in skip:
+            continue
+        dest = pack_dest.get(mode, mode)
+        soft = mode in ("FSI_v1_N", "FSI_v3_N", "Ar23p")
+        for kn in knobs:
+            name = str(kn)
+            if soft:
+                rev.setdefault(name, dest)
+            else:
+                rev[name] = dest
+    for kn in ar23p_genie_systematics:
+        rev.setdefault(str(kn), "Ar23p")
+    return rev
+
+
+def assign_knob_to_mode(knob: str, lookup: Optional[Mapping[str, str]] = None) -> str:
+    """Assign a knob from a combined ``cov_mat_dict`` to a GENIE mode bucket.
+
+    Order: exact ``GENIE_KNOB_GROUPS`` / Ar23p match → EDepFSI heuristics →
+    name-based fallback (ZExp/QE → CCQE, MEC → MEC, …) → ``Other``.
+    """
+    kn = str(knob)
+    table = lookup if lookup is not None else _knob_to_mode_lookup()
+    if kn in table:
+        return table[kn]
+    # rate twin of an exact match
+    if kn.endswith("_rate"):
+        base = kn[: -len("_rate")]
+        if base in table:
+            return table[base]
+
+    kn_u = kn.upper()
+    if "EDEPFSI" in kn_u:
+        if "MEC" in kn_u:
+            return "MEC"
+        if "QE" in kn_u or "VECFF" in kn_u or "COULOMB" in kn_u:
+            return "CCQE"
+        return "Other"  # EDepFSI FSI dials (MFP / Fr*)
+    if "ZEXP" in kn_u:
+        return "CCQE"
+    if "MEC" in kn_u:
+        return "MEC"
+    if "NONRES" in kn_u:
+        return "nonRES"
+    if "RES" in kn_u:
+        return "RES"
+    if "DIS" in kn_u:
+        return "DIS"
+    if "QE" in kn_u or "CRPA" in kn_u or "SF_Q0" in kn_u or "_SF_" in kn_u:
+        return "CCQE"
+    return "Other"
+
+
+def split_cov_mat_dict_by_mode(cov: Mapping[str, dict]) -> Dict[str, dict]:
+    """Split a combined (all-modes) ``cov_mat_dict`` into ``{mode: cov_mat_dict}``.
+
+    Each mode's per-variable row keeps only that mode's knobs and rebuilds
+    ``genie`` / ``genie_rate`` as the sum of those knobs (so mode totals match
+    the knobs shown in section 1).
+    """
+    lookup = _knob_to_mode_lookup()
+    modes: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {}
+
+    for slug, row in cov.items():
+        # Map each non-total key to a mode; totals are rebuilt per mode.
+        by_mode_keys: Dict[str, List[str]] = {}
+        for key in row:
+            if key in TOTAL_KEYS:
+                continue
+            base = key[: -len("_rate")] if key.endswith("_rate") else key
+            mode = assign_knob_to_mode(base, lookup)
+            by_mode_keys.setdefault(mode, []).append(key)
+
+        for mode, keys in by_mode_keys.items():
+            new_row: Dict[str, np.ndarray] = {
+                k: np.asarray(row[k], dtype=np.float64) for k in keys
+            }
+            tot_x = tot_r = None
+            for k, mat in new_row.items():
+                if k.endswith("_rate"):
+                    tot_r = mat.copy() if tot_r is None else tot_r + mat
+                else:
+                    tot_x = mat.copy() if tot_x is None else tot_x + mat
+            if tot_x is not None:
+                new_row["genie"] = tot_x
+            if tot_r is not None:
+                new_row["genie_rate"] = tot_r
+            modes.setdefault(mode, {})[slug] = new_row
+
+    return modes
+
+
+def load_combined_as_mode_groups(path: Path | str) -> Dict[str, dict]:
+    """Load a combined Product-B ``cov_mat_dict.pkl`` and split into mode groups.
+
+    This is the preferred Product-B inspect source: one file already merges
+    CCQE/MEC/RES/… plus both nominal and ``EDepFSI_*`` dials.
+    """
+    path = Path(path)
+    cov = load_cov_mat_dict(path)
+    groups = split_cov_mat_dict_by_mode(cov)
+    print(f"loaded combined→modes from {path}")
+    for mode in MODE_ORDER:
+        if mode in groups:
+            n_kn = sum(
+                1
+                for k in groups[mode].get("integrated", {})
+                if k not in TOTAL_KEYS and not str(k).endswith("_rate")
+            )
+            print(f"  {mode:7s} vars={len(groups[mode])}  xsec_knobs@integrated={n_kn}")
+    extra = sorted(set(groups) - set(MODE_ORDER))
+    for mode in extra:
+        print(f"  {mode:7s} vars={len(groups[mode])}")
+    return groups
+
+
+def merge_cov_mat_dict_into_groups(
+    groups: MutableMapping[str, dict],
+    extra: Mapping[str, dict],
+    *,
+    mode_for_knob: Optional[Callable[[str], str]] = None,
+) -> int:
+    """Add knobs from ``extra`` into ``groups`` (in place). Returns #keys added.
+
+    Used to fold a parallel single-knob product (e.g. VecFF) or EDepFSI-only
+    knobs into New-era mode groups without rebuilding the combined pickle.
+
+    Shape gate: a key is accepted only if its matrix matches an existing row for
+    the same ``slug`` in *any* loaded mode (or the destination row). This stops
+    May-era EDepFSI matrices (e.g. 50-bin ``vertex_y``) from creating a new
+    incompatible slug in a mode that did not already have that variable.
+    """
+    lookup = _knob_to_mode_lookup()
+    assign: Callable[[str], str] = mode_for_knob or (lambda kn: assign_knob_to_mode(kn, lookup))
+
+    def _ref_shape(slug: str, dest_row: Mapping[str, np.ndarray]) -> Optional[Tuple[int, ...]]:
+        sample = next(
+            (np.asarray(v).shape for k, v in dest_row.items() if k not in TOTAL_KEYS),
+            None,
+        )
+        if sample is not None:
+            return sample
+        for cov in groups.values():
+            row = cov.get(slug)
+            if not row:
+                continue
+            for k, v in row.items():
+                if k not in TOTAL_KEYS:
+                    return tuple(np.asarray(v).shape)
+        return None
+
+    n_added = 0
+    n_skipped = 0
+    for slug, row in extra.items():
+        for key, mat in row.items():
+            if key in TOTAL_KEYS:
+                continue
+            base = key[: -len("_rate")] if key.endswith("_rate") else key
+            mode = assign(base)
+            dest_row = groups.setdefault(mode, {}).setdefault(slug, {})
+            if key in dest_row:
+                continue
+            arr = np.asarray(mat, dtype=np.float64)
+            ref = _ref_shape(slug, dest_row)
+            if ref is not None and tuple(arr.shape) != ref:
+                n_skipped += 1
+                continue
+            if ref is None:
+                # No New-era coverage for this slug yet — do not introduce
+                # Old-era-only binning into the inspect set.
+                n_skipped += 1
+                continue
+            dest_row[key] = arr
+            n_added += 1
+            tot_key = "genie_rate" if key.endswith("_rate") else "genie"
+            if tot_key in dest_row:
+                dest_row[tot_key] = dest_row[tot_key] + arr
+            else:
+                dest_row[tot_key] = arr.copy()
+    if n_skipped:
+        print(f"  merge skip: {n_skipped} keys (binning mismatch vs existing mode row)")
+    return n_added
+
+
+def sum_cov_fracs(mats: Iterable[np.ndarray]) -> Optional[np.ndarray]:
+    """Sum fractional cov matrices; skip shape mismatches with a warning."""
+    tot = None
+    skipped = 0
+    for m in mats:
+        arr = np.asarray(m, dtype=np.float64)
+        if tot is None:
+            tot = arr.copy()
+            continue
+        if arr.shape != tot.shape:
+            skipped += 1
+            continue
+        tot = tot + arr
+    if skipped:
+        print(f"  sum_cov_fracs: skipped {skipped} matrices with mismatched shape")
+    return tot
+
+
 # ---------------------------------------------------------------------------
 # Knob / matrix accessors
 # ---------------------------------------------------------------------------
@@ -240,15 +461,6 @@ def corr_from_cov_frac(cov_frac: np.ndarray) -> np.ndarray:
         corr = np.where(denom > 0, c / denom, 0.0)
     np.fill_diagonal(corr, 1.0)
     return np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
-
-
-def sum_cov_fracs(mats: Sequence[np.ndarray]) -> Optional[np.ndarray]:
-    if not mats:
-        return None
-    tot = np.asarray(mats[0], dtype=np.float64).copy()
-    for m in mats[1:]:
-        tot = tot + np.asarray(m, dtype=np.float64)
-    return tot
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +618,122 @@ def strip_mode_prefix(lab: str) -> str:
     return s
 
 
+# Nominal ↔ EDepFSI twin dials (same GENIE parameter, retired SBNNuSyst naming).
+# Keep SBN_v1 / group-product counterparts; do not stack these EDepFSI twins.
+EDEPFSI_TWIN_BASES: Tuple[str, ...] = ("NormCCMEC", "DecayAngMEC")
+_RETIRED_EDEPFSI_TWIN_RE = re.compile(
+    r"EDepFSI_(?:Norm\w*MEC|DecayAngMEC|VecFFCCQEshape|CoulombCCQE)"
+)
+
+
+def is_edepfsi_knob(knob: str) -> bool:
+    return "EDepFSI" in str(knob)
+
+
+def is_retired_edepfsi_twin(knob: str) -> bool:
+    """True for EDepFSI copies of dials already covered by SBN_v1 / mode groups.
+
+    Retire: ``EDepFSI_*MEC*`` (NormCCMEC, NormNCMEC, DecayAngMEC), plus the
+    same-class QE twins ``EDepFSI_VecFFCCQEshape`` and ``EDepFSI_CoulombCCQE``.
+    Keep EDepFSI FSI π/N dials.
+    """
+    kn = str(knob)
+    if kn.endswith("_rate"):
+        kn = kn[: -len("_rate")]
+    return bool(_RETIRED_EDEPFSI_TWIN_RE.search(kn))
+
+
+def knob_matches_twin_base(knob: str, base: str, *, edepfsi: bool) -> bool:
+    """Match ``…_NormCCMEC`` or ``…_EDepFSI_NormCCMEC`` (and ``*_rate``)."""
+    kn = str(knob)
+    if kn.endswith("_rate"):
+        kn = kn[: -len("_rate")]
+    if edepfsi:
+        return kn.endswith(f"EDepFSI_{base}") or f"EDepFSI_{base}" in kn
+    if "EDepFSI" in kn:
+        return False
+    return kn.endswith(f"_{base}") or kn.endswith(base)
+
+
+def find_twin_cov_frac(
+    row: Mapping[str, np.ndarray],
+    kind: str,
+    base: str,
+    *,
+    edepfsi: bool,
+) -> Optional[np.ndarray]:
+    """Return the first matching knob cov_frac for ``base`` in ``row``."""
+    for kn, mat in iter_knob_cov_fracs(row, kind):
+        if knob_matches_twin_base(kn, base, edepfsi=edepfsi):
+            return np.asarray(mat, dtype=np.float64)
+    return None
+
+
+def collect_edepfsi_twin_parts(
+    groups: Mapping[str, dict],
+    slug: str,
+    kind: str,
+    base: str,
+) -> Dict[str, np.ndarray]:
+    """``{NormCCMEC: mat, EDepFSI NormCCMEC: mat}`` summed over modes if needed.
+
+    Keys are plot labels (no mode prefix). Missing side is omitted.
+    """
+    out: Dict[str, np.ndarray] = {}
+    label_nom = str(base)
+    label_edep = f"EDepFSI {base}"
+    for _mode, cov in groups.items():
+        row = cov.get(slug)
+        if not row:
+            continue
+        for edep, lab in ((False, label_nom), (True, label_edep)):
+            mat = find_twin_cov_frac(row, kind, base, edepfsi=edep)
+            if mat is None:
+                continue
+            if lab in out:
+                if out[lab].shape != mat.shape:
+                    continue
+                out[lab] = out[lab] + mat
+            else:
+                out[lab] = mat.copy()
+    return out
+
+
+def twin_parts_from_cov_mat_dict(
+    cov: Mapping[str, dict],
+    slug: str,
+    kind: str,
+    base: str,
+    *,
+    mode_filter: Optional[Callable[[str], bool]] = None,
+) -> Dict[str, np.ndarray]:
+    """Pull nominal + EDepFSI twin mats for ``base`` from a combined cov dict.
+
+    If the dict is already mode-split (``{mode: {slug: row}}``), pass that via
+    :func:`collect_edepfsi_twin_parts` instead. This helper expects the flat
+    aggregate layout ``{slug: {knob: mat}}`` **or** mode-split groups.
+    """
+    # Mode-split?
+    sample = next(iter(cov.values()), None)
+    if isinstance(sample, dict) and sample and isinstance(next(iter(sample.values()), None), dict):
+        groups = {
+            m: g
+            for m, g in cov.items()
+            if mode_filter is None or mode_filter(str(m))
+        }
+        return collect_edepfsi_twin_parts(groups, slug, kind, base)
+
+    row = cov.get(slug)
+    if not isinstance(row, dict):
+        return {}
+    out: Dict[str, np.ndarray] = {}
+    for edep, lab in ((False, str(base)), (True, f"EDepFSI {base}")):
+        mat = find_twin_cov_frac(row, kind, base, edepfsi=edep)
+        if mat is not None:
+            out[lab] = mat.copy()
+    return out
+
+
 def top_n_knobs_by_integrated(
     parts: Mapping[str, np.ndarray],
     integrated_parts: Mapping[str, np.ndarray],
@@ -506,7 +834,11 @@ def _draw_matrix_on_ax(
     tick_labels: Optional[Sequence[str]] = None,
 ):
     nbins = len(bins)
-    assert nbins - 1 == matrix.shape[0] == matrix.shape[1]
+    if not (nbins - 1 == matrix.shape[0] == matrix.shape[1]):
+        raise ValueError(
+            f"binning mismatch: len(bins)-1={nbins - 1} vs matrix {matrix.shape} "
+            f"(title={title!r})"
+        )
     unif = np.linspace(0.0, float(nbins - 1), nbins)
     extent = [unif[0], unif[-1], unif[0], unif[-1]]
     tick_pos = (unif[:-1] + unif[1:]) / 2
@@ -738,8 +1070,15 @@ def show_cov_corr_heatmaps(
 ):
     """Frac. cov (viridis) + correlation as one wide figure (1×2 subplots)."""
     cf = np.asarray(cov_frac, dtype=np.float64)
-    corr = corr_from_cov_frac(cf)
     bins = np.asarray(vc.bins, float)
+    if cf.shape[0] != len(bins) - 1 or cf.shape[0] != cf.shape[1]:
+        print(
+            f"skip cov/corr heatmap for {getattr(vc, 'var_save_name', '?')}: "
+            f"matrix {cf.shape} vs bins→{len(bins) - 1} "
+            f"(suptitle={suptitle!r})"
+        )
+        return None
+    corr = corr_from_cov_frac(cf)
     is_int = getattr(vc, "var_save_name", "") == "integrated" or len(bins) == 2
     if is_int:
         xlab = "All Events"

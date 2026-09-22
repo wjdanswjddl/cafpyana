@@ -824,37 +824,41 @@ class VariableConfig:
             xsec_label=r""
         )
 
-    # --- Chi2 PID (generic pfp track, plane I2 defaults) ---
+    # --- Chi2 PID (plane-averaged; matches muon/proton PID cuts) ---
     @classmethod
     def chi2_mu(cls):
+        """Plane-averaged muon χ² (same column as PID). Prefer this over I2-only."""
         return cls(
             var_save_name="chi2_mu",
-            var_plot_name="$\\chi^2_{\\mu,\\mathrm{I2}}$",
-            var_labels=[r"$\mathrm{\chi^{2}_{\mu,\,I2}}$",
-            r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{reco.}}}$",
-            r"$\mathrm{\chi^{2}_{\mu,\,I2,\mathrm{true}}}$"],
+            var_plot_name=r"$\chi^2_{\mu,\mathrm{avg}}$",
+            var_labels=[
+                r"$\mathrm{\chi^{2}_{\mu,\,\mathrm{avg}}}$",
+                r"$\mathrm{\chi^{2}_{\mu,\,\mathrm{avg},\,\mathrm{reco.}}}$",
+                r"$\mathrm{\chi^{2}_{\mu,\,\mathrm{avg},\,\mathrm{true}}}$",
+            ],
             bins=np.linspace(0, 60, 61),
-            # Current selections store the plane-2 chi2 as `chi2_muon` (no *_new suffix).
-            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'I2', 'chi2_muon',  ''),
-            var_evt_truth_col=('', '', '', '', '', ''),
-            var_nu_col=('', '', ''),
-            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\mu}}$ ($\mathrm{cm}^2$)"
+            var_evt_reco_col=("pfp", "trk", "chi2pid", "avg", "chi2_muon", ""),
+            var_evt_truth_col=("", "", "", "", "", ""),
+            var_nu_col=("", "", ""),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\mu}}$ ($\mathrm{cm}^2$)",
         )
 
     @classmethod
     def chi2_proton(cls):
+        """Plane-averaged proton χ² (same column as PID). Prefer this over I2-only."""
         return cls(
             var_save_name="chi2_p",
-            var_plot_name="$\\chi^2_{p,\\mathrm{I2}}$",
-            var_labels=[r"$\mathrm{\chi^{2}_{p,\,I2}}$",
-            r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{reco.}}}$",
-            r"$\mathrm{\chi^{2}_{p,\,I2,\mathrm{true}}}$"],
+            var_plot_name=r"$\chi^2_{p,\mathrm{avg}}$",
+            var_labels=[
+                r"$\mathrm{\chi^{2}_{p,\,\mathrm{avg}}}$",
+                r"$\mathrm{\chi^{2}_{p,\,\mathrm{avg},\,\mathrm{reco.}}}$",
+                r"$\mathrm{\chi^{2}_{p,\,\mathrm{avg},\,\mathrm{true}}}$",
+            ],
             bins=np.linspace(0, 350, 61),
-            # Current selections store the plane-2 chi2 as `chi2_proton` (no *_new suffix).
-            var_evt_reco_col=('pfp', 'trk', 'chi2pid', 'I2', 'chi2_proton',  ''),
-            var_evt_truth_col=('', '', '', '', '', ''),
-            var_nu_col=('', '', ''),
-            xsec_label=r"$\frac{d\sigma}{d\chi^2_{\\p}}$ ($\mathrm{cm}^2$)"
+            var_evt_reco_col=("pfp", "trk", "chi2pid", "avg", "chi2_proton", ""),
+            var_evt_truth_col=("", "", "", "", "", ""),
+            var_nu_col=("", "", ""),
+            xsec_label=r"$\frac{d\sigma}{d\chi^2_{p}}$ ($\mathrm{cm}^2$)",
         )
 
     # --- Chi2 PID by plane (I0 / I1 / I2 / avg) ---

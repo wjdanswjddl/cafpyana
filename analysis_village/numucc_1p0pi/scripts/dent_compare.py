@@ -61,6 +61,7 @@ from analysis_village.numucc_1p0pi.selection_framework import multicol_get_serie
 from analysis_village.numucc_1p0pi.syst_pipeline_walker import (
     CUT_STAGE_VAR_SPECS,
     FINAL_STAGE_KEY,
+    active_cut_stage_specs,
     get_var_series,
     histogram_var,
     walk_pipeline,
@@ -88,7 +89,7 @@ DIAGNOSTIC_CUT_VLINES: Dict[str, List[List[float]]] = {
     "track_score": [[TRACKSCORE_TH, 1]],
     "vtx_dist": [[VTXDIST_TH, 0]],
     "trk_len": [[MU_LEN_TH, 1]],
-    "mcs_range_diff": [[-QUAL_TH, 0], [QUAL_TH, 1]],
+    "mcs_range_diff": [[-QUAL_TH, 1], [QUAL_TH, 0]],
     "chi2_mu": [[MU_CHI2MU_TH, 0]],
     "chi2_p": [[MU_CHI2P_TH, 1]],
     "chi2_avg_mu": [[MU_CHI2MU_TH, 0]],
@@ -172,13 +173,13 @@ def _per_evt_col(evt_df, col_tuple):
 
 def build_sel_all_var_defs() -> Dict[str, dict]:
     defs: Dict[str, dict] = {}
-    for spec in CUT_STAGE_VAR_SPECS:
+    for spec in active_cut_stage_specs():
         vc = spec.var_config
         name = vc.var_save_name
         if name in defs:
             continue
         col = vc.var_evt_reco_col
-        if spec.target == "trk":
+        if spec.target in ("trk", "trk_len50", "trk_not_mu"):
             extract = lambda df, col=col: _per_trk_col(df, col)
         else:
             extract = lambda df, col=col: _per_evt_col(df, col)
@@ -353,7 +354,7 @@ def source_file_pot(
 
 def _stage_specs_by_key() -> Dict[str, List[Tuple[str, Any, str]]]:
     out: Dict[str, List[Tuple[str, Any, str]]] = {}
-    for spec in CUT_STAGE_VAR_SPECS:
+    for spec in active_cut_stage_specs():
         out.setdefault(spec.stage_key, []).append(
             (spec.var_config.var_save_name, spec.var_config, spec.target)
         )
@@ -561,6 +562,17 @@ def process_sel_all_file(
                 split[key] = pd.read_hdf(df_file, key=f"{key}_{i}")
             except Exception:
                 split[key] = None
+        # updatecalo-cvonly matched files may only expose evt_cv / trk_cv.
+        if split.get("evt") is None:
+            try:
+                split["evt"] = pd.read_hdf(df_file, key=f"evt_cv_{i}")
+            except Exception:
+                pass
+        if split.get("trk") is None:
+            try:
+                split["trk"] = pd.read_hdf(df_file, key=f"trk_cv_{i}")
+            except Exception:
+                pass
 
         hdr = split.get("hdr")
         chunk_pot += hdr_chunk_pot(hdr)
@@ -568,6 +580,17 @@ def process_sel_all_file(
         trk = split.get("trk")
         if evt is None or len(evt) == 0:
             continue
+
+        # Prefer chi2_*_new when present (CV updatecalo-cvonly / WireMod).
+        if trk is not None and ("pfp", "trk", "chi2pid", "I0", "chi2_muon_new", "") in getattr(
+            trk, "columns", ()
+        ):
+            from analysis_village.numucc_1p0pi.syst_detvar_common import (
+                apply_wiremod_chi2_variation,
+            )
+
+            trk = apply_wiremod_chi2_variation(trk, "cv")
+            split["trk"] = trk
 
         entry_table = (
             _sel_all_entry_key_table(hdr, evt) if keyed_maps is not None else None

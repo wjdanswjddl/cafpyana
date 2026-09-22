@@ -419,8 +419,12 @@ def save_matched_sel_all_files(
                 continue
 
             split_out = {"hdr": hdr_out, "evt": evt_out}
+            # Base trk: prefer plain trk, else trk_cv (updatecalo-cvonly campaigns).
             try:
-                trk = pd.read_hdf(fpath, key=f"trk_{i}")
+                try:
+                    trk = pd.read_hdf(fpath, key=f"trk_{i}")
+                except Exception:
+                    trk = pd.read_hdf(fpath, key=f"trk_cv_{i}")
                 trk_out = _filter_df_by_entries(trk, matched_entries)
                 if trk_out is not None:
                     split_out["trk"] = trk_out

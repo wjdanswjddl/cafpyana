@@ -124,3 +124,35 @@ python selected_events_cumulative.py --n_time_splits 15 --exposure-batch-indices
 - `syst_multisim_aggregate.py` output: under `--syst-disk-root`, writes `MCstat/`, `Flux/`, `G4/`,
   plus `covariance_manifest.json` at the root of that tree (no `Cosmics/`; use the cosmics driver).
 - Chunked map pickles: `nu__*.pkl` (multisim), `mc__*.pkl` / `data__*.pkl` (event selection).
+
+---
+
+## PRL publication collection (`numucc_1p0pi`)
+
+**Base directory** for finalized publication artifacts:
+
+`/exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/PRL`
+
+| Path under base | Contents |
+| --- | --- |
+| `systematics/` | Publication systematic covariances (built incrementally) |
+| `systematics/productB_sel_mup/GENIE/` | Product B GENIE total = **`GENIE_slim_v3`** (rate + xsec) |
+| `systematics/productB_sel_mup/GENIE/cov_mat_dict_per_knob.pkl` | Product B **per-knob** matrices (all waves merged) |
+| `systematics/productB_sel_mup/GENIE/knob_mode_map.json` | Knob → wave + production mode + **Ar23p-distributed** mode |
+| `systematics/productB_sel_mup/Cosmics/` | Product B cosmics (`cosmics_syst_dict.npz`) |
+| `systematics/productA_sel_all/GENIE/` | Product A GENIE total = **`GENIE_slim_v3`** (rate + xsec) |
+| `systematics/productA_sel_all/Cosmics/` | Product A cosmics (`cosmics_syst_dict.npz`) |
+
+Each `GENIE/` dir has loader-compatible `cov_mat_dict.pkl` (`genie` = xsec `cov_frac`,
+`genie_rate` = rate `cov_frac`), archival `genie_slim_v3.npz`, and `manifest.json`.
+
+### Legacy systematics tree (retired)
+
+The older combined tree used by many notebooks / `utils._DEFAULT_SYST_DISK_ROOT` was renamed
+(do **not** delete; keep for reference):
+
+- **Was:** `/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final/`
+- **Now:** `/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final-archive/`
+
+Code defaults that still mention `systematics-final` should be pointed at the `-archive`
+path or at `PRL/systematics/...` as those products are migrated.

@@ -70,7 +70,9 @@ DEFAULT_GIBUU_DF_DIR = (
     f"{DEFAULT_DFS_ROOT}/2026_05_18_104112__sel_mup-mc-GiBUU/merged_perTPC"
 )
 DEFAULT_FLUX_FILE = "/exp/sbnd/data/users/munjung/flux/SBND_gsimple_raytrace/Gen1.root"
-DEFAULT_SYST_DISK_ROOT = "/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final"
+DEFAULT_SYST_DISK_ROOT = (
+    "/exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/PRL/systematics/productB_sel_mup"
+)
 
 VARIABLE_BUILDERS = {
     "muon_momentum": VariableConfig.muon_momentum,

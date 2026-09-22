@@ -113,9 +113,11 @@ def _setup_tree() -> None:
 def main() -> int:
     os.chdir(REPO)
     # Avoid importing selections.py (heavy deps); confirm canonical default from source text.
+    import re
+
     sel_py = REPO / "analysis_village/numucc_1p0pi/makedf/selections.py"
     sel_txt = sel_py.read_text()
-    if "MU_CHI2MU_TH  = 30" not in sel_txt and "MU_CHI2MU_TH = 30" not in sel_txt:
+    if not re.search(r"MU_CHI2MU_TH\s*=\s*30\b", sel_txt):
         raise SystemExit(f"expected MU_CHI2MU_TH=30 in {sel_py}")
     print(f"canonical MU_CHI2MU_TH=30 (selections.py); this run uses {MU_CHI2MU_TH}", flush=True)
 
@@ -241,7 +243,7 @@ $PY -u analysis_village/numucc_1p0pi/scripts/wiremod_merge_walk_shards.py \\
   --yz-shard-ckpts $YZ_CKPTS \\
   --xtxw-shard-ckpts $XTXW_CKPTS \\
   --cv-shard-ckpts $CV_CKPTS \\
-  --cv-campaign 2026_09_04_172912__sel_all-mc-CV \\
+  --cv-campaign 2026_09_19_035612__sel_all-mc-CV-updatecalo-cvonly \\
   --mu-chi2mu-th "$MU_TH" >> "$CACHE/wiremod_merge_walk.log" 2>&1
 echo "merge_rc=$? " >> "$SUP"
 tail -12 "$CACHE/wiremod_merge_walk.log" >> "$SUP"

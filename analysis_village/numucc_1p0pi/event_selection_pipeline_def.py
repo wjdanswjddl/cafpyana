@@ -354,7 +354,7 @@ def build_pipeline() -> List[Stage]:
                 breakdown_type="topology",
                 selector=sel_evt,
                 plot_label_template=("Neutrino Score", "Events (POT={pot})", ""),
-                save_kwargs={"ratio": True, "ax_ylim_ratio": 1.8, "vline": [[NU_SCORE_TH, 1]]},
+                save_kwargs={"ratio": True, "ax_ylim_ratio": 2.7, "vline": [[NU_SCORE_TH, 1]]},
             ),
         ],
         save_for_efficiency=True,
@@ -382,14 +382,14 @@ def build_pipeline() -> List[Stage]:
                 breakdown_type="topology",
                 selector=sel_evt,
                 plot_label_template=("Number of tracks", "Events (POT={pot})", ""),
-                save_kwargs={"ratio": True, "ax_ylim_ratio": 1.8},
+                save_kwargs={"ratio": True, "ax_ylim_ratio": 1.8, "vline": [[SAVE_NTRKS]]},
             ),
             PlotSpec(
                 var_config=VariableConfig.n_trks(),
                 breakdown_type="genie",
                 selector=sel_evt,
                 plot_label_template=("Number of tracks", "Events (POT={pot})", ""),
-                save_kwargs={"ratio": True, "ax_ylim_ratio": 1.8},
+                save_kwargs={"ratio": True, "ax_ylim_ratio": 1.8, "vline": [[SAVE_NTRKS]]},
             ),
         ],
         save_for_efficiency=True,
@@ -478,14 +478,15 @@ def build_pipeline() -> List[Stage]:
                 breakdown_type="pdg",
                 selector=sel_trks_concat,
                 plot_label_template=(VariableConfig.trk_len().var_labels[0], "Tracks / Bin (POT={pot})", ""),
-                save_kwargs={"ratio": True, "vline": [[50, 1]]},
+                save_kwargs={"ratio": True, "vline": [[MU_LEN_TH, 1]]},
             ),
             PlotSpec(
                 var_config=VariableConfig.mcs_range_diff(),
                 breakdown_type="pdg",
                 selector=sel_trks_concat,
                 plot_label_template=(VariableConfig.mcs_range_diff().var_labels[0], "Tracks / Bin (POT={pot})", ""),
-                save_kwargs={"ratio": True, "vline": [[-QUAL_TH, 0], [QUAL_TH, 1]]},
+                # Keep |Δp|/p < QUAL_TH: arrow into the kept window at each edge.
+                save_kwargs={"ratio": True, "vline": [[-QUAL_TH, 1], [QUAL_TH, 0]]},
             ),
             PlotSpec(
                 var_config=VariableConfig.chi2_mu(),
@@ -508,7 +509,8 @@ def build_pipeline() -> List[Stage]:
                 selector=sel_trks_concat_not_mu,
                 name_suffix="not_mu",
                 plot_label_template=(VariableConfig.chi2_mu().var_labels[0], "Events (POT={pot})", ""),
-                save_kwargs={"ratio": True},
+                # Muon-ID boundary (these tracks failed the muon χ²μ < th cut).
+                save_kwargs={"ratio": True, "vline": [[MU_CHI2MU_TH, 0]]},
             ),
             PlotSpec(
                 var_config=VariableConfig.chi2_proton(),
@@ -516,7 +518,8 @@ def build_pipeline() -> List[Stage]:
                 selector=sel_trks_concat_not_mu,
                 name_suffix="not_mu",
                 plot_label_template=(VariableConfig.chi2_proton().var_labels[0], "Events (POT={pot})", ""),
-                save_kwargs={"ratio": True, "vline": [[MU_CHI2P_TH, 1]]},
+                # Proton candidate: χ²p < P_CHI2P_TH (keep left).
+                save_kwargs={"ratio": True, "vline": [[P_CHI2P_TH, 0]]},
             ),
         ],
         save_for_efficiency=True,
@@ -576,13 +579,20 @@ def build_pipeline() -> List[Stage]:
     # final-stage summary plots (cell 80 in the notebook)
     final_summary_plots: List[PlotSpec] = []
     _final_stage_evt_vcs = list(CORE_SELECTED_EVT_VARIABLE_CONFIGS)
+    _final_vlines = {
+        "muon-p": [[MU_PLO_TH, 1], [MU_PHI_TH, 0]],
+        "proton-p": [[P_PLO_TH, 1], [P_PHI_TH, 0]],
+    }
     for vc in with_final_selected_evt_variables(_final_stage_evt_vcs):
+        skw = {"ratio": True, "ax_ylim_ratio": 1.6}
+        if vc.var_save_name in _final_vlines:
+            skw["vline"] = _final_vlines[vc.var_save_name]
         final_summary_plots.append(PlotSpec(
             var_config=vc,
             breakdown_type="topology",
             selector=sel_evt,
             plot_label_template=(vc.var_labels[1], "Events (POT={pot})", ""),
-            save_kwargs={"ratio": True, "ax_ylim_ratio": 1.6},
+            save_kwargs=skw,
             name_suffix="final",
         ))
 

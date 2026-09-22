@@ -29,6 +29,12 @@ from analysis_village.numucc_1p0pi.evt_derived_kinematics import (
     ensure_mc_level_phi_mcnu,
 )
 from analysis_village.numucc_1p0pi.selection_framework import multicol_resolve_column_key
+from analysis_village.numucc_1p0pi.beam_quality import apply_beam_quality_cuts
+
+# Match ``scripts/selected_xsec_overlay.py`` / Product B.
+FOM_CUT = 0.98
+MIN_RUN_DURATION_MIN = 20.0
+APPLY_BEAM_QUALITY_DEFAULT = True
 
 
 def hdf_has_mcnu(df_file: str) -> bool:
@@ -94,6 +100,44 @@ def accumulate_hdr_meta(
         chunk_cosmic_gates_intime[0] += hdr_cosmic_gates_intime(hdr_df)
     elif sample == "offbeam":
         chunk_cosmic_gates_offbeam[0] += hdr_cosmic_gates_offbeam(hdr_df)
+
+
+def filter_df_to_good_hdr(
+    df: pd.DataFrame | None,
+    hdr_good: pd.DataFrame,
+) -> pd.DataFrame | None:
+    """Keep rows whose hdr-level MultiIndex matches ``hdr_good``."""
+    if df is None or len(df) == 0:
+        return df
+    hdr_idx = hdr_good.index
+    n_hdr = hdr_idx.nlevels if isinstance(hdr_idx, pd.MultiIndex) else 1
+    if isinstance(df.index, pd.MultiIndex) and df.index.nlevels > n_hdr:
+        keyed = df.index.droplevel(list(range(n_hdr, df.index.nlevels)))
+        return df.loc[keyed.isin(hdr_idx)].copy()
+    return df.loc[df.index.isin(hdr_idx)].copy()
+
+
+def apply_data_beam_quality(
+    evt_df: pd.DataFrame,
+    trk_df: pd.DataFrame | None,
+    hdr_df: pd.DataFrame,
+    trigger_df: pd.DataFrame | None,
+    pot_df: pd.DataFrame,
+    *,
+    fom_cut: float = FOM_CUT,
+    min_run_duration_min: float = MIN_RUN_DURATION_MIN,
+):
+    """Apply Product-B-style beam-quality cuts; return filtered frames + summary."""
+    hdr_in = hdr_df.join(trigger_df) if trigger_df is not None else hdr_df
+    evt_good, hdr_good, summary = apply_beam_quality_cuts(
+        evt_df,
+        hdr_in,
+        pot_df,
+        fom_cut=fom_cut,
+        min_run_duration_min=min_run_duration_min,
+    )
+    trk_good = filter_df_to_good_hdr(trk_df, hdr_good)
+    return evt_good, trk_good, hdr_good, summary
 
 
 def intrinsic_weight_series(
@@ -228,6 +272,7 @@ def run_batch_selection(
     max_splits_per_file: int | None = None,
     concat_load: bool = True,
     pipeline_trace=None,
+    apply_beam_quality: bool | None = None,
 ) -> Dict[str, Any]:
     """Load a file batch, run the notebook pipeline, write one pickle.
 
@@ -235,10 +280,18 @@ def run_batch_selection(
     files are concatenated first (legacy ``dfs_from_dir`` / ``n_max_concat`` style)
     and the selection pipeline runs once on the combined frames — much faster than
     per-file load → run cycles.
+
+    For ``sample=="data"``, beam-quality cuts are applied by default (same as
+    Product B / ``selected_xsec_overlay``), and ``chunk_pot`` is the good POT.
     """
+    if apply_beam_quality is None:
+        apply_beam_quality = APPLY_BEAM_QUALITY_DEFAULT and sample == "data"
+
     keys = ["evt", "trk", "hdr"]
     load_mcnu = sample == "mc" and any(hdf_has_mcnu(f) for f in df_files)
     keys_load = keys + (["mcnu"] if load_mcnu else [])
+    if apply_beam_quality:
+        keys_load = keys_load + ["trigger", "bnbpot"]
 
     mc_univ_tags = tuple(mc_univ_syst_tags) if sample == "mc" else ()
     runner = build_runner(sample, mc_univ_syst_tags=mc_univ_tags or None)
@@ -249,6 +302,7 @@ def run_batch_selection(
     chunk_cosmic_gates_offbeam = [0.0]
     per_file_meta: List[Dict[str, Any]] = []
     n_evt_total = 0
+    bq_summary_dict: Dict[str, Any] | None = None
 
     use_concat = bool(concat_load) and len(df_files) > 1
     if use_concat:
@@ -258,19 +312,46 @@ def run_batch_selection(
             sample=sample,
             max_splits_per_file=max_splits_per_file,
         )
-        for meta in per_file_meta:
-            chunk_pot[0] += float(meta.get("pot", 0.0))
-            if sample == "data":
-                chunk_gates_bnb[0] += float(meta.get("gates_bnb", 0.0))
-            elif sample == "intime":
-                chunk_cosmic_gates_intime[0] += float(meta.get("cosmic_gates_intime", 0.0))
-            elif sample == "offbeam":
-                chunk_cosmic_gates_offbeam[0] += float(meta.get("cosmic_gates_offbeam", 0.0))
+        if not apply_beam_quality:
+            for meta in per_file_meta:
+                chunk_pot[0] += float(meta.get("pot", 0.0))
+                if sample == "data":
+                    chunk_gates_bnb[0] += float(meta.get("gates_bnb", 0.0))
+                elif sample == "intime":
+                    chunk_cosmic_gates_intime[0] += float(meta.get("cosmic_gates_intime", 0.0))
+                elif sample == "offbeam":
+                    chunk_cosmic_gates_offbeam[0] += float(meta.get("cosmic_gates_offbeam", 0.0))
 
         evt_df = file_dfs["evt"]
         trk_df = file_dfs["trk"]
         hdr_df = file_dfs.get("hdr")
         mcnu_df = file_dfs.get("mcnu") if load_mcnu else None
+
+        if apply_beam_quality:
+            pot_df = file_dfs.get("bnbpot")
+            if pot_df is None or hdr_df is None:
+                raise RuntimeError(
+                    "beam quality requires hdr + bnbpot tables in data .df files"
+                )
+            evt_df, trk_df, hdr_df, bq = apply_data_beam_quality(
+                evt_df, trk_df, hdr_df, file_dfs.get("trigger"), pot_df
+            )
+            chunk_pot[0] = float(hdr_df["pot"].sum())
+            chunk_gates_bnb[0] = hdr_data_gates_bnb(hdr_df)
+            bq_summary_dict = {
+                "n_evt_prefilter": bq.n_evt_prefilter,
+                "n_evt_good": bq.n_evt_good,
+                "n_hdr_total": bq.n_hdr_total,
+                "n_hdr_bad": bq.n_hdr_bad,
+                "n_short_runs": bq.n_short_runs,
+                "pot_prefilter": bq.pot_prefilter,
+                "pot_good": bq.pot_good,
+            }
+            if pipeline_trace is not None:
+                pipeline_trace(
+                    f"[beam_quality] evt {bq.n_evt_good}/{bq.n_evt_prefilter}  "
+                    f"POT {bq.pot_good:.3e}/{bq.pot_prefilter:.3e}"
+                )
 
         attach_intrinsic_weights(evt_df, trk_df, sample, use_mc_genweight)
         evt_df, mcnu_df = ensure_phi_and_kinematics_cols(evt_df, trk_df, mcnu_df)
@@ -289,19 +370,61 @@ def run_batch_selection(
             file_dfs = load_dfs(df_file, keys_load, n_max_concat=cap)
 
             hdr_df = file_dfs.get("hdr")
-            per_file_meta.append(file_hdr_meta(sample, hdr_df, df_file))
-            accumulate_hdr_meta(
-                sample,
-                hdr_df,
-                chunk_pot,
-                chunk_gates_bnb,
-                chunk_cosmic_gates_intime,
-                chunk_cosmic_gates_offbeam,
-            )
-
             evt_df = file_dfs["evt"]
             trk_df = file_dfs["trk"]
             mcnu_df = file_dfs.get("mcnu") if load_mcnu else None
+
+            if apply_beam_quality:
+                pot_df = file_dfs.get("bnbpot")
+                if pot_df is None or hdr_df is None:
+                    raise RuntimeError(
+                        f"beam quality requires hdr + bnbpot in {df_file}"
+                    )
+                evt_df, trk_df, hdr_df, bq = apply_data_beam_quality(
+                    evt_df, trk_df, hdr_df, file_dfs.get("trigger"), pot_df
+                )
+                file_meta = file_hdr_meta(sample, hdr_df, df_file)
+                file_meta["beam_quality"] = {
+                    "n_evt_prefilter": bq.n_evt_prefilter,
+                    "n_evt_good": bq.n_evt_good,
+                    "pot_prefilter": bq.pot_prefilter,
+                    "pot_good": bq.pot_good,
+                }
+                per_file_meta.append(file_meta)
+                accumulate_hdr_meta(
+                    sample,
+                    hdr_df,
+                    chunk_pot,
+                    chunk_gates_bnb,
+                    chunk_cosmic_gates_intime,
+                    chunk_cosmic_gates_offbeam,
+                )
+                if bq_summary_dict is None:
+                    bq_summary_dict = {
+                        "n_evt_prefilter": 0,
+                        "n_evt_good": 0,
+                        "n_hdr_total": 0,
+                        "n_hdr_bad": 0,
+                        "n_short_runs": 0,
+                        "pot_prefilter": 0.0,
+                        "pot_good": 0.0,
+                    }
+                bq_summary_dict["n_evt_prefilter"] += bq.n_evt_prefilter
+                bq_summary_dict["n_evt_good"] += bq.n_evt_good
+                bq_summary_dict["n_hdr_total"] += bq.n_hdr_total
+                bq_summary_dict["n_hdr_bad"] += bq.n_hdr_bad
+                bq_summary_dict["pot_prefilter"] += bq.pot_prefilter
+                bq_summary_dict["pot_good"] += bq.pot_good
+            else:
+                per_file_meta.append(file_hdr_meta(sample, hdr_df, df_file))
+                accumulate_hdr_meta(
+                    sample,
+                    hdr_df,
+                    chunk_pot,
+                    chunk_gates_bnb,
+                    chunk_cosmic_gates_intime,
+                    chunk_cosmic_gates_offbeam,
+                )
 
             attach_intrinsic_weights(evt_df, trk_df, sample, use_mc_genweight)
             evt_df, mcnu_df = ensure_phi_and_kinematics_cols(evt_df, trk_df, mcnu_df)
@@ -331,6 +454,8 @@ def run_batch_selection(
         "n_files": len(df_files),
         "concat_load": use_concat,
         "workflow": "batched_notebook",
+        "apply_beam_quality": bool(apply_beam_quality),
+        "beam_quality": bq_summary_dict,
         # Efficiency numerators always fill for MC; mcnu only enables the
         # generated-neutrino denominator (else render uses first-stage evt).
         "mc_efficiency_enabled": sample == "mc",

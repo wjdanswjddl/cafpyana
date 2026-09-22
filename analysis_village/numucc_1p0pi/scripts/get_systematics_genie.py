@@ -110,6 +110,7 @@ from analysis_village.numucc_1p0pi.syst_pipeline_walker import (  # noqa: E402
     CUT_STAGE_RATE_ONLY_SLUGS,
     CUT_STAGE_VAR_SPECS,
     FINAL_STAGE_KEY,
+    active_cut_stage_specs,
     get_var_series,
     histogram_var,
     walk_pipeline,
@@ -184,7 +185,7 @@ def genie_all_var_configs(input_stage: str) -> List[VariableConfig]:
         return filter_genie_var_configs(genie_final_var_configs())
     seen: set[str] = set()
     out: List[VariableConfig] = []
-    for spec in CUT_STAGE_VAR_SPECS:
+    for spec in active_cut_stage_specs():
         sn = spec.var_config.var_save_name
         if sn not in seen:
             seen.add(sn)
@@ -882,7 +883,7 @@ def run_chunk_map(
 
     cut_by_stage: Dict[str, List[Any]] = {}
     allow = genie_var_save_name_allowlist()
-    for spec in CUT_STAGE_VAR_SPECS:
+    for spec in active_cut_stage_specs():
         if allow is not None and spec.var_config.var_save_name not in allow:
             continue
         cut_by_stage.setdefault(spec.stage_key, []).append(spec)

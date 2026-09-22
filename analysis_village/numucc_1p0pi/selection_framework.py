@@ -233,6 +233,11 @@ class OverlayHistData:
     offbeam_err2: np.ndarray = field(default=None)
     dirt_hist: np.ndarray = field(default=None)
     dirt_err2: np.ndarray = field(default=None)
+    # PDG breakdown only: dirt filled per truth-PDG category (same order as mc_hist)
+    # so overlays can fold Low-E Dirt into μ/p/π/Other instead of a single label.
+    # Scaled with ``scale_dirt`` (not ``scale_mc``). Leave None for non-pdg.
+    dirt_cat_hist: Optional[np.ndarray] = None  # (n_cat, n_bin)
+    dirt_cat_err2: Optional[np.ndarray] = None
     data_hist: np.ndarray = field(default=None)
     data_err2: np.ndarray = field(default=None)
     # MC-only: optional per-syst universe histograms for chunked syst covariance:
@@ -259,6 +264,10 @@ class OverlayHistData:
         if self.dirt_hist is None:
             self.dirt_hist = np.zeros(n_bin)
             self.dirt_err2 = np.zeros(n_bin)
+        if self.breakdown_type == "pdg":
+            if self.dirt_cat_hist is None:
+                self.dirt_cat_hist = np.zeros((n_cat, n_bin))
+                self.dirt_cat_err2 = np.zeros((n_cat, n_bin))
         if self.data_hist is None:
             self.data_hist = np.zeros(n_bin)
             self.data_err2 = np.zeros(n_bin)
@@ -355,6 +364,26 @@ class OverlayHistData:
                                 weights=w * uw_sub[iu],
                             )
                             self.mc_univ_hist[syst][iu, ic] += h_u
+        elif sample == "dirt" and self.breakdown_type == "pdg":
+            # Truth PDG is available on dirt tracks — fill per category so
+            # overlays can merge into μ/p/π/Other (scaled with scale_dirt).
+            _, get_cuts_fn = BREAKDOWN_REGISTRY[self.breakdown_type]
+            cuts = get_cuts_fn(df, ret_cuts=True)
+            if self.dirt_cat_hist is None:
+                n_cat = BREAKDOWN_REGISTRY[self.breakdown_type][0]
+                n_bin = len(self.bins) - 1
+                self.dirt_cat_hist = np.zeros((n_cat, n_bin))
+                self.dirt_cat_err2 = np.zeros((n_cat, n_bin))
+            for ic, cut in enumerate(cuts):
+                cut = np.asarray(cut, dtype=bool)
+                if not cut.any():
+                    continue
+                v = var[cut]
+                w = weights[cut]
+                h, _ = np.histogram(v, bins=self.bins, weights=w)
+                e2, _ = np.histogram(v, bins=self.bins, weights=np.square(w))
+                self.dirt_cat_hist[ic] += h
+                self.dirt_cat_err2[ic] += e2
         else:
             h, _  = np.histogram(var, bins=self.bins, weights=weights)
             e2, _ = np.histogram(var, bins=self.bins, weights=np.square(weights))
@@ -379,6 +408,18 @@ class OverlayHistData:
         self.offbeam_err2 += other.offbeam_err2
         self.dirt_hist += other.dirt_hist
         self.dirt_err2 += other.dirt_err2
+        ou_dirt = getattr(other, "dirt_cat_hist", None)
+        if ou_dirt is not None:
+            if getattr(self, "dirt_cat_hist", None) is None:
+                self.dirt_cat_hist = np.asarray(ou_dirt, dtype=float).copy()
+                self.dirt_cat_err2 = np.asarray(
+                    getattr(other, "dirt_cat_err2"), dtype=float
+                ).copy()
+            else:
+                self.dirt_cat_hist += np.asarray(ou_dirt, dtype=float)
+                self.dirt_cat_err2 += np.asarray(
+                    getattr(other, "dirt_cat_err2"), dtype=float
+                )
         self.data_hist += other.data_hist
         self.data_err2 += other.data_err2
         ou = getattr(other, "mc_univ_hist", None)
@@ -1124,10 +1165,12 @@ def sanitize_merged_histdata_finite(merged: Dict[str, Any]) -> Tuple[int, int]:
             "offbeam_err2",
             "dirt_hist",
             "dirt_err2",
+            "dirt_cat_hist",
+            "dirt_cat_err2",
             "data_hist",
             "data_err2",
         ):
-            arr = getattr(hd, attr)
+            arr = getattr(hd, attr, None)
             if arr is None:
                 continue
             if np.issubdtype(arr.dtype, np.number) and not np.all(np.isfinite(arr)):
@@ -1217,6 +1260,13 @@ def apply_global_exposure_scales(
         if hd.has_dirt:
             hd.dirt_hist *= sm["scale_dirt"]
             hd.dirt_err2 *= sm["scale_dirt"] ** 2
+            if getattr(hd, "dirt_cat_hist", None) is not None:
+                hd.dirt_cat_hist = (
+                    np.asarray(hd.dirt_cat_hist, dtype=float) * sm["scale_dirt"]
+                )
+                hd.dirt_cat_err2 = (
+                    np.asarray(hd.dirt_cat_err2, dtype=float) * sm["scale_dirt"] ** 2
+                )
         if hd.has_mc and getattr(hd, "mc_univ_hist", None):
             sf = sm["scale_mc"]
             for _k in hd.mc_univ_hist:

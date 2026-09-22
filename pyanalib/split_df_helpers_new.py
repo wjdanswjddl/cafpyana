@@ -173,7 +173,12 @@ def dfs_from_dir(
     load_errors = []
 
     for mc_file in tqdm(files_to_process):
-        mc_n_split = get_n_split(mc_file)
+        try:
+            mc_n_split = get_n_split(mc_file)
+        except Exception as e:
+            load_errors.append((mc_file, e))
+            print(f"Error reading split from {mc_file}: {e}")
+            continue
         splits_cap = int(mc_n_split) if n_max_splits_per_file is None else int(n_max_splits_per_file)
         try:
             mc_dfs = load_dfs(mc_file, keys2load, n_max_concat=splits_cap)

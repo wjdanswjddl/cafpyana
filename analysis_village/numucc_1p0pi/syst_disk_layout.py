@@ -1,5 +1,12 @@
 """On-disk layout for precomputed systematic covariances consumed by ``utils.get_syst_unc``.
 
+Canonical consumer roots (PRL publication collection):
+
+* Product **B**: ``…/PRL/systematics/productB_sel_mup``
+* Product **A**: ``…/PRL/systematics/productA_sel_all``
+
+  (see ``dataset_locations.prl_syst_disk_root`` / ``default_syst_disk_root``).
+
 Set ``NUMUCC_SYST_DISK_ROOT`` to a directory with **exactly** this structure (one subdirectory per
 systematic **source**):
 

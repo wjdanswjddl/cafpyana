@@ -16,6 +16,81 @@ warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
 warnings.filterwarnings("ignore", category=tables.exceptions.NaturalNameWarning)
 pd.set_option('future.no_silent_downcasting', True)
 
+
+def _column_nlevels(df: pd.DataFrame) -> int:
+    if isinstance(df.columns, pd.MultiIndex):
+        return int(df.columns.nlevels)
+    return 1
+
+
+def _pad_multiindex_columns(df: pd.DataFrame, nlevels: int) -> pd.DataFrame:
+    """Pad column labels to a common MultiIndex depth for concat.
+
+    Plain (non-MultiIndex) columns are left unchanged when ``nlevels == 1`` so
+    tables like ``hdr`` / ``bnbpot`` keep a flat Index. Wrapping them as
+    1-tuples breaks callers that do ``df["col"]`` (returns a DataFrame).
+    """
+    if df is None or nlevels < 1:
+        return df
+    cols = df.columns
+    if not isinstance(cols, pd.MultiIndex):
+        if nlevels == 1:
+            return df
+        new_tuples = [(c,) + ("",) * (nlevels - 1) for c in cols]
+        out = df.copy(deep=False)
+        out.columns = pd.MultiIndex.from_tuples(new_tuples)
+        return out
+    if cols.nlevels == nlevels:
+        return df
+
+    new_tuples = []
+    for c in cols:
+        t = tuple(c)
+        if len(t) < nlevels:
+            t = t + ("",) * (nlevels - len(t))
+        elif len(t) > nlevels:
+            trimmed = list(t)
+            while len(trimmed) > nlevels and trimmed[-1] in ("", None):
+                trimmed.pop()
+            if len(trimmed) < nlevels:
+                trimmed.extend([""] * (nlevels - len(trimmed)))
+            t = tuple(trimmed[:nlevels])
+        new_tuples.append(t)
+
+    out = df.copy(deep=False)
+    out.columns = pd.MultiIndex.from_tuples(new_tuples)
+    return out
+
+
+def _concat_pool_buffer(buffer):
+    """Concat per-CAF frames for one HDF key, tolerating MultiIndex depth mismatch.
+
+    Post-``d829b16`` selection pipeline, some CAFs return empty ``evt`` tables that
+    never went through ``get_trk_info`` (5-level ``make_slcdf`` columns) while
+    others are 7-level after track merge. ``pd.concat`` then raises
+    ``AssertionError: Length of new_levels (7) must be <= self.nlevels (5)``.
+
+    Empty (0-row) frames contribute nothing to physics and are dropped. Remaining
+    frames are padded to a common column depth before concat. Flat-column tables
+    (hdr, bnbpot, …) are concatenated without MultiIndex wrapping.
+    """
+    if not buffer:
+        return None
+    frames = [df for df in buffer if df is not None and len(df) > 0]
+    if not frames:
+        empties = [df for df in buffer if df is not None]
+        if not empties:
+            return None
+        return max(empties, key=_column_nlevels).iloc[0:0]
+
+    if all(not isinstance(df.columns, pd.MultiIndex) for df in frames):
+        return pd.concat(frames, ignore_index=False)
+
+    target = max(_column_nlevels(df) for df in frames)
+    aligned = [_pad_multiindex_columns(df, target) for df in frames]
+    return pd.concat(aligned, ignore_index=False)
+
+
 ## Arguments
 parser = argparse.ArgumentParser(
     description="Data frame maker command: process input flatcaf files and generate output dataframes.",
@@ -165,56 +240,62 @@ def run_pool(output, inputs, nproc):
             if any(val > split_margin for val in size_counters.values()):
                 # Concatenate and save accumulated DataFrames
                 for k, buffer in df_buffers.items():
-                    if buffer:  # only if buffer has data
-                        concat_df = pd.concat(buffer, ignore_index=False)
-                        this_key = k + "_" + str(k_idx)
-                        try:
-                            if k == "syst_hists":
-                                from analysis_village.numucc_1p0pi.syst_histcounts import (
-                                    put_syst_hists_by_var,
-                                )
-                                written = put_syst_hists_by_var(
-                                    hdf_pd, concat_df, split_idx=k_idx, format="fixed"
-                                )
-                                print(
-                                    f"Saved syst_hists split {k_idx} "
-                                    f"({len(written)} keys, "
-                                    f"{concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB)"
-                                )
-                            else:
-                                hdf_pd.put(key=this_key, value=concat_df, format="fixed")
-                                print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
-                        except Exception as e:
-                            print(f"Table {this_key} failed to save, skipping. Exception: {str(e)}")
-                        del concat_df
+                    if not buffer:
+                        continue
+                    concat_df = _concat_pool_buffer(buffer)
+                    if concat_df is None:
+                        continue
+                    this_key = k + "_" + str(k_idx)
+                    try:
+                        if k == "syst_hists":
+                            from analysis_village.numucc_1p0pi.syst_histcounts import (
+                                put_syst_hists_by_var,
+                            )
+                            written = put_syst_hists_by_var(
+                                hdf_pd, concat_df, split_idx=k_idx, format="fixed"
+                            )
+                            print(
+                                f"Saved syst_hists split {k_idx} "
+                                f"({len(written)} keys, "
+                                f"{concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB)"
+                            )
+                        else:
+                            hdf_pd.put(key=this_key, value=concat_df, format="fixed")
+                            print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
+                    except Exception as e:
+                        print(f"Table {this_key} failed to save, skipping. Exception: {str(e)}")
+                    del concat_df
                 # Reset counters and buffers
                 k_idx += 1
                 size_counters = {k: 0 for k in NAMES}
                 df_buffers = {k: [] for k in NAMES}
 
         for k, buffer in df_buffers.items():
-            if buffer:
-                concat_df = pd.concat(buffer, ignore_index=False)
-                this_key = k + "_" + str(k_idx)
-                try:
-                    if k == "syst_hists":
-                        from analysis_village.numucc_1p0pi.syst_histcounts import (
-                            put_syst_hists_by_var,
-                        )
-                        written = put_syst_hists_by_var(
-                            hdf_pd, concat_df, split_idx=k_idx, format="fixed"
-                        )
-                        print(
-                            f"Saved syst_hists split {k_idx} "
-                            f"({len(written)} keys, "
-                            f"{concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB)"
-                        )
-                    else:
-                        hdf_pd.put(key=this_key, value=concat_df, format="fixed")
-                        print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
-                except Exception as e:
-                    print(f"Table {this_key} failed to save, skipping. Exception: {str(e)}")
-                del concat_df
+            if not buffer:
+                continue
+            concat_df = _concat_pool_buffer(buffer)
+            if concat_df is None:
+                continue
+            this_key = k + "_" + str(k_idx)
+            try:
+                if k == "syst_hists":
+                    from analysis_village.numucc_1p0pi.syst_histcounts import (
+                        put_syst_hists_by_var,
+                    )
+                    written = put_syst_hists_by_var(
+                        hdf_pd, concat_df, split_idx=k_idx, format="fixed"
+                    )
+                    print(
+                        f"Saved syst_hists split {k_idx} "
+                        f"({len(written)} keys, "
+                        f"{concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB)"
+                    )
+                else:
+                    hdf_pd.put(key=this_key, value=concat_df, format="fixed")
+                    print(f"Saved {this_key}: {concat_df.memory_usage(deep=True).sum() / (1024**3):.4f} GB")
+            except Exception as e:
+                print(f"Table {this_key} failed to save, skipping. Exception: {str(e)}")
+            del concat_df
 
         # Save the split count metadata
         split_df = pd.DataFrame({"n_split": [k_idx + 1]})  # +1 because k_idx is 0-based
@@ -317,6 +398,14 @@ def run_grid(inputfiles):
             'fi\n'
             % (i_flist, i_flist)
         )
+        # MultiIndex concat fix in run_pool (and any other submit-host run_df_maker edits).
+        out.write(
+            'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_run_df_maker.py" ]; then\n'
+            '  cp -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_run_df_maker.py" run_df_maker.py\n'
+            '  echo "[run_%s.sh] injected run_df_maker.py from submit host"\n'
+            'fi\n'
+            % i_flist
+        )
         cmd = 'python run_df_maker.py -c ' + args.config + ' -o ' + args.output + '_%d'%i_flist + '.df -ncpu 7 -i'
         for i_f in range(0,len(flist)):
             out.write('echo "[run_%s.sh] input %d : %s"\n'%(i_flist, i_f, flist[i_f]))
@@ -350,6 +439,12 @@ def run_grid(inputfiles):
         if os.path.isfile(_geniesyst_local):
             shutil.copy2(_geniesyst_local, os.path.join(MasterJobDir, "numucc_geniesyst.py"))
             print("[run_df_maker] bundled makedf/geniesyst.py into job tarball")
+        _run_df_maker_local = os.path.join(_wd, "run_df_maker.py")
+        if os.path.isfile(_run_df_maker_local):
+            shutil.copy2(
+                _run_df_maker_local, os.path.join(MasterJobDir, "numucc_run_df_maker.py")
+            )
+            print("[run_df_maker] bundled run_df_maker.py into job tarball")
         _syst_hc_local = os.path.join(
             _wd, "analysis_village/numucc_1p0pi/syst_histcounts.py"
         )

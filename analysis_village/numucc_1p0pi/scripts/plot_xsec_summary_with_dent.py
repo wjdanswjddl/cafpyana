@@ -109,9 +109,14 @@ def _genie_knob_excluded(kn: str, mode: str) -> bool:
             return True
         if "q0bin5" in kn:
             return True
+        # Retired EDepFSI twins of SBN_v1 / MEC–QE group dials (keep nominals).
         if "EDepFSI_DecayAngMEC" in kn:
             return True
-        if "EDepFSI_NormCCMEC" in kn:
+        if "EDepFSI_NormCCMEC" in kn or "EDepFSI_NormNCMEC" in kn:
+            return True
+        if "EDepFSI_VecFFCCQEshape" in kn:
+            return True
+        if "EDepFSI_CoulombCCQE" in kn:
             return True
     return False
 

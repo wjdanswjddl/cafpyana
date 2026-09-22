@@ -120,7 +120,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "pot_by_variation": pot_by,
         "pot_scales": {k: 1.0 for k in pot_by},
         "match_stage": "sel_all",
-        "envelope": "calo_plus_efield_vs_external_cv",
+        "envelope": "calo_plus_efield_vs_matched_cv",
         "cv_role": "envelope_baseline",
         "cv_campaign": args.cv_campaign,
         "batch_size": "sharded",
@@ -159,31 +159,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     npz_a = out_base / SUB_DETECTOR_SEL / FILE_DETECTOR_SEL
     npz_b = out_base / SUB_DETECTOR / FILE_DETECTOR
+    _manifest_common = {
+        "source": "WireMod",
+        "method": "maxabs_dev_actual_envelope_vs_matched_cv",
+        "cv_role": "envelope_baseline",
+        "shifted_univs": list(WIREMOD_ENVELOPE_SHIFTED),
+        "mu_chi2mu_th": mu_th,
+    }
     save_detector_npz(
         dict_a,
         npz_a,
-        manifest={
-            "source": "WireMod",
-            "product": "A_selection",
-            "method": "maxabs_dev_unc_actual_envelope_vs_matched_cv",
-            "cv_role": "envelope_baseline",
-            "shifted_univs": list(WIREMOD_ENVELOPE_SHIFTED),
-            "n_vars": len(dict_a.get("detector", {})),
-            "mu_chi2mu_th": mu_th,
-        },
+        manifest={**_manifest_common, "product": "A_selection", "n_vars": len(dict_a.get("detector", {}))},
     )
     save_detector_npz(
         dict_b,
         npz_b,
-        manifest={
-            "source": "WireMod",
-            "product": "B_measurement",
-            "method": "maxabs_dev_unc_actual_envelope_vs_matched_cv",
-            "cv_role": "envelope_baseline",
-            "shifted_univs": list(WIREMOD_ENVELOPE_SHIFTED),
-            "n_vars": len(dict_b.get("detector", {})),
-            "mu_chi2mu_th": mu_th,
-        },
+        manifest={**_manifest_common, "product": "B_measurement", "n_vars": len(dict_b.get("detector", {}))},
     )
     log(f"Product A → {npz_a}")
     log(f"Product B → {npz_b}")

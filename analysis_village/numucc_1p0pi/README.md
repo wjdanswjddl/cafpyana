@@ -101,7 +101,7 @@ pipeline offline, use:
 - `variable_configs.py` — `VariableConfig` registry: binning, labels, and save names for all histogrammed variables.
 - `final_selected_evt_vars.py` — registries of final-selection and intermediate-cut variables.
 - `evt_derived_kinematics.py` — derived μ/p kinematics columns (momenta, angles, TKI inputs).
-- `dataset_locations.py` — central input globs, work roots, and syst-disk roots; override with `NUMUCC_SPRING_GEN1_ROOT`.
+- `dataset_locations.py` — central input globs, work roots, and syst-disk roots (`default_syst_disk_root` → PRL `productB_sel_mup`; `prl_syst_disk_root("A"|"B")`); override with `NUMUCC_SPRING_GEN1_ROOT` / `NUMUCC_SYST_DISK_ROOT`.
 - `files_config.py` — monolithic `.df` loaders (`get_ana_dfs`) used by scripts and most notebooks.
 - `files_config_new.py` — split-file loaders used by a subset of notebooks (with `pyanalib.split_df_helpers_new`).
 - `exposure_access.py` — staged data-access policy (`DataAccessStage`) and exposure-batch definitions.
@@ -111,7 +111,7 @@ pipeline offline, use:
 - `event_selection_batched.py` — batched (≤1 GiB per job) selection orchestrator.
 - `event_selection_batch_core.py` — per-batch selection runner used by the map jobs.
 - `legacy_samples.py` — in-memory `SampleBundle` for small tests (`run_pipeline()` wraps `build_pipeline`).
-- `syst_disk_layout.py` — on-disk layout of the systematics NPZ/pickle tree (`MCstat/`, `Flux/`, `G4/`, `GENIE/`, `Cosmics/`, `Detector/`).
+- `syst_disk_layout.py` — on-disk layout of the systematics NPZ/pickle tree (`MCstat/`, `Flux/`, `G4/`, `GENIE/`, `Cosmics/`, `Detector/`); canonical consumer roots under `PRL/systematics/product{A,B}_*`.
 - `syst_disk_cc_layout.py` — same for the joint (cross-variable) covariance tree.
 - `syst_multisim_common.py` — shared MCstat/Flux/G4 multisim helpers; **canonical** `combine_indep_knob_cov_packs`.
 - `syst_genie_cov.py` — shared GENIE univ alias + xsec accumulate/finalize (used by `get_systematics_genie` and `syst_histcounts`).
@@ -203,8 +203,10 @@ Systematics:
 
 Unfolding and generators:
 
-- `unfolding.ipynb` — canonical Gen1 Wiener-SVD unfold (ingredients + results pickle/npz).
-- `unfolding-genie-comparison.ipynb` — same ingredients; Old vs New GENIE `total_xsec` extracted xsecs.
+- `unfolding-prepare.ipynb` — **PRL Product B step 1:** load Sep-1 `sel_mup` DFs (beam-quality data + MC `evt`/`mcnu`), recompute data–MC overlays and assert vs `PRL/data_mc_overlays/productB_sel_mup/counts_report.npz`, build efficiency/response matrices → `PRL/response_matrices/`.
+- `unfolding.ipynb` — **PRL Product B step 2:** load response pack + Product B CategorySummary `total_xsec`, MC closure test, data Wiener-SVD (`C_type=2`), save flux + unfolded products under `PRL/unfolded/`.
+- `unfolding-legacy-gen1.ipynb` — May Gen1 recovered-cov rebuild (`CovRotation` recovery; χ²≈34.5/12 for `tki-del_Tp`). Do not use for the Product B data release.
+- `unfolding-genie-comparison.ipynb` — currently wired to Gen1 ingredients; Old vs New GENIE `total_xsec` extracted xsecs.
 - `generator_comparison.ipynb` — unfolded data vs generator predictions.
 - `notebooks/archive_unfolding/` — retired unfold notebooks (`unfolding-data`, fake-data tests, …).
 

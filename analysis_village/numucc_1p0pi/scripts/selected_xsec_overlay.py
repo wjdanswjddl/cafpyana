@@ -40,6 +40,10 @@ from analysis_village.numucc_1p0pi import utils as numucc_utils  # noqa: E402
 from analysis_village.numucc_1p0pi.utils import get_pot_str  # noqa: E402
 from analysis_village.numucc_1p0pi.utils import get_syst_unc as load_syst_disk_unc  # noqa: E402
 from analysis_village.numucc_1p0pi.utils import _DEFAULT_SYST_DISK_ROOT  # noqa: E402
+from analysis_village.numucc_1p0pi.utils import (  # noqa: E402
+    strip_pot_from_ylabel,
+    format_pot_corner_text,
+)
 from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV  # noqa: E402
 from analysis_village.numucc_1p0pi.selected_xsec_overlay_hist import (  # noqa: E402
     build_overlay_histdata_map,
@@ -60,7 +64,7 @@ _ = numucc_utils
 # Configurable inputs
 # ---------------------------------------------------------------------------
 DFS_ROOT = "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs"
-OUTPUT_BASE = "/exp/sbnd/data/users/munjung/PRL_data"
+OUTPUT_BASE = "/exp/sbnd/data/users/munjung/FixedDev/selected_xsec_overlay_cuts"
 
 KEYS2LOAD = ("hdr", "evt")
 DATA_KEYS2LOAD = ("hdr", "evt", "bnbpot", "trigger")
@@ -77,28 +81,56 @@ DATA_POT_SCALE = 1.0
 SYST_DISK_ROOT = os.environ.get(SYST_DISK_ENV) or _DEFAULT_SYST_DISK_ROOT
 LOAD_SYST = True
 
+# Product-B (sel_mup) cut-campaign overlays: one subdirectory per cut tag.
+# Data dirs are the 2026-09-20 resubmit after the MultiIndex concat fix.
 PLOT_SETS = [
     {
-        "tag": "selected_chi2fix_qual_cut",
-        "output_dir": path.join(OUTPUT_BASE, "selected_chi2fix_qual_cut"),
-        "mc_dir": path.join(
-            DFS_ROOT, "2026_09_01_063545__sel_mup-mc-fvfix-chi2fix-real"
-        ),
-        "mc_filename_str": "sel_mup-mc-fvfix-chi2fix-real",
-        "data_dir": path.join(
-            DFS_ROOT, "2026_09_01_063308__sel_mup-data-1e20-fvfix-chi2fix-real"
-        ),
-        "data_filename_str": "sel_mup-data-1e20-fvfix-chi2fix-real",
+        "tag": "nu_score0",
+        "output_dir": path.join(OUTPUT_BASE, "nu_score0"),
+        "mc_dir": path.join(DFS_ROOT, "nu_score0/2026_09_19_154237__sel_mup-mc-BNB_cosmics"),
+        "mc_filename_str": "sel_mup-mc-BNB_cosmics",
+        "data_dir": path.join(DFS_ROOT, "nu_score0/2026_09_20_022614__sel_mup-data-1e20"),
+        "data_filename_str": "sel_mup-data-1e20",
     },
     {
-        "tag": "selected_fvfix_qual_cut",
-        "output_dir": path.join(OUTPUT_BASE, "selected_fvfix_qual_cut"),
-        "mc_dir": path.join(DFS_ROOT, "2026_09_01_063924__sel_mup-mc-fvfix"),
-        "mc_filename_str": "sel_mup-mc-fvfix",
-        "data_dir": path.join(
-            DFS_ROOT, "2026_09_01_064250__sel_mup-data-1e20-fvfix"
+        "tag": "chi2mu15",
+        "output_dir": path.join(OUTPUT_BASE, "chi2mu15"),
+        "mc_dir": path.join(DFS_ROOT, "chi2mu15/2026_09_19_154924__sel_mup-mc-BNB_cosmics"),
+        "mc_filename_str": "sel_mup-mc-BNB_cosmics",
+        "data_dir": path.join(DFS_ROOT, "chi2mu15/2026_09_20_022713__sel_mup-data-1e20"),
+        "data_filename_str": "sel_mup-data-1e20",
+    },
+    {
+        "tag": "chi2mu45",
+        "output_dir": path.join(OUTPUT_BASE, "chi2mu45"),
+        "mc_dir": path.join(DFS_ROOT, "chi2mu45/2026_09_19_155646__sel_mup-mc-BNB_cosmics"),
+        "mc_filename_str": "sel_mup-mc-BNB_cosmics",
+        "data_dir": path.join(DFS_ROOT, "chi2mu45/2026_09_20_022838__sel_mup-data-1e20"),
+        "data_filename_str": "sel_mup-data-1e20",
+    },
+    {
+        "tag": "mcs_range_diff1p0",
+        "output_dir": path.join(OUTPUT_BASE, "mcs_range_diff1p0"),
+        "mc_dir": path.join(
+            DFS_ROOT, "mcs_range_diff1p0/2026_09_19_160334__sel_mup-mc-BNB_cosmics"
         ),
-        "data_filename_str": "sel_mup-data-1e20-fvfix",
+        "mc_filename_str": "sel_mup-mc-BNB_cosmics",
+        "data_dir": path.join(
+            DFS_ROOT, "mcs_range_diff1p0/2026_09_20_023002__sel_mup-data-1e20"
+        ),
+        "data_filename_str": "sel_mup-data-1e20",
+    },
+    {
+        "tag": "vz_exclude_200_300",
+        "output_dir": path.join(OUTPUT_BASE, "vz_exclude_200_300"),
+        "mc_dir": path.join(
+            DFS_ROOT, "vz_exclude_200_300/2026_09_19_161146__sel_mup-mc-BNB_cosmics"
+        ),
+        "mc_filename_str": "sel_mup-mc-BNB_cosmics",
+        "data_dir": path.join(
+            DFS_ROOT, "vz_exclude_200_300/2026_09_20_023058__sel_mup-data-1e20"
+        ),
+        "data_filename_str": "sel_mup-data-1e20",
     },
 ]
 
@@ -115,7 +147,7 @@ BREAKDOWN_TYPES = ("topology", "genie_sb")
 RATIO = True
 AX_YLIM_RATIO = 1.9
 TEXTLOC = [0.03, 0.55]
-APPROVAL = "internal"
+APPROVAL = ""  # no "SBND Internal"
 SAVE_FIG = True
 PLOT = False
 TEXTCHI2 = True
@@ -178,7 +210,11 @@ def dfs_from_dir_monitored(
     check_memory(f"{label} before files")
 
     for mc_file in tqdm(files_to_process, desc=label):
-        mc_n_split = get_n_split(mc_file)
+        try:
+            mc_n_split = get_n_split(mc_file)
+        except Exception as e:
+            print(f"  [{label}] skip {path.basename(mc_file)}: {e}", flush=True)
+            continue
         mc_dfs = load_dfs(mc_file, list(KEYS2LOAD), n_max_concat=int(mc_n_split))
         unique_ntuples = _unique_ntuple_values_across_keys(mc_dfs, KEYS2LOAD)
         ntuple_remap = {
@@ -190,6 +226,9 @@ def dfs_from_dir_monitored(
             df_lists[df_key].append(df)
         ntuple_offset += np.int64(len(ntuple_remap))
         check_memory(f"{label} after {path.basename(mc_file)}")
+
+    if not any(df_lists[k] for k in KEYS2LOAD):
+        raise RuntimeError(f"[{label}] no HDF files loaded from {search_dir}")
 
     concat_dfs = {
         k: _concat_hdf_frames(df_lists[k], label=k) for k in KEYS2LOAD if df_lists[k]
@@ -329,6 +368,7 @@ def setup_pot_weights(
         f"  data POT={data_tot_pot:.3e}  MC POT={mc_tot_pot:.3e}  scale={mc_scale:.3e}"
     )
     print(f"  evt rows: data={len(data_evt):,}  mc={len(mc_evt):,}")
+    # Keep POT in the returned label for corner text / pickle; ylabel strips it.
     return f"Events / Bin (POT={pot_str})"
 
 
@@ -343,7 +383,7 @@ def run_plot_set(plot_set: dict) -> None:
     payload = None if FORCE_REBUILD_COUNTS else load_overlay_counts(out_dir)
     if payload is not None:
         print(f"  replot from counts: {histdata_pkl_path(out_dir)}", flush=True)
-        pot_label = payload["pot_label"]
+        pot_label_raw = payload["pot_label"]
         histdata_map = payload["histdata"]
     else:
         print("  filling counts from dataframes...", flush=True)
@@ -359,7 +399,7 @@ def run_plot_set(plot_set: dict) -> None:
         data_evt, data_hdr = load_data_sample(
             plot_set["data_dir"], plot_set["data_filename_str"]
         )
-        pot_label = setup_pot_weights(mc_evt, mc_hdr, data_evt, data_hdr)
+        pot_label_raw = setup_pot_weights(mc_evt, mc_hdr, data_evt, data_hdr)
         histdata_map = build_overlay_histdata_map(
             VAR_CONFIGS,
             BREAKDOWN_TYPES,
@@ -369,7 +409,7 @@ def run_plot_set(plot_set: dict) -> None:
         pkl = save_overlay_counts(
             out_dir,
             histdata_map,
-            pot_label=pot_label,
+            pot_label=pot_label_raw,
             plot_set=plot_set,
             var_save_names=[vc.var_save_name for vc in VAR_CONFIGS],
             breakdown_types=BREAKDOWN_TYPES,
@@ -380,13 +420,14 @@ def run_plot_set(plot_set: dict) -> None:
         histdata_map,
         VAR_CONFIGS,
         BREAKDOWN_TYPES,
-        pot_label=pot_label,
+        pot_label=strip_pot_from_ylabel(pot_label_raw) or "Events / Bin",
         out_dir=out_dir,
         get_syst=_get_syst_cov,
         ax_ylim_ratio=AX_YLIM_RATIO,
         ratio=RATIO,
         textloc=TEXTLOC,
         approval=APPROVAL,
+        pot_text=format_pot_corner_text(pot_label_raw),
         save_fig=SAVE_FIG,
         plot=PLOT,
         textchi2=TEXTCHI2,

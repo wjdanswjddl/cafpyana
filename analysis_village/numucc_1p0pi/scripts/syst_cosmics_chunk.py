@@ -65,6 +65,7 @@ from analysis_village.numucc_1p0pi.syst_cosmics_common import build_variable_con
 from analysis_village.numucc_1p0pi.syst_pipeline_walker import (
     CUT_STAGE_VAR_SPECS,
     FINAL_STAGE_KEY,
+    active_cut_stage_specs,
     final_stage_var_configs,
     get_var_series,
     histogram_var,
@@ -202,8 +203,13 @@ def accumulate_file_sel_all(
         raise ValueError("no HDF splits in %s" % df_file)
     vlog("[sel_all] processing n_use=%d splits (pipeline sample=%s)" % (n_use, pipeline_sample))
 
-    cut_specs = list(CUT_STAGE_VAR_SPECS)
-    final_var_configs = list(final_stage_var_configs())
+    cut_specs = list(active_cut_stage_specs())
+    skip_final = os.environ.get("NUMUCC_SKIP_FINAL_STAGE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    final_var_configs = [] if skip_final else list(final_stage_var_configs())
     cut_by_stage: Dict[str, List[Any]] = {}
     for s in cut_specs:
         cut_by_stage.setdefault(s.stage_key, []).append(s)

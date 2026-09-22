@@ -40,6 +40,9 @@ DEFAULT_MATCH = (
     r"|syst_multisim_(?:chunk|parallel|aggregate)"
     r"|syst_cosmics_(?:chunk|aggregate)"
     r"|syst_detvar_(?:chunk|aggregate)"
+    r"|syst_histcounts_from_df"
+    r"|run_chi2_subset_detector|run_chi2_track_subset"
+    r"|chi2_track_subset"
 )
 
 
@@ -199,7 +202,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--threshold-pct",
         type=float,
         default=float(os.environ.get("MEM_WATCHDOG_THRESHOLD_PCT", "40")),
-        help="Kill when matched RSS sum exceeds this %% of the memory basis (default: 40).",
+        help="Kill when matched RSS sum exceeds this %% of the memory basis (default: 40). "
+        "Ignored if --threshold-gb is set.",
+    )
+    p.add_argument(
+        "--threshold-gb",
+        type=float,
+        default=float(os.environ.get("MEM_WATCHDOG_THRESHOLD_GB", "0") or 0),
+        help="Absolute RSS sum limit in GiB (overrides --threshold-pct when > 0).",
     )
     p.add_argument(
         "--basis",
@@ -254,7 +264,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
-    if args.threshold_pct <= 0 or args.threshold_pct > 100:
+    if args.threshold_gb and args.threshold_gb > 0:
+        if args.threshold_gb <= 0:
+            print("--threshold-gb must be > 0", file=sys.stderr)
+            return 2
+    elif args.threshold_pct <= 0 or args.threshold_pct > 100:
         print("--threshold-pct must be in (0, 100]", file=sys.stderr)
         return 2
     if args.interval <= 0:
@@ -275,18 +289,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"invalid --match regex: {exc}", file=sys.stderr)
         return 2
 
-    log(
-        f"mem_watchdog start threshold={args.threshold_pct:g}% basis={args.basis} "
-        f"interval={args.interval:g}s user={args.user or uid} dry_run={args.dry_run} "
-        f"match={args.match!r}",
-        args.log,
-    )
+    use_gb = bool(args.threshold_gb and args.threshold_gb > 0)
+    if use_gb:
+        log(
+            f"mem_watchdog start threshold={args.threshold_gb:g} GiB (absolute) "
+            f"interval={args.interval:g}s user={args.user or uid} dry_run={args.dry_run} "
+            f"match={args.match!r}",
+            args.log,
+        )
+    else:
+        log(
+            f"mem_watchdog start threshold={args.threshold_pct:g}% basis={args.basis} "
+            f"interval={args.interval:g}s user={args.user or uid} dry_run={args.dry_run} "
+            f"match={args.match!r}",
+            args.log,
+        )
 
     last_n = -1
     while True:
         mem = read_meminfo()
         den = basis_bytes(mem, args.basis)
-        limit = int(den * (args.threshold_pct / 100.0))
+        if use_gb:
+            limit = int(args.threshold_gb * (1024**3))
+            limit_label = f"{args.threshold_gb:g} GiB"
+        else:
+            limit = int(den * (args.threshold_pct / 100.0))
+            limit_label = f"{args.threshold_pct:g}% of {args.basis}"
         hits = collect_matched(uid, pattern)
         rss_sum = sum(r for _p, r, _c in hits)
         frac = (100.0 * rss_sum / den) if den else 0.0
@@ -294,7 +322,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         status = (
             f"matched={len(hits)} rss={fmt_bytes(rss_sum)} "
             f"({frac:.1f}% of {args.basis} {fmt_bytes(den)}; "
-            f"limit={args.threshold_pct:g}% → {fmt_bytes(limit)})"
+            f"limit={limit_label} → {fmt_bytes(limit)})"
         )
         if not args.quiet or len(hits) != last_n or rss_sum > limit:
             log(status, args.log)

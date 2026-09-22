@@ -54,9 +54,8 @@ def _stairs_xy(bins, y):
 def _envelope_lo_hi(hists, var_name, shifted_univs=WIREMOD_ENVELOPE_SHIFTED, n_cv=None):
     """Return (n_cv, lo, hi) for the **actual** min/max among WireMod universes.
 
-    No symmetrization about CV — the band is the true envelope of the chi2_*
-    variation histograms. Uncertainty (right panel / NPZs) separately uses
-    ``max_u |n_u - n_cv|`` per bin.
+    *n_cv* should be the external matched CV (Sep-4). Band is the true envelope
+    of WireMod univ counts (no symmetrization). Unc uses ``max_u |n_u - n_cv|``.
     """
     if n_cv is None:
         n_cv = np.asarray(hists["cv"][var_name], dtype=float)
@@ -78,6 +77,7 @@ def _plot_wiremod_envelope_compare(
     title: str | None = None,
     cv_hist: np.ndarray | None = None,
 ):
+    """Rate + Variation/CV + unc. Baseline = external matched CV (Sep-4)."""
     bins = np.asarray(bins, dtype=float)
     centers = 0.5 * (bins[:-1] + bins[1:])
     fig = plt.figure(figsize=(11.0, 5.2), layout="constrained")
@@ -99,6 +99,11 @@ def _plot_wiremod_envelope_compare(
         n_cv, lo, hi = _envelope_lo_hi(all_hists[lab], vsn, n_cv=n_cv_ref)
         if n_cv_ref is None:
             n_cv_ref = n_cv
+        # WireMod in-file CV (calo nominal on the WireMod sample).
+        n_wm_cv = np.asarray(all_hists[lab]["cv"][vsn], dtype=float)
+        # Shade the among-WireMod univ envelope (lo..hi). With WireMod CV
+        # drawn as a solid line, this reads as the ±calo band around WMcv;
+        # the matched-CV offset is visible from the black vs colored lines.
         x_lo, y_lo = _stairs_xy(bins, lo)
         _, y_hi = _stairs_xy(bins, hi)
         ax_rate.fill_between(
@@ -112,17 +117,42 @@ def _plot_wiremod_envelope_compare(
             label=f"{lab} envelope",
             zorder=1,
         )
-        # Same envelope as rate panel, expressed as Variation / CV.
-        ratio_lo = np.full_like(n_cv, np.nan, dtype=float)
-        ratio_hi = np.full_like(n_cv, np.nan, dtype=float)
-        ok = n_cv > 0
-        ratio_lo[ok] = lo[ok] / n_cv[ok]
-        ratio_hi[ok] = hi[ok] / n_cv[ok]
+        ax_rate.hist(
+            centers,
+            bins=bins,
+            weights=n_wm_cv,
+            histtype="step",
+            lw=1.0,
+            linestyle=":",
+            color=color,
+            label=f"{lab} CV",
+            zorder=2,
+        )
+        ratio_lo = np.full_like(n_cv_ref, np.nan, dtype=float)
+        ratio_hi = np.full_like(n_cv_ref, np.nan, dtype=float)
+        ok = n_cv_ref > 0
+        ratio_lo[ok] = lo[ok] / n_cv_ref[ok]
+        ratio_hi[ok] = hi[ok] / n_cv_ref[ok]
         if np.any(ok):
             xr, rlo = _stairs_xy(bins, np.where(ok, ratio_lo, np.nan))
             _, rhi = _stairs_xy(bins, np.where(ok, ratio_hi, np.nan))
             ax_ratio.fill_between(
                 xr, rlo, rhi, step="post", color=color, alpha=alpha, linewidth=0, label=lab
+            )
+            ax_ratio.hist(
+                centers,
+                bins=bins,
+                weights=np.divide(
+                    n_wm_cv,
+                    n_cv_ref,
+                    out=np.full_like(n_wm_cv, np.nan),
+                    where=ok,
+                ),
+                histtype="step",
+                lw=1.0,
+                linestyle=":",
+                color=color,
+                label=f"{lab} CV",
             )
         pack = dict_det.get(f"detector-{tag_key}", {}).get(vsn)
         if pack is not None:
@@ -144,7 +174,7 @@ def _plot_wiremod_envelope_compare(
             histtype="step",
             lw=1.8,
             color="black",
-            label="CV",
+            label="matched CV",
             zorder=3,
         )
 
@@ -196,13 +226,15 @@ def main(argv=None) -> int:
     by_geom = payload["by_geom"]
     if "cv" not in payload:
         raise SystemExit(
-            f"{cache_path} lacks external CV products (cv_role envelope_baseline). Rebuild merge."
+            f"{cache_path} lacks external CV products. Rebuild merge with CV shards."
         )
     cv_prod = payload["cv"]
     cut_names = next(iter(by_geom.values()))["cut_var_names"]
     final_names = next(iter(by_geom.values()))["final_var_names"]
     log(
-        f"loaded {cache_path} geoms={list(by_geom)} cv_role={payload.get('cv_role')} "
+        f"loaded {cache_path} geoms={list(by_geom)} "
+        f"envelope_baseline=matched_sep4_cv "
+        f"mu_chi2mu_th={payload.get('mu_chi2mu_th')} "
         f"pot={payload.get('pot_by_variation')}"
     )
 
@@ -233,32 +265,31 @@ def main(argv=None) -> int:
     det_b = out_base / SUB_DETECTOR
     npz_a = det_a / FILE_DETECTOR_SEL
     npz_b = det_b / FILE_DETECTOR
+    _manifest_common = {
+        "source": "WireMod",
+        "method": "maxabs_dev_actual_envelope_vs_matched_cv",
+        "cv_role": "envelope_baseline",
+        "shifted_univs": list(WIREMOD_ENVELOPE_SHIFTED),
+        "note": "Baseline is matched Sep-4 CV; WireMod univs use chi2_*_new remap",
+    }
     save_detector_npz(
         dict_a,
         npz_a,
-        manifest={
-            "source": "WireMod",
-            "product": "A_selection",
-            "method": "maxabs_dev_unc_actual_envelope_vs_matched_cv",
-            "cv_role": "envelope_baseline",
-            "shifted_univs": list(WIREMOD_ENVELOPE_SHIFTED),
-            "n_vars": len(dict_a.get("detector", {})),
-        },
+        manifest={**_manifest_common, "product": "A_selection", "n_vars": len(dict_a.get("detector", {}))},
     )
     save_detector_npz(
         dict_b,
         npz_b,
-        manifest={
-            "source": "WireMod",
-            "product": "B_measurement",
-            "method": "maxabs_dev_unc_actual_envelope_vs_matched_cv",
-            "cv_role": "envelope_baseline",
-            "shifted_univs": list(WIREMOD_ENVELOPE_SHIFTED),
-            "n_vars": len(dict_b.get("detector", {})),
-        },
+        manifest={**_manifest_common, "product": "B_measurement", "n_vars": len(dict_b.get("detector", {}))},
     )
     log(f"Product A → {npz_a}")
     log(f"Product B → {npz_b}")
+
+    payload["envelope"] = "calo_plus_efield_vs_matched_cv"
+    payload["cv_role"] = "envelope_baseline"
+    payload.pop("cv_note", None)
+    with open(cache_path, "wb") as fh:
+        pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
 
     final_defs = dc.build_final_var_defs()
     cut_defs = dc.build_sel_all_var_defs()

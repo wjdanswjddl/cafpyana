@@ -79,9 +79,10 @@ TOTAL_RATE = "total_rate"
 TOTAL_XSEC = "total_xsec"
 TOTAL_KEYS = (TOTAL_RATE, TOTAL_XSEC)
 
-# Flat correlated terms (percent, matching ``frac_unc_pct`` scale in summary plots).
-POT_FRAC_UNC_PCT = 2.0
-NTARGETS_FRAC_UNC_PCT = 1.0
+# Flat normalization scales (percent): one global factor → 100% correlated across bins.
+# (Exposure and Targets are independent of each other, added as separate categories.)
+POT_FRAC_UNC_PCT = 2.0   # Exposure / POT
+NTARGETS_FRAC_UNC_PCT = 1.0  # Number of targets
 
 _RATE_TOTAL_CATEGORIES = (
     CAT_FLUX,
@@ -332,8 +333,14 @@ def genie_category_cov_frac(genie_pack: Optional[Mapping], kind: str) -> Optiona
 
 
 def _flat_cov_frac(nbins: int, frac_unc_pct_val: float) -> np.ndarray:
+    """Fractional cov for a single multiplicative scale (POT, N_targets, …).
+
+    Same fractional shift in every bin → ``cov_frac[i,j] = (pct/100)²`` for all i, j.
+    Per-bin curves still show ``pct``%; off-diagonals are non-zero in heatmaps/totals.
+    """
     u = float(frac_unc_pct_val) / 100.0
-    return np.diag(np.full(nbins, u * u, dtype=np.float64))
+    v = u * u
+    return np.full((int(nbins), int(nbins)), v, dtype=np.float64)
 
 
 def _category_block(

@@ -47,7 +47,7 @@ echo "[cut campaign] ngrid mc=$NGRID_MC dirt=$NGRID_DIRT intime=$NGRID_INTIME of
 echo "[cut campaign] lifetime=$JOBSUB_LIFETIME mem=$JOBSUB_MEMORY"
 
 # shellcheck disable=SC1090
-source ~/get_token.sh
+. ~/get_token.sh
 
 submit_one() {
   local cfg="$1" list="$2" out="$3" ngrid="$4"
@@ -56,13 +56,13 @@ submit_one() {
 }
 
 submit_one configs/numucc_1p0pi/sel_mup.py      "$MC_LIST"      sel_mup-mc-BNB_cosmics   "$NGRID_MC"
-source ~/get_token.sh
+. ~/get_token.sh
 submit_one configs/numucc_1p0pi/sel_mup.py      "$DIRT_LIST"    sel_mup-mc-dirt          "$NGRID_DIRT"
-source ~/get_token.sh
+. ~/get_token.sh
 submit_one configs/numucc_1p0pi/sel_mup.py      "$INTIME_LIST"  sel_mup-mc-Intime        "$NGRID_INTIME"
-source ~/get_token.sh
+. ~/get_token.sh
 submit_one configs/numucc_1p0pi/sel_mup-data.py "$OFFBEAM_LIST" sel_mup-data-OffBeamLight "$NGRID_OFFBEAM"
-source ~/get_token.sh
+. ~/get_token.sh
 submit_one configs/numucc_1p0pi/sel_mup-data.py "$DATA_LIST"    sel_mup-data-1e20        "$NGRID_DATA"
 
 echo "[cut campaign] done submitting CUT_TAG=$CUT_TAG"

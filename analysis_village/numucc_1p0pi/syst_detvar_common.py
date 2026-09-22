@@ -50,7 +50,7 @@ WIREMOD_EFIELD_UNIV = "efield"
 WIREMOD_CALO_UNIVERSES = ("cv",) + tuple(f"{c}_{s}" for c in CALO_PARAMS for s in ("p", "m"))
 # Full walk set: CV + eight calo ± + efield redo (``evt_efield`` / ``trk_efield``).
 WIREMOD_UNIVERSES = WIREMOD_CALO_UNIVERSES + (WIREMOD_EFIELD_UNIV,)
-# All WireMod universes (in-file cv + calo ± + efield) vs the external matched CV sample.
+# All WireMod universes (in-file cv + calo ± + efield) vs the external matched CV.
 WIREMOD_ENVELOPE_SHIFTED = tuple(WIREMOD_UNIVERSES)
 WIREMOD_KNOB_TAGS = {"YZ": "wiremod_yz", "XTXW": "wiremod_xtxw"}
 
@@ -440,8 +440,16 @@ def accumulate_matched_sel_all_products(
     """
     from analysis_village.numucc_1p0pi.scripts import dent_compare as dc
 
-    final_defs = dict(final_var_defs or dc.build_final_var_defs())
-    cut_defs = dict(cut_var_defs or (dc.build_sel_all_var_defs() if include_cut_stage else {}))
+    final_defs = (
+        dict(final_var_defs)
+        if final_var_defs is not None
+        else dict(dc.build_final_var_defs())
+    )
+    cut_defs = (
+        dict(cut_var_defs)
+        if cut_var_defs is not None
+        else (dc.build_sel_all_var_defs() if include_cut_stage else {})
+    )
     var_defs = {**cut_defs, **final_defs}
     hists = {v: np.zeros(len(cfg["bins"]) - 1, dtype=float) for v, cfg in var_defs.items()}
     stage_specs = dc._stage_specs_by_key() if cut_defs else {}
@@ -752,7 +760,11 @@ def accumulate_wiremod_matched_products(
     assert_wiremod_calo_universes(
         matched_files, require_efield=(WIREMOD_EFIELD_UNIV in set(universes))
     )
-    final_defs = dict(final_var_defs or dc.build_final_var_defs())
+    final_defs = (
+        dict(final_var_defs)
+        if final_var_defs is not None
+        else dict(dc.build_final_var_defs())
+    )
     cut_defs = dc.build_sel_all_var_defs() if include_cut_stage else {}
     var_defs = {**cut_defs, **final_defs}
     stage_specs = dc._stage_specs_by_key() if cut_defs else {}
@@ -1043,13 +1055,10 @@ def build_wiremod_detector_dict(
 ) -> dict:
     """WireMod-only detector dict (per-geometry + combined WireMod total).
 
-    Default *shifted_univs* is the **total** envelope: all calo ± plus efield.
-    Pass a subset (e.g. ``(\"ccal_p\", \"ccal_m\")``) for component inspection.
-
-    *cv_hists* is the **external matched CV sample** ``{var: counts}`` (Sep-4 CV
-    campaign). Envelope = max deviation of each WireMod/calo univ from that CV.
-    If omitted, falls back to each geometry's in-file ``cv`` (legacy; prefer
-    passing external CV — matched event sets should not be POT-scaled).
+    Default *shifted_univs* is the **total** envelope: in-file cv + calo ± + efield.
+    *cv_hists* is the **external matched CV sample** ``{var: counts}`` (Sep-4).
+    Per-bin unc = ``max_u |n_u - n_cv| / n_cv``. If *cv_hists* is omitted, falls
+    back to each geometry's in-file ``cv``.
     """
     knob_tags = dict(knob_tags or WIREMOD_KNOB_TAGS)
     shifted = list(shifted_univs) if shifted_univs is not None else list(WIREMOD_ENVELOPE_SHIFTED)
@@ -1079,7 +1088,6 @@ def build_wiremod_detector_dict(
                 n_cv = np.asarray(hists["cv"][var_name], dtype=float)
                 if float(n_cv.sum()) <= 0:
                     continue
-            # Need at least one envelope univ hist for this var
             if not any(u in hists and var_name in hists[u] for u in shifted):
                 continue
             n_var = max_envelope_univ_counts(n_cv, hists, var_name, shifted)

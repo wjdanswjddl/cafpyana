@@ -551,12 +551,67 @@ def discover_syst_names_on_df(
     return out
 
 
+_WEIGHT_LEAF_MARKERS = frozenset(
+    {"ps1", "ms1", "ps2", "ms2", "ps3", "ms3", "morph", "cv"}
+)
+
+
+def _available_weight_knobs(df: pd.DataFrame) -> List[str]:
+    """Knob names with weight leaves on ``evt`` (``mc.<knob>``) or ``mcnu`` (``<knob>``)."""
+    try:
+        return [str(k) for k in df.mc.columns.get_level_values(0).unique()]
+    except Exception:
+        pass
+    seen = set()
+    out: List[str] = []
+    for c in df.columns:
+        if not isinstance(c, tuple) or len(c) < 2:
+            continue
+        top = c[0]
+        if top in seen or top in (None, "", "mc"):
+            continue
+        leaf = next((str(p) for p in c[1:] if p not in (None, "")), "")
+        if leaf.startswith("univ_") or leaf in _WEIGHT_LEAF_MARKERS:
+            seen.add(top)
+            out.append(str(top))
+    return out
+
+
 def _mc_knob_leaf_set(df: pd.DataFrame, knob: str) -> set:
+    """Leaf names under ``mc.<knob>`` or mcnu-style ``<knob>.<leaf>``.
+
+    Robust to pandas returning a ``Series`` when a knob has only one leaf column.
+    """
+    leaves = set()
+    try:
+        for c in df.columns:
+            if not isinstance(c, tuple) or len(c) < 2:
+                continue
+            # evt: (mc, knob, leaf, ...)
+            if len(c) >= 3 and c[0] == "mc" and c[1] == knob:
+                leaf = next((str(p) for p in c[2:] if p not in (None, "")), "")
+                if leaf:
+                    leaves.add(leaf)
+            # mcnu: (knob, leaf, ...)
+            elif c[0] == knob:
+                leaf = next((str(p) for p in c[1:] if p not in (None, "")), "")
+                if leaf:
+                    leaves.add(leaf)
+        if leaves:
+            return leaves
+    except Exception:
+        pass
+    # Fallback: df.mc[knob] may be DataFrame or Series
     try:
         block = df.mc[knob]
     except Exception:
         return set()
-    leaves = set()
+    if isinstance(block, pd.Series):
+        name = block.name
+        if isinstance(name, tuple):
+            leaf = next((str(p) for p in name if p not in (None, "")), "")
+            return {leaf} if leaf else set()
+        return {str(name)} if name not in (None, "") else set()
     cols = block.columns
     if isinstance(cols, pd.MultiIndex):
         for c in cols:
@@ -586,11 +641,13 @@ def _is_multisigma_or_morph_knob(df: pd.DataFrame, knob: str) -> bool:
 
 
 def _resolve_mc_weight_col(df: pd.DataFrame, knob: str, leaf: str):
-    """Return full MultiIndex column key for ``mc.<knob>.<leaf>`` if present."""
+    """Return column key for ``mc.<knob>.<leaf>`` (evt) or ``<knob>.<leaf>`` (mcnu)."""
     from analysis_village.numucc_1p0pi.selection_framework import multicol_resolve_column_key
 
-    probe = ("mc", knob, leaf)
-    return multicol_resolve_column_key(df, probe)
+    key = multicol_resolve_column_key(df, ("mc", knob, leaf))
+    if key is not None:
+        return key
+    return multicol_resolve_column_key(df, (knob, leaf))
 
 
 def slim_product_names(family: str) -> Tuple[str, str]:
@@ -618,14 +675,17 @@ def multisim_throw_seed(tag: str, knob: str, univ_i: int) -> int:
 
 
 def _dst_weight_col(sample_key: tuple, product_name: str, leaf: str) -> tuple:
+    """Build a product weight column matching ``sample_key`` layout (evt ``mc.*`` or mcnu)."""
     nlevels = len(sample_key) if isinstance(sample_key, tuple) else 2
-    dst = tuple(["mc", product_name, leaf] + [""] * max(0, nlevels - 3))
-    if len(dst) != nlevels:
-        dst = tuple(list(sample_key[:1]) + [product_name, leaf] + [""] * max(0, nlevels - 3))
-        if len(dst) < nlevels:
-            dst = dst + tuple([""] * (nlevels - len(dst)))
-        elif len(dst) > nlevels:
-            dst = dst[:nlevels]
+    if isinstance(sample_key, tuple) and sample_key and sample_key[0] == "mc":
+        dst = tuple(["mc", product_name, leaf] + [""] * max(0, nlevels - 3))
+    else:
+        # mcnu-style: (knob, leaf, ...)
+        dst = tuple([product_name, leaf] + [""] * max(0, nlevels - 2))
+    if len(dst) < nlevels:
+        dst = dst + tuple([""] * (nlevels - len(dst)))
+    elif len(dst) > nlevels:
+        dst = dst[:nlevels]
     return dst
 
 
@@ -682,9 +742,8 @@ def attach_slim_multisim_product(
     if _resolve_mc_weight_col(df, product_name, "univ_0") is not None:
         return df
 
-    try:
-        available = list(df.mc.columns.get_level_values(0).unique())
-    except Exception:
+    available = _available_weight_knobs(df)
+    if not available:
         return df
 
     skip = set(exclude_names or ())
@@ -749,9 +808,8 @@ def attach_slim_full_product(
     if _resolve_mc_weight_col(df, product_name, "univ_0") is not None:
         return df
 
-    try:
-        available = list(df.mc.columns.get_level_values(0).unique())
-    except Exception:
+    available = _available_weight_knobs(df)
+    if not available:
         return df
 
     skip = set(exclude_names or ())
@@ -842,6 +900,149 @@ def attach_slim_full_product(
         prod = _clip_physical_wgt(prod, hi=None)
         out.loc[:, _dst_weight_col(sample_key, product_name, leaf)] = prod
     return out
+
+
+def attach_fsi_compare_packs(
+    df: pd.DataFrame,
+    *,
+    n_univ: int,
+    wgt_clip_hi: float = 10.0,
+    drop_base_atomics: bool = True,
+) -> Tuple[pd.DataFrame, List[str]]:
+    """Build FSI-compare slim packs on a frame that already has CAF weights.
+
+    Expects ``getsyst(..., slim=True)`` output: ``mc.GENIE.univ_*`` (true multisim
+    product) plus per-knob ``ps*`` / ``ms*`` / ``morph`` for BASE ∪ FSI_v1 ∪ FSI_v3.
+
+    Attaches (all clipped ≥ 0; morph/multisigma throws use notebook recipe B)::
+
+      GENIE_base      = GENIE × throws(BASE multisigma/morph)
+      FSI_v1_N        = throws(FSI_v1 only)
+      FSI_v3_N        = throws(FSI_v3 only)
+      GENIE_slim_v1   = GENIE_base × FSI_v1_N
+      GENIE_slim_v3   = GENIE_base × FSI_v3_N
+      GENIE_slim_both = GENIE_base × FSI_v1_N × FSI_v3_N
+
+    Keeps atomic FSI_v1 / FSI_v3 ±σ leaves for per-knob comparison. Optionally
+    drops other BASE multisigma/morph atomics (already folded into GENIE_base).
+    """
+    from makedf.geniesyst import (
+        fsi_compare_base_genie_systematics,
+        fsi_v1_n_genie_systematics,
+        fsi_v3_n_genie_systematics,
+    )
+
+    if df is None or len(df) == 0 or n_univ <= 0:
+        return df, []
+
+    base_knobs = list(fsi_compare_base_genie_systematics())
+    v1_knobs = list(fsi_v1_n_genie_systematics)
+    v3_knobs = list(fsi_v3_n_genie_systematics)
+
+    out = df
+    # GENIE_base: true-multisim product already in mc.GENIE × BASE throws
+    out = attach_slim_full_product(
+        out,
+        product_name="GENIE_base",
+        n_univ=n_univ,
+        knob_names=base_knobs,
+        slim_multisim_name="GENIE",
+        seed_tag="GENIE_base",
+        wgt_clip_hi=wgt_clip_hi,
+        exclude_names=["GENIE_base", "FSI_v1_N", "FSI_v3_N", "GENIE_slim_v1", "GENIE_slim_v3", "GENIE_slim_both"],
+    )
+    out = attach_slim_full_product(
+        out,
+        product_name="FSI_v1_N",
+        n_univ=n_univ,
+        knob_names=v1_knobs,
+        slim_multisim_name=None,
+        seed_tag="FSI_v1_N",
+        wgt_clip_hi=wgt_clip_hi,
+        exclude_names=["GENIE", "GENIE_base", "FSI_v1_N", "FSI_v3_N", "GENIE_slim_v1", "GENIE_slim_v3", "GENIE_slim_both"],
+    )
+    out = attach_slim_full_product(
+        out,
+        product_name="FSI_v3_N",
+        n_univ=n_univ,
+        knob_names=v3_knobs,
+        slim_multisim_name=None,
+        seed_tag="FSI_v3_N",
+        wgt_clip_hi=wgt_clip_hi,
+        exclude_names=["GENIE", "GENIE_base", "FSI_v1_N", "FSI_v3_N", "GENIE_slim_v1", "GENIE_slim_v3", "GENIE_slim_both"],
+    )
+
+    sample = (
+        _resolve_mc_weight_col(out, "GENIE_base", "univ_0")
+        or _resolve_mc_weight_col(out, "GENIE", "univ_0")
+        or _resolve_mc_weight_col(out, "FSI_v1_N", "univ_0")
+    )
+    if sample is None:
+        return out, []
+
+    attached: List[str] = []
+    for name in ("GENIE_base", "FSI_v1_N", "FSI_v3_N"):
+        if _resolve_mc_weight_col(out, name, "univ_0") is not None:
+            attached.append(name)
+
+    for u in range(int(n_univ)):
+        leaf = f"univ_{u}"
+        bkey = _resolve_mc_weight_col(out, "GENIE_base", leaf)
+        v1key = _resolve_mc_weight_col(out, "FSI_v1_N", leaf)
+        v3key = _resolve_mc_weight_col(out, "FSI_v3_N", leaf)
+        ones = np.ones(len(out), dtype=np.float64)
+        base = (
+            _clip_physical_wgt(out.loc[:, bkey], hi=wgt_clip_hi)
+            if bkey is not None
+            else ones
+        )
+        v1 = (
+            _clip_physical_wgt(out.loc[:, v1key], hi=wgt_clip_hi)
+            if v1key is not None
+            else ones
+        )
+        v3 = (
+            _clip_physical_wgt(out.loc[:, v3key], hi=wgt_clip_hi)
+            if v3key is not None
+            else ones
+        )
+        out.loc[:, _dst_weight_col(sample, "GENIE_slim_v1", leaf)] = _clip_physical_wgt(
+            base * v1, hi=None
+        )
+        out.loc[:, _dst_weight_col(sample, "GENIE_slim_v3", leaf)] = _clip_physical_wgt(
+            base * v3, hi=None
+        )
+        out.loc[:, _dst_weight_col(sample, "GENIE_slim_both", leaf)] = _clip_physical_wgt(
+            base * v1 * v3, hi=None
+        )
+
+    for name in ("GENIE_slim_v1", "GENIE_slim_v3", "GENIE_slim_both"):
+        if _resolve_mc_weight_col(out, name, "univ_0") is not None:
+            attached.append(name)
+
+    if drop_base_atomics:
+        keep_atomic = set(v1_knobs) | set(v3_knobs)
+        keep_products = set(attached) | {"GENIE"}
+        knobs = _available_weight_knobs(out)
+        drop_cols = []
+        for k in knobs:
+            if k in keep_atomic or k in keep_products:
+                continue
+            # Drop leftover BASE ±σ / morph atomics (and any other non-pack knobs).
+            try:
+                leaves = _mc_knob_leaf_set(out, k)
+            except Exception:
+                continue
+            if leaves & {"ps1", "ms1", "morph", "ps2", "ms2", "ps3", "ms3", "cv"}:
+                for c in out.columns:
+                    if not isinstance(c, tuple) or len(c) < 2:
+                        continue
+                    if (c[0] == "mc" and c[1] == k) or c[0] == k:
+                        drop_cols.append(c)
+        if drop_cols:
+            out = out.drop(columns=drop_cols)
+
+    return out, attached
 
 
 def attach_family_slim_products(

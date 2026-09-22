@@ -355,13 +355,83 @@ forgot_knobs = [
     'GENIEReWeight_SBNNuSyst_multisigma_EDepFSI_DecayAngMEC'
 ]
 
-# ``forgot_knobs`` uses the retired SBNNuSyst reweight naming; the Ar23+ flat CAFs
-# carry these dials as ``SBN_v1_*`` instead. CoulombCCQE / NormCCMEC / NormNCMEC /
-# DecayAngMEC are already covered by the CCQE and MEC groups, so only VecFFCCQEshape
-# still needs a run — its home group ``ZExp`` has no GENIE_GROUP_GLOBS entry.
+# ``forgot_knobs`` uses retired SBNNuSyst ``EDepFSI_*`` naming. On Ar23+ those
+# dials are ``SBN_v1_*`` instead — use the nominals, never stack both:
+#   EDepFSI_NormCCMEC / NormNCMEC / DecayAngMEC  →  MEC group (SBN_v1)
+#   EDepFSI_CoulombCCQE                          →  CCQE group (SBN_v1)
+#   EDepFSI_VecFFCCQEshape                       →  VecFF group below (SBN_v1)
+# Keep EDepFSI FSI π/N dials (true Ar23-era FSI), not these QE/MEC twins.
+# Only VecFF still needed a dedicated Product B run (ZExp had no glob entry).
 vecff_genie_systematics = [
     "GENIEReWeight_SBN_v1_multisigma_VecFFCCQEshape",
 ]
+
+
+# Retired v1 nucleon FSI (±σ) — on Ar23+ CAFs but dropped from production Other.
+fsi_v1_n_genie_systematics = [
+    "GENIEReWeight_SBN_v1_multisigma_MFP_N",
+    "GENIEReWeight_SBN_v1_multisigma_FrCEx_N",
+    "GENIEReWeight_SBN_v1_multisigma_FrInel_N",
+    "GENIEReWeight_SBN_v1_multisigma_FrAbs_N",
+    "GENIEReWeight_SBN_v1_multisigma_FrPiProd_N",
+]
+
+# Current v3 nucleon FSI (subset of ar23p_genie_systematics).
+fsi_v3_n_genie_systematics = [
+    "GENIEReWeight_SBN_v3_FrG4LoE_N",
+    "GENIEReWeight_SBN_v3_FrG4M1E_N",
+    "GENIEReWeight_SBN_v3_FrG4M2E_N",
+    "GENIEReWeight_SBN_v3_FrG4HiE_N",
+    "GENIEReWeight_SBN_v3_FrINCLLoE_N",
+    "GENIEReWeight_SBN_v3_FrINCLM1E_N",
+    "GENIEReWeight_SBN_v3_FrINCLM2E_N",
+    "GENIEReWeight_SBN_v3_FrINCLHiE_N",
+    "GENIEReWeight_SBN_v3_MFPLoE_N",
+    "GENIEReWeight_SBN_v3_MFPM1E_N",
+    "GENIEReWeight_SBN_v3_MFPM2E_N",
+    "GENIEReWeight_SBN_v3_MFPHiE_N",
+    "GENIEReWeight_SBN_v3_FrKin_PiProFix_N",
+    "PionAbsWeighter_SBN_v3_QuasiDeuteronFraction",
+]
+
+
+def _dedupe_preserve(seq):
+    seen = set()
+    out = []
+    for x in seq:
+        if x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
+    return out
+
+
+def fsi_compare_base_genie_systematics():
+    """All production GENIE knobs except nucleon FSI v1/v3 (includes VecFF, pion FSI, Ar23p non-FSI)."""
+    skip = set(fsi_v1_n_genie_systematics) | set(fsi_v3_n_genie_systematics)
+    merged = []
+    for lst in (
+        qe_genie_systematics,
+        zexp_genie_systematics,
+        mec_genie_systematics,
+        res_genie_systematics,
+        nonres_genie_systematics,
+        dis_genie_systematics,
+        other_genie_systematics,
+        ar23p_genie_systematics,
+        vecff_genie_systematics,
+    ):
+        merged.extend(lst)
+    return [k for k in _dedupe_preserve(merged) if k not in skip]
+
+
+def fsi_compare_genie_systematics():
+    """BASE ∪ FSI_v1_N ∪ FSI_v3_N — one CAF pass for FSI compare + three slim totals."""
+    return _dedupe_preserve(
+        list(fsi_compare_base_genie_systematics())
+        + list(fsi_v1_n_genie_systematics)
+        + list(fsi_v3_n_genie_systematics)
+    )
 
 
 # Registry for grouped GENIE knob lists (used by numucc configs / build_genie_knobgroup_config).
@@ -375,6 +445,9 @@ GENIE_KNOB_GROUPS = {
     "DIS": dis_genie_systematics,
     "Other": other_genie_systematics,
     "VecFF": vecff_genie_systematics,
+    "FSI_v1_N": fsi_v1_n_genie_systematics,
+    "FSI_v3_N": fsi_v3_n_genie_systematics,
+    "FSI_compare": fsi_compare_genie_systematics(),
 }
 
 
