@@ -11,7 +11,7 @@ import sys
 #
 # REVERT after the test: set back to ``None`` (and revert this constant in any
 # commit / grid inject). Do not use VERTEX_Z_EXCLUDE for this variation.
-FV_ZMAX_OVERRIDE = 200.0  # TEMP: fv_z_lt_200 campaign — revert to None
+FV_ZMAX_OVERRIDE = None  # nominal; set to 200.0 for fv_z_lt_200 campaign
 
 
 def mag(x, y, z):
