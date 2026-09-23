@@ -11,7 +11,7 @@
 # each job does more work and queue overhead stays manageable across many cuts.
 set -euo pipefail
 
-CUT_TAG="${CUT_TAG:?set CUT_TAG (e.g. nu_score0, chi2mu15, vz_exclude_200_300)}"
+CUT_TAG="${CUT_TAG:?set CUT_TAG (e.g. nu_score0, chi2mu15, vz_exclude_200_300, fv_z_lt_200)}"
 
 REPO="${REPO:-/exp/sbnd/app/users/munjung/xsec/freeze/cafpyana}"
 cd "$REPO"

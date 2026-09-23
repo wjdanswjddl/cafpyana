@@ -2,6 +2,18 @@ import numpy as np
 import pandas as pd
 import sys
 
+# Optional z-max override for ``SBND_Gen1`` (cm). Default None = nominal zmax=450.
+#
+# Cut campaign ``fv_z_lt_200``: set to ``200.0`` so Gen-1 FV requires z < 200 for
+# *all* InFV(..., det="SBND_Gen1") callers — slice vertex, μ/p start+end containment
+# (``event_contained_per_tpc``), and truth vertex FV via ``categories.in_fv``.
+# Does **not** change SBND_TPC1/TPC2 (x-band only) or SBND_nohighyz (calo).
+#
+# REVERT after the test: set back to ``None`` (and revert this constant in any
+# commit / grid inject). Do not use VERTEX_Z_EXCLUDE for this variation.
+FV_ZMAX_OVERRIDE = 200.0  # TEMP: fv_z_lt_200 campaign — revert to None
+
+
 def mag(x, y, z):
     return np.sqrt(x**2 + y**2 + z**2)
 
@@ -90,7 +102,7 @@ def InFV(df, inzback=10, inx=10, iny=10, inzfront=10, incathode=5, det="ICARUS")
         xmin = 10.
         xmax = 190.
         zmin = 10.
-        zmax = 450.
+        zmax = 450. if FV_ZMAX_OVERRIDE is None else float(FV_ZMAX_OVERRIDE)
         ymax_highz = 100.
         pass_xz = (np.abs(df.x) > xmin) &(np.abs(df.x) < xmax) & (df.z > zmin) & (df.z < zmax)
         pass_y = ((df.z < 250) & (np.abs(df.y) < 190.)) | ((df.z > 250) & (df.y > -190.) & (df.y < ymax_highz))

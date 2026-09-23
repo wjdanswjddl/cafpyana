@@ -383,6 +383,15 @@ def run_grid(inputfiles):
             'fi\n'
             % i_flist
         )
+        # Inject FV_ZMAX_OVERRIDE (fv_z_lt_200 and similar Gen-1 FV campaigns).
+        out.write(
+            'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_makedf_util.py" ]; then\n'
+            '  mkdir -p makedf\n'
+            '  cp -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_makedf_util.py" makedf/util.py\n'
+            '  echo "[run_%s.sh] injected makedf/util.py from submit host"\n'
+            'fi\n'
+            % i_flist
+        )
         # FSI_compare / slim-throw packs: ship local geniesyst + syst_histcounts (not yet on GitHub).
         out.write(
             'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_geniesyst.py" ]; then\n'
@@ -435,6 +444,10 @@ def run_grid(inputfiles):
         if os.path.isfile(_sel_local):
             shutil.copy2(_sel_local, os.path.join(MasterJobDir, "numucc_selections.py"))
             print("[run_df_maker] bundled numucc selections.py into job tarball")
+        _util_local = os.path.join(_wd, "makedf/util.py")
+        if os.path.isfile(_util_local):
+            shutil.copy2(_util_local, os.path.join(MasterJobDir, "numucc_makedf_util.py"))
+            print("[run_df_maker] bundled makedf/util.py into job tarball")
         _geniesyst_local = os.path.join(_wd, "makedf/geniesyst.py")
         if os.path.isfile(_geniesyst_local):
             shutil.copy2(_geniesyst_local, os.path.join(MasterJobDir, "numucc_geniesyst.py"))

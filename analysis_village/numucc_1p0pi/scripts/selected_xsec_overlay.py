@@ -132,6 +132,17 @@ PLOT_SETS = [
         ),
         "data_filename_str": "sel_mup-data-1e20",
     },
+    # fv_z_lt_200: Gen-1 FV z < 200 (vertex + μ/p containment).
+    # After jobs land under dfs/fv_z_lt_200/, fill the timestamped mc_dir/data_dir
+    # paths below (same pattern as the tags above) and uncomment.
+    # {
+    #     "tag": "fv_z_lt_200",
+    #     "output_dir": path.join(OUTPUT_BASE, "fv_z_lt_200"),
+    #     "mc_dir": path.join(DFS_ROOT, "fv_z_lt_200/<TS>__sel_mup-mc-BNB_cosmics"),
+    #     "mc_filename_str": "sel_mup-mc-BNB_cosmics",
+    #     "data_dir": path.join(DFS_ROOT, "fv_z_lt_200/<TS>__sel_mup-data-1e20"),
+    #     "data_filename_str": "sel_mup-data-1e20",
+    # },
 ]
 
 # Cross-section measurement variables (same list as unfolding.ipynb)

@@ -34,37 +34,51 @@ BREAKDOWN_TYPES = ("topology", "genie_sb")
 
 # Per-campaign applied thresholds (nominal elsewhere).
 # nu_score: keep > th; chi2_avg_mu: keep < th; |mcs_range_diff|: keep < th;
-# vertex_z: exclude [z0, z1] when set.
+# vertex_z: exclude [z0, z1] when vz_exclude set; keep z < fv_zmax when set.
 CUT_APPLIED: Dict[str, dict] = {
     "nu_score0": {
         "nu_score_th": 0.0,
         "chi2mu_th": 30.0,
         "qual_th": 0.2,
         "vz_exclude": None,
+        "fv_zmax": None,
     },
     "chi2mu15": {
         "nu_score_th": 0.45,
         "chi2mu_th": 15.0,
         "qual_th": 0.2,
         "vz_exclude": None,
+        "fv_zmax": None,
     },
     "chi2mu45": {
         "nu_score_th": 0.45,
         "chi2mu_th": 45.0,
         "qual_th": 0.2,
         "vz_exclude": None,
+        "fv_zmax": None,
     },
     "mcs_range_diff1p0": {
         "nu_score_th": 0.45,
         "chi2mu_th": 30.0,
         "qual_th": 1.0,
         "vz_exclude": None,
+        "fv_zmax": None,
     },
     "vz_exclude_200_300": {
         "nu_score_th": 0.45,
         "chi2mu_th": 30.0,
         "qual_th": 0.2,
         "vz_exclude": (200.0, 300.0),
+        "fv_zmax": None,
+    },
+    # Gen-1 FV z < 200 (vertex + μ/p containment via makedf.util.FV_ZMAX_OVERRIDE).
+    # Fill PLOT_SETS paths in selected_xsec_overlay.py after the sel_mup jobs finish.
+    "fv_z_lt_200": {
+        "nu_score_th": 0.45,
+        "chi2mu_th": 30.0,
+        "qual_th": 0.2,
+        "vz_exclude": None,
+        "fv_zmax": 200.0,
     },
 }
 
@@ -143,12 +157,16 @@ def _vlines_for_tag(tag: str, var_save_name: str) -> Optional[list]:
         q = th["qual_th"]
         return [[-q, 1], [q, 0]]
     if var_save_name == "vertex_z":
-        vz = th["vz_exclude"]
-        if vz is None:
-            return None
-        z0, z1 = vz
-        # Arrows point into the kept regions (outside the excluded window).
-        return [[z0, 0], [z1, 1]]
+        vz = th.get("vz_exclude")
+        if vz is not None:
+            z0, z1 = vz
+            # Arrows point into the kept regions (outside the excluded window).
+            return [[z0, 0], [z1, 1]]
+        zmax = th.get("fv_zmax")
+        if zmax is not None:
+            # Keep z < fv_zmax (Gen-1 FV campaign).
+            return [[float(zmax), 0]]
+        return None
     return None
 
 
