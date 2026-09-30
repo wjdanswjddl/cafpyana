@@ -133,8 +133,8 @@ def _knob_to_mode_lookup() -> Dict[str, str]:
 
     Skips composite packs (``FSI_compare``, ``slim``) that re-list knobs already
     owned by a physics mode — those would otherwise overwrite CCQE/MEC/… with
-    ``FSI_compare``. ``FSI_v1_N`` / ``FSI_v3_N`` map to ``FSI`` only via
-    ``setdefault`` so they do not steal knobs already claimed by ``Other``/Ar23p.
+    ``FSI_compare``. ``FSI_v3_N`` maps to ``FSI`` only via ``setdefault`` so it
+    does not steal knobs already claimed by ``Other``/Ar23p.
     """
     from makedf.geniesyst import GENIE_KNOB_GROUPS, ar23p_genie_systematics
 
@@ -142,7 +142,6 @@ def _knob_to_mode_lookup() -> Dict[str, str]:
     pack_dest = {
         "VecFF": "CCQE",
         "ZExp": "CCQE",
-        "FSI_v1_N": "FSI",
         "FSI_v3_N": "FSI",
     }
     rev: Dict[str, str] = {}
@@ -150,7 +149,7 @@ def _knob_to_mode_lookup() -> Dict[str, str]:
         if mode in skip:
             continue
         dest = pack_dest.get(mode, mode)
-        soft = mode in ("FSI_v1_N", "FSI_v3_N", "Ar23p")
+        soft = mode in ("FSI_v3_N", "Ar23p")
         for kn in knobs:
             name = str(kn)
             if soft:

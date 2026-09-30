@@ -1,8 +1,7 @@
-# selected event rates for MC files
-# use for detector variation samples
+# Product B GENIE weights. The systematic is GENIE_slim_v3 = base × FSI v3.
+#
+#   python run_df_maker.py -c configs/numucc_1p0pi/sel_mup-genieslimwgts.py \
+#     -l /path/to/ar23_xrootd.list -o sel_mup-wgts_genie -ngrid 2000
 from analysis_village.numucc_1p0pi.makedf.makedf import *
-from makedf.geniesyst import gen1_systematics
 
-DFS = [make_pandora_evtdf_mup_genieslimwgts, make_hdrdf, make_metadf, make_mcnudf_genieslimwgts]
-ARGS = [{}, {}, {}, {"genie_systematics": gen1_systematics}]
-NAMES = ["evt", "hdr", "meta", "mcnu"]
+DFS, ARGS, NAMES = build_genie_fsi_compare_config_sel_mup()

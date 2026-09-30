@@ -147,7 +147,7 @@ def make_pandora_evtdf_mup_fsi_compare(
     cutClearCosmic=True,
     **trkArgs,
 ):
-    """sel_mup + FSI_compare knobs (slim) + GENIE_base / FSI packs / three slim totals."""
+    """sel_mup + nominal GENIE weights. Systematic column is ``GENIE_slim_v3`` = base × FSI v3."""
     from makedf.geniesyst import fsi_compare_genie_systematics
 
     if wgt_types is None:
@@ -204,7 +204,7 @@ def make_pandora_evtdf_all_fsi_compare(
     cutClearCosmic=False,
     **trkArgs,
 ):
-    """sel_all + FSI_compare knobs (slim) + GENIE_base / FSI packs / three slim totals."""
+    """sel_all + nominal GENIE weights. Systematic column is ``GENIE_slim_v3`` = base × FSI v3."""
     from makedf.geniesyst import fsi_compare_genie_systematics
 
     if wgt_types is None:
@@ -228,7 +228,7 @@ def make_pandora_evtdf_all_fsi_compare(
 
 
 def build_genie_fsi_compare_config_sel_mup(genie_multisim_nuniv=100):
-    """Product B: one pass BASE∪FSI_v1∪FSI_v3 with three slim products + atomic FSI."""
+    """Product B: base ∪ FSI v3. Writes ``GENIE_slim_v3`` = base × FSI v3."""
     from makedf.geniesyst import fsi_compare_genie_systematics
 
     syst = fsi_compare_genie_systematics()
@@ -252,7 +252,7 @@ def build_genie_fsi_compare_config_sel_mup(genie_multisim_nuniv=100):
 
 
 def build_genie_fsi_compare_config_sel_all(genie_multisim_nuniv=100):
-    """Product A: loose sel_all + FSI_compare packs."""
+    """Product A: loose sel_all. Writes ``GENIE_slim_v3`` = base × FSI v3."""
     from makedf.geniesyst import fsi_compare_genie_systematics
 
     syst = fsi_compare_genie_systematics()

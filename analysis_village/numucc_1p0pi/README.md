@@ -148,7 +148,8 @@ carry the older offline sel_all weight-table walker.
 - `sel_mup.py` / `sel_mup-data.py` — final μ+p selection dataframes (MC / data).
 - `sel_mup-fluxwgts-knobgroups.py` — BNB flux multisim weights.
 - `sel_mup-g4wgts.py` — Geant4 reinteraction multisim weights.
-- `sel_mup-geniewgts-knobgroups.py` / `sel_mup-genieslimwgts.py` — GENIE knob-group / slimmed GENIE weights (`GENIE_KNOB_GROUP` env selects the group).
+- `sel_mup-geniewgts-knobgroups.py` — per-group GENIE weights (`GENIE_KNOB_GROUP` selects the group).
+- `sel_mup-genieslimwgts.py` — nominal GENIE systematic, `GENIE_slim_v3` = base × FSI v3. `sel_all-geniewgts-knobgroups.py` with `GENIE_KNOB_GROUP=slim` is the same product at `sel_all`.
 - `sel_mup-mcstatwgts.py` — Poisson MC-statistics universe weights.
 - `sel_all-updatecalo.py` — detector variations at `sel_all`: CV + ±1σ calo universes (`evt_*` / `trk_*`) plus E-field redo (`evt_efield` / `trk_efield`).
 - `add_ar23p.py` — preprocess hook adding AR23_20i_00_000 reweight knobs to CAFs.

@@ -912,26 +912,21 @@ def attach_fsi_compare_packs(
     wgt_clip_hi: float = 10.0,
     drop_base_atomics: bool = True,
 ) -> Tuple[pd.DataFrame, List[str]]:
-    """Build FSI-compare slim packs on a frame that already has CAF weights.
+    """Attach the nominal GENIE systematic: ``GENIE_slim_v3`` = base × FSI v3.
 
     Expects ``getsyst(..., slim=True)`` output: ``mc.GENIE.univ_*`` (true multisim
-    product) plus per-knob ``ps*`` / ``ms*`` / ``morph`` for BASE ∪ FSI_v1 ∪ FSI_v3.
+    product) plus per-knob ``ps*`` / ``ms*`` / ``morph`` for BASE ∪ FSI v3.
 
     Attaches (all clipped ≥ 0; morph/multisigma throws use notebook recipe B)::
 
-      GENIE_base      = GENIE × throws(BASE multisigma/morph)
-      FSI_v1_N        = throws(FSI_v1 only)
-      FSI_v3_N        = throws(FSI_v3 only)
-      GENIE_slim_v1   = GENIE_base × FSI_v1_N
-      GENIE_slim_v3   = GENIE_base × FSI_v3_N
-      GENIE_slim_both = GENIE_base × FSI_v1_N × FSI_v3_N
+      GENIE_base    = GENIE × throws(BASE multisigma/morph)
+      FSI_v3_N      = throws(FSI v3 only)
+      GENIE_slim_v3 = GENIE_base × FSI_v3_N
 
-    Keeps atomic FSI_v1 / FSI_v3 ±σ leaves for per-knob comparison. Optionally
-    drops other BASE multisigma/morph atomics (already folded into GENIE_base).
+    Optionally drops BASE multisigma/morph atomics (already folded into GENIE_base).
     """
     from makedf.geniesyst import (
         fsi_compare_base_genie_systematics,
-        fsi_v1_n_genie_systematics,
         fsi_v3_n_genie_systematics,
     )
 
@@ -939,11 +934,10 @@ def attach_fsi_compare_packs(
         return df, []
 
     base_knobs = list(fsi_compare_base_genie_systematics())
-    v1_knobs = list(fsi_v1_n_genie_systematics)
     v3_knobs = list(fsi_v3_n_genie_systematics)
+    exclude = ["GENIE_base", "FSI_v3_N", "GENIE_slim_v3"]
 
     out = df
-    # GENIE_base: true-multisim product already in mc.GENIE × BASE throws
     out = attach_slim_full_product(
         out,
         product_name="GENIE_base",
@@ -952,17 +946,7 @@ def attach_fsi_compare_packs(
         slim_multisim_name="GENIE",
         seed_tag="GENIE_base",
         wgt_clip_hi=wgt_clip_hi,
-        exclude_names=["GENIE_base", "FSI_v1_N", "FSI_v3_N", "GENIE_slim_v1", "GENIE_slim_v3", "GENIE_slim_both"],
-    )
-    out = attach_slim_full_product(
-        out,
-        product_name="FSI_v1_N",
-        n_univ=n_univ,
-        knob_names=v1_knobs,
-        slim_multisim_name=None,
-        seed_tag="FSI_v1_N",
-        wgt_clip_hi=wgt_clip_hi,
-        exclude_names=["GENIE", "GENIE_base", "FSI_v1_N", "FSI_v3_N", "GENIE_slim_v1", "GENIE_slim_v3", "GENIE_slim_both"],
+        exclude_names=exclude,
     )
     out = attach_slim_full_product(
         out,
@@ -972,26 +956,25 @@ def attach_fsi_compare_packs(
         slim_multisim_name=None,
         seed_tag="FSI_v3_N",
         wgt_clip_hi=wgt_clip_hi,
-        exclude_names=["GENIE", "GENIE_base", "FSI_v1_N", "FSI_v3_N", "GENIE_slim_v1", "GENIE_slim_v3", "GENIE_slim_both"],
+        exclude_names=["GENIE", *exclude],
     )
 
     sample = (
         _resolve_mc_weight_col(out, "GENIE_base", "univ_0")
         or _resolve_mc_weight_col(out, "GENIE", "univ_0")
-        or _resolve_mc_weight_col(out, "FSI_v1_N", "univ_0")
+        or _resolve_mc_weight_col(out, "FSI_v3_N", "univ_0")
     )
     if sample is None:
         return out, []
 
     attached: List[str] = []
-    for name in ("GENIE_base", "FSI_v1_N", "FSI_v3_N"):
+    for name in ("GENIE_base", "FSI_v3_N"):
         if _resolve_mc_weight_col(out, name, "univ_0") is not None:
             attached.append(name)
 
     for u in range(int(n_univ)):
         leaf = f"univ_{u}"
         bkey = _resolve_mc_weight_col(out, "GENIE_base", leaf)
-        v1key = _resolve_mc_weight_col(out, "FSI_v1_N", leaf)
         v3key = _resolve_mc_weight_col(out, "FSI_v3_N", leaf)
         ones = np.ones(len(out), dtype=np.float64)
         base = (
@@ -999,32 +982,20 @@ def attach_fsi_compare_packs(
             if bkey is not None
             else ones
         )
-        v1 = (
-            _clip_physical_wgt(out.loc[:, v1key], hi=wgt_clip_hi)
-            if v1key is not None
-            else ones
-        )
         v3 = (
             _clip_physical_wgt(out.loc[:, v3key], hi=wgt_clip_hi)
             if v3key is not None
             else ones
         )
-        out.loc[:, _dst_weight_col(sample, "GENIE_slim_v1", leaf)] = _clip_physical_wgt(
-            base * v1, hi=None
-        )
         out.loc[:, _dst_weight_col(sample, "GENIE_slim_v3", leaf)] = _clip_physical_wgt(
             base * v3, hi=None
         )
-        out.loc[:, _dst_weight_col(sample, "GENIE_slim_both", leaf)] = _clip_physical_wgt(
-            base * v1 * v3, hi=None
-        )
 
-    for name in ("GENIE_slim_v1", "GENIE_slim_v3", "GENIE_slim_both"):
-        if _resolve_mc_weight_col(out, name, "univ_0") is not None:
-            attached.append(name)
+    if _resolve_mc_weight_col(out, "GENIE_slim_v3", "univ_0") is not None:
+        attached.append("GENIE_slim_v3")
 
     if drop_base_atomics:
-        keep_atomic = set(v1_knobs) | set(v3_knobs)
+        keep_atomic = set(v3_knobs)
         keep_products = set(attached) | {"GENIE"}
         knobs = _available_weight_knobs(out)
         drop_cols = []

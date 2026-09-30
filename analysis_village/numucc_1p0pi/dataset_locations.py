@@ -185,7 +185,7 @@ GENIE_GROUP_GLOBS: Dict[str, str] = {
     "Ar23p": str(_SEL_MUP_DFS / "2026_09_12_021900__sel_mup-wgts_genie_Ar23p/*.df"),
     # VecFFCCQEshape only — knob missed in the Ar23p pass (see GENIE_KNOB_GROUPS["VecFF"]).
     "VecFF": str(_SEL_MUP_DFS / "2026_09_18_184018__sel_mup-wgts_genie_VecFF/*.df"),
-    # FSI compare (retired v1 _N vs v3 + three slim totals). ``_ok`` excludes tiny
+    # Nominal GENIE weights (``GENIE_slim_v3`` = base × FSI v3). ``_ok`` excludes tiny
     # failed dfs from the MultiIndex 5-vs-7 concat bug (~2.6% of jobs).
     "FSI_compare": str(
         _SEL_MUP_DFS / "2026_09_19_200848__sel_mup-wgts_genie_FSI_compare_ok/*.df"
@@ -218,7 +218,7 @@ GENIE_GROUP_GLOBS_SEL_ALL: Dict[str, str] = {
     "Ar23p": str(_SEL_ALL_DFS / "2026_09_13_203514__sel_all-wgts_genie_Ar23p/*.df"),
     # VecFFCCQEshape only — parallel to GENIE_GROUP_GLOBS["VecFF"] (sel_mup Product B).
     "VecFF": str(_SEL_ALL_DFS / "2026_09_19_002000__sel_all-wgts_genie_VecFF/*.df"),
-    # FSI compare packs on sel_all (Product A). Full 2000/2000 good.
+    # Nominal GENIE weights on sel_all (Product A): ``GENIE_slim_v3``. Full 2000/2000 good.
     "FSI_compare": str(
         _SEL_ALL_DFS / "2026_09_19_201401__sel_all-wgts_genie_FSI_compare_ok/*.df"
     ),
@@ -249,20 +249,8 @@ GENIE_GROUP_KNOBS["VecFF"] = list(vecff_genie_systematics)
 
 
 def fsi_compare_syst_knobs() -> List[str]:
-    """Product packs on FSI_compare dfs (family + three slim totals + base).
-
-    Atomic ±σ knobs are omitted from the default syst pass for speed; re-add
-    ``fsi_v1_n_genie_systematics`` / ``fsi_v3_n_genie_systematics`` for per-knob
-    atomics plots.
-    """
-    return [
-        "GENIE_base",
-        "FSI_v1_N",
-        "FSI_v3_N",
-        "GENIE_slim_v1",
-        "GENIE_slim_v3",
-        "GENIE_slim_both",
-    ]
+    """Nominal GENIE systematic: base × FSI v3 (``GENIE_slim_v3``)."""
+    return ["GENIE_slim_v3"]
 
 
 GENIE_GROUP_KNOBS["FSI_compare"] = fsi_compare_syst_knobs()
@@ -563,7 +551,7 @@ def all_genie_group_tags() -> Tuple[str, ...]:
 def joint_cc_genie_knobs_for_group(group: str) -> List[str]:
     """Knobs histogrammed for one joint-CC GENIE group.
 
-    ``FSI_compare`` is the bundled Product B GENIE piece: only ``GENIE_slim_v3``.
+    ``FSI_compare`` is the nominal GENIE systematic: ``GENIE_slim_v3`` = base × FSI v3.
     Other groups use :data:`GENIE_GROUP_KNOBS`. Do not add VecFF / Ar23p on top
     of slim_v3 for Joint CC — that double-counts knobs already in the product.
     """

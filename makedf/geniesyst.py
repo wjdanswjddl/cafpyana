@@ -77,11 +77,6 @@ regen_systematics = [
     'GENIEReWeight_SBN_v1_multisigma_FrInel_pi',
     'GENIEReWeight_SBN_v1_multisigma_FrAbs_pi',
     'GENIEReWeight_SBN_v1_multisigma_FrPiProd_pi',
-    'GENIEReWeight_SBN_v1_multisigma_MFP_N',
-    'GENIEReWeight_SBN_v1_multisigma_FrCEx_N',
-    'GENIEReWeight_SBN_v1_multisigma_FrInel_N',
-    'GENIEReWeight_SBN_v1_multisigma_FrAbs_N',
-    'GENIEReWeight_SBN_v1_multisigma_FrPiProd_N',
 
     # NCEL
     # "GENIEReWeight_SBN_v1_multisim_NCELVariationResponse",
@@ -218,11 +213,6 @@ gen1_systematics = [
     # FSI
     # "GENIEReWeight_SBN_v1_multisim_FSI_pi_VariationResponse",
     # "GENIEReWeight_SBN_v1_multisim_FSI_N_VariationResponse",
-    'GENIEReWeight_SBN_v1_multisigma_MFP_N',
-    'GENIEReWeight_SBN_v1_multisigma_FrCEx_N',
-    'GENIEReWeight_SBN_v1_multisigma_FrInel_N',
-    'GENIEReWeight_SBN_v1_multisigma_FrAbs_N',
-    'GENIEReWeight_SBN_v1_multisigma_FrPiProd_N',
 
     # NCEL
     'GENIEReWeight_SBN_v1_multisigma_MaNCEL',
@@ -367,16 +357,9 @@ vecff_genie_systematics = [
 ]
 
 
-# Retired v1 nucleon FSI (±σ) — on Ar23+ CAFs but dropped from production Other.
-fsi_v1_n_genie_systematics = [
-    "GENIEReWeight_SBN_v1_multisigma_MFP_N",
-    "GENIEReWeight_SBN_v1_multisigma_FrCEx_N",
-    "GENIEReWeight_SBN_v1_multisigma_FrInel_N",
-    "GENIEReWeight_SBN_v1_multisigma_FrAbs_N",
-    "GENIEReWeight_SBN_v1_multisigma_FrPiProd_N",
-]
-
 # Current v3 nucleon FSI (subset of ar23p_genie_systematics).
+# Retired v1 nucleon FSI (MFP_N, FrCEx_N, FrInel_N, FrAbs_N, FrPiProd_N) is not
+# in any production knob list. The GENIE systematic is base × these v3 knobs.
 fsi_v3_n_genie_systematics = [
     "GENIEReWeight_SBN_v3_FrG4LoE_N",
     "GENIEReWeight_SBN_v3_FrG4M1E_N",
@@ -407,8 +390,8 @@ def _dedupe_preserve(seq):
 
 
 def fsi_compare_base_genie_systematics():
-    """All production GENIE knobs except nucleon FSI v1/v3 (includes VecFF, pion FSI, Ar23p non-FSI)."""
-    skip = set(fsi_v1_n_genie_systematics) | set(fsi_v3_n_genie_systematics)
+    """Production GENIE knobs except nucleon FSI v3 (those multiply in as ``GENIE_slim_v3``)."""
+    skip = set(fsi_v3_n_genie_systematics)
     merged = []
     for lst in (
         qe_genie_systematics,
@@ -426,10 +409,9 @@ def fsi_compare_base_genie_systematics():
 
 
 def fsi_compare_genie_systematics():
-    """BASE ∪ FSI_v1_N ∪ FSI_v3_N — one CAF pass for FSI compare + three slim totals."""
+    """Nominal GENIE knob list: base ∪ FSI v3. The systematic weight is base × FSI v3."""
     return _dedupe_preserve(
         list(fsi_compare_base_genie_systematics())
-        + list(fsi_v1_n_genie_systematics)
         + list(fsi_v3_n_genie_systematics)
     )
 
@@ -445,7 +427,6 @@ GENIE_KNOB_GROUPS = {
     "DIS": dis_genie_systematics,
     "Other": other_genie_systematics,
     "VecFF": vecff_genie_systematics,
-    "FSI_v1_N": fsi_v1_n_genie_systematics,
     "FSI_v3_N": fsi_v3_n_genie_systematics,
     "FSI_compare": fsi_compare_genie_systematics(),
 }
