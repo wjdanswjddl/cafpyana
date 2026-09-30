@@ -42,12 +42,19 @@ if _REPO_ROOT not in sys.path:
 
 from pyanalib.covariance import cov_from_fraccov, get_covariance_matrix  # noqa: E402
 
-from analysis_village.numucc_1p0pi.dataset_locations import GENIE_GROUP_ORDER, _genie_glob_map  # noqa: E402
+from analysis_village.numucc_1p0pi.dataset_locations import (  # noqa: E402
+    DEFAULT_JOINT_CC_GENIE_GROUPS,
+    GENIE_GROUP_ORDER,
+    _genie_glob_map,
+    all_genie_group_tags,
+)
 from analysis_village.numucc_1p0pi.scripts.get_systematics_genie import RATE_ACC_KEY, merge_genie_chunk_pickles  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_cc_joint_multisim_common import (  # noqa: E402
     JOINT_CC_GENIE_CHUNK_GLOB,
-    default_kinematic_joint_pairs,
-    joint_meta,
+    JOINT_CC_GENIE_CHUNK_GLOB_PAIRS,
+    JOINT_CC_GENIE_CHUNK_PREFIX,
+    JOINT_CC_GENIE_CHUNK_PREFIX_PAIRS,
+    layout_meta_for_slug,
     save_joint_genie_combined_npz,
 )
 from analysis_village.numucc_1p0pi.syst_disk_cc_layout import normalized_root  # noqa: E402
@@ -56,7 +63,11 @@ from analysis_village.numucc_1p0pi.syst_multisim_common import combine_indep_kno
 
 def collect_joint_genie_chunks(chunks_dir: str) -> list[str]:
     root = path.abspath(path.expanduser(chunks_dir.rstrip(os.sep)))
-    return sorted(glob.glob(path.join(root, JOINT_CC_GENIE_CHUNK_GLOB)))
+    paths = sorted(glob.glob(path.join(root, JOINT_CC_GENIE_CHUNK_GLOB)))
+    for p in sorted(glob.glob(path.join(root, JOINT_CC_GENIE_CHUNK_GLOB_PAIRS))):
+        if p not in paths:
+            paths.append(p)
+    return sorted(set(paths))
 
 
 def collect_joint_genie_chunks_many(chunks_dirs: Sequence[str]) -> list[str]:
@@ -75,16 +86,16 @@ def collect_joint_genie_chunks_many(chunks_dirs: Sequence[str]) -> list[str]:
 
 def _parse_group_from_filename(fp: str) -> str | None:
     base = path.basename(fp)
-    if base.endswith(".pkl"):
-        if base.startswith("nu__joint_cc_genie__"):
-            rest = base[len("nu__joint_cc_genie__") : -len(".pkl")]
-        elif base.startswith("nu__joint_genie__"):
-            rest = base[len("nu__joint_genie__") : -len(".pkl")]
-        else:
-            return None
-    else:
+    if not base.endswith(".pkl"):
         return None
-    for g in sorted(GENIE_GROUP_ORDER, key=lambda s: -len(s)):
+    rest = None
+    for prefix in (JOINT_CC_GENIE_CHUNK_PREFIX, JOINT_CC_GENIE_CHUNK_PREFIX_PAIRS, "nu__joint_genie__"):
+        if base.startswith(prefix):
+            rest = base[len(prefix) : -len(".pkl")]
+            break
+    if rest is None:
+        return None
+    for g in sorted(all_genie_group_tags(), key=lambda s: -len(s)):
         prefix = g + "__"
         if rest.startswith(prefix):
             return g
@@ -97,7 +108,10 @@ def _ordered_groups_present(paths: list[str], stage: str) -> list[str]:
     have.discard(None)
     out: list[str] = []
     seen: set[str] = set()
-    for g in GENIE_GROUP_ORDER:
+    preferred = tuple(GENIE_GROUP_ORDER) + tuple(
+        g for g in DEFAULT_JOINT_CC_GENIE_GROUPS if g not in GENIE_GROUP_ORDER
+    )
+    for g in preferred:
         if g in gmap and g in have:
             out.append(g)
             seen.add(g)
@@ -192,7 +206,7 @@ def run_joint_genie_aggregate(
         raise SystemExit("[cc-joint-genie-agg] no chunk directories")
     paths = collect_joint_genie_chunks_many(roots)
     if not paths:
-        raise RuntimeError("[cc-joint-genie-agg] no nu__joint_cc_genie__*.pkl under %s" % roots)
+        raise RuntimeError("[cc-joint-genie-agg] no nu__joint_cc_genie_stack__*.pkl (or legacy nu__joint_cc_genie__*) under %s" % roots)
 
     groups = _ordered_groups_present(paths, mc_df_stage)
     if not groups:
@@ -242,25 +256,14 @@ def run_joint_genie_aggregate(
         cv_ref = cv_ref_by_pair[pair_slug]
         cov_stored = cov_from_fraccov(cfsum, cv_ref)
         fin = _finalize_pair({"cov": cov_stored, "cv": cv_ref})
-        nx = ny = None
-        ntot = int(cv_ref.size)
-        var_x_name = var_y_name = ""
-        for slug, vx, vy in default_kinematic_joint_pairs():
-            if slug == pair_slug:
-                nx = len(vx.bin_centers)
-                ny = len(vy.bin_centers)
-                var_x_name = vx.var_save_name
-                var_y_name = vy.var_save_name
-                if nx + ny != ntot:
-                    raise ValueError(
-                        "pair %s: n_X+n_Y=%d+%d != cv len %d" % (pair_slug, nx, ny, ntot)
-                    )
-                break
-        if nx is None:
-            raise ValueError("[cc-joint-genie-agg] unknown pair_slug %r" % pair_slug)
+        ntot, slug_meta = layout_meta_for_slug(pair_slug)
+        if int(cv_ref.size) != ntot:
+            raise ValueError(
+                "pair %s: n_bins_total=%d != cv len %d" % (pair_slug, ntot, int(cv_ref.size))
+            )
         per_out[pair_slug] = {
             **fin,
-            "meta": {**joint_meta(nx, ny, var_x_name, var_y_name), "source": "GENIE_rate_joint", "n_genie_groups": len(groups)},
+            "meta": {**slug_meta, "source": "GENIE_rate_joint", "n_genie_groups": len(groups)},
             "by_knob": dict(by_knob_by_pair.get(pair_slug, {})),
         }
 
@@ -293,7 +296,7 @@ def parse_args():
         nargs="+",
         required=True,
         metavar="DIR",
-        help="Directories containing nu__joint_cc_genie__*.pkl",
+        help="Directories containing nu__joint_cc_genie_stack__*.pkl",
     )
     p.add_argument("--syst-disk-cc-root", dest="syst_disk_cc_root", required=True)
     p.add_argument("--mc-df-stage", choices=("final", "sel_all"), default="final")

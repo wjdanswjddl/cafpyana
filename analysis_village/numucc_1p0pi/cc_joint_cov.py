@@ -1,26 +1,13 @@
-"""Load **joint** (cross-variable) systematic covariances from ``syst_disk_CC``.
+"""Load **joint** (cross-variable) systematic covariances from PRL Product B ``JointCC/``.
 
-This module exposes two complementary builders:
+Default consumer path (:func:`build_joint_multi_covariance_abs`): one inclusive stacked
+NPZ cell ``stacked_mu_p`` (muon *p*, muon cosθ, proton *p*, proton cosθ) written by
+``run_cc_systs.sh``. Flux/G4/GENIE fractions are rescaled with overlay ``mc_total_raw``
+(``μ_nu``); detector/cosmics/POT/ntargets come block-diagonally from PRL CategorySummary
+on overlay ``mc_total``. :func:`perm_stack_to_constraint` permutes the on-disk stack to
+analysis order ``[X; Y_1; Y_2; …]``.
 
-* :func:`build_joint_covariance_abs` (legacy) — single ``(var_X, var_Y)`` pair, stacked bin
-  layout ``[X; Y]`` of size ``n_X + n_Y``.
-
-* :func:`build_joint_multi_covariance_abs` (new) — arbitrary ``var_X`` constrained by an
-  ordered list ``var_Ys = [Y_1, Y_2, …]``. Stacked bins ``[X; Y_1; Y_2; …]`` of size
-  ``n_X + Σ_i n_{Y_i}``. Required NPZ pairs are auto-discovered: ``(X, Y_i)`` for the
-  diagonal/X-Y cross blocks, and ``(Y_i, Y_j)`` for the Y-Y cross blocks. Pairs are read
-  from ``JointMCstat/`` ``JointFlux/`` ``JointG4/`` (legacy ``JointMultisim/`` accepted) plus
-  optional ``JointGenie/`` and oriented with :func:`syst_cc_joint_multisim_common.joint_pair_layout`
-  so the same NPZ works regardless of how the ``(A, B)`` order was stored on disk.
-
-Per-category ``joint_*_combined.npz`` files may include optional ``Joint{Flux,G4,MCstat}_by_knob``
-breakdowns. :func:`load_joint_multisim_frac_cov` sums ``cov_frac`` across selected categories
-(by default all files on disk), using each category's **combined** block unless a per-category
-knob list is supplied. Legacy ``JointMultisim/joint_multisim_combined.npz`` is still read when
-present (indivisible single block).
-
-Bin layout matches :mod:`analysis_village.numucc_1p0pi.syst_disk_cc_layout`: indices
-``0 .. n_X-1`` are variable **X** bins, ``n_X .. n_X+n_Y-1`` are variable **Y** bins.
+Pairwise NPZ stitching is an emergency fallback (``use_pair_fallback=True``).
 """
 
 from __future__ import annotations
@@ -32,11 +19,15 @@ import numpy as np
 
 from analysis_village.numucc_1p0pi.dataset_locations import default_syst_disk_cc_root
 from analysis_village.numucc_1p0pi.syst_cc_joint_multisim_common import (
+    JOINT_CC_EXTRAS_CATEGORIES,
+    STACK_SLUG,
     joint_multisim_npz_pair_key,
     joint_pair_layout,
+    perm_stack_to_constraint,
     reorient_joint_block,
 )
 from analysis_village.numucc_1p0pi.syst_disk_cc_layout import (
+    joint_extras_inner_key,
     joint_multisim_category_inner_key,
     syst_disk_cc_paths,
 )
@@ -44,6 +35,13 @@ from analysis_village.numucc_1p0pi.utils import get_syst_unc as get_syst_unc_dis
 from pyanalib.covariance import cov_from_fraccov
 
 JOINT_MULTISIM_CATEGORY_ORDER: tuple[str, ...] = ("MCstat", "Flux", "G4")
+
+_JOINT_EXTRAS_PATH_KEYS: dict[str, str] = {
+    "detector": "joint_detector",
+    "cosmics": "joint_cosmics",
+    "pot": "joint_pot",
+    "ntargets": "joint_ntargets",
+}
 
 _JOINT_MULTISIM_PATH_KEYS: dict[str, str] = {
     "MCstat": "joint_multisim_mcstat",
@@ -373,6 +371,177 @@ def load_joint_genie_frac_cov(
     return out, meta
 
 
+def _stack_cell_meta(cell: dict) -> tuple[list[str], list[int]]:
+    meta = dict(cell.get("meta") or {})
+    names = meta.get("var_save_names")
+    sizes = meta.get("n_bins_per_var")
+    if not names or not sizes:
+        raise KeyError(
+            "stacked NPZ cell %r is missing var_save_names / n_bins_per_var in meta (re-run stacked joint CC)"
+            % STACK_SLUG
+        )
+    return [str(x) for x in names], [int(x) for x in sizes]
+
+
+def _load_stacked_cell(npz_path: str) -> dict | None:
+    if not os.path.isfile(npz_path):
+        return None
+    blob = np.load(npz_path, allow_pickle=True)
+    if STACK_SLUG not in blob.files:
+        return None
+    return dict(blob)[STACK_SLUG].item()
+
+
+def load_stacked_multisim_frac_cov(
+    syst_cc_root: str | os.PathLike[str] | None = None,
+    *,
+    categories: Sequence[str] | None = None,
+    knobs_by_category: Mapping[str, Sequence[str] | None] | None = None,
+) -> tuple[np.ndarray, dict] | None:
+    """Fractional covariance of the inclusive stacked vector, or ``None`` if absent."""
+    root = resolve_syst_disk_cc_root(syst_cc_root)
+    paths = syst_disk_cc_paths(root)
+    cat_order = tuple(categories) if categories is not None else JOINT_MULTISIM_CATEGORY_ORDER
+    fracs: list[np.ndarray] = []
+    meta: dict = {
+        "joint_multisim_layout": "stacked_per_category",
+        "joint_multisim_categories": [],
+        "joint_multisim_knob_mode": [],
+        "stack_slug": STACK_SLUG,
+    }
+    stack_names = stack_sizes = None
+    for cat in cat_order:
+        if cat not in _JOINT_MULTISIM_PATH_KEYS:
+            raise ValueError("unknown joint multisim category %r" % cat)
+        cell = _load_stacked_cell(paths[_JOINT_MULTISIM_PATH_KEYS[cat]])
+        if cell is None:
+            if categories is not None:
+                raise FileNotFoundError(
+                    "stacked joint multisim category %r required but missing under %s" % (cat, root)
+                )
+            continue
+        names, sizes = _stack_cell_meta(cell)
+        if stack_names is None:
+            stack_names, stack_sizes = names, sizes
+        elif names != stack_names or sizes != stack_sizes:
+            raise ValueError(
+                "stacked layout mismatch for %s: %s/%s vs %s/%s"
+                % (cat, names, sizes, stack_names, stack_sizes)
+            )
+        knob_sel: Sequence[str] | None = None
+        if knobs_by_category is not None and cat in knobs_by_category:
+            knob_sel = knobs_by_category[cat]
+            if knob_sel is not None and len(knob_sel) == 0:
+                raise ValueError("knobs_by_category[%r] is an empty sequence; use None for combined" % cat)
+        frac = _multisim_frac_from_category_cell(cell, cat, knob_sel)
+        fracs.append(np.asarray(frac, dtype=float))
+        meta["joint_multisim_categories"].append(cat)
+        meta["joint_multisim_knob_mode"].append("combined" if knob_sel is None else list(knob_sel))
+    if not fracs:
+        return None
+    meta["var_save_names"] = stack_names
+    meta["n_bins_per_var"] = stack_sizes
+    return np.sum(fracs, axis=0), meta
+
+
+def load_stacked_genie_frac_cov(
+    syst_cc_root: str | os.PathLike[str] | None = None,
+    *,
+    knob_names: Sequence[str] | None = None,
+) -> tuple[np.ndarray, dict] | None:
+    """Fractional covariance of the inclusive stacked GENIE rate universes, or ``None``."""
+    root = resolve_syst_disk_cc_root(syst_cc_root)
+    cell = _load_stacked_cell(syst_disk_cc_paths(root)["joint_genie_combined"])
+    if cell is None:
+        return None
+    names, sizes = _stack_cell_meta(cell)
+    meta = dict(cell.get("meta") or {})
+    meta["joint_genie_cov_source"] = "rate_universes_stacked"
+    meta["var_save_names"] = names
+    meta["n_bins_per_var"] = sizes
+    if knob_names is None:
+        pack = cell["JointGenie"]
+        meta["joint_genie_knob_mode"] = "combined"
+        return np.asarray(pack["cov_frac"], dtype=float), meta
+    bk = cell.get("JointGenie_by_knob") or {}
+    if not isinstance(bk, dict):
+        bk = dict(bk)
+    out = None
+    for k in knob_names:
+        if k not in bk:
+            raise KeyError(
+                "GENIE knob %r not in stacked JointGenie_by_knob (have: %s)"
+                % (k, ", ".join(sorted(bk.keys())))
+            )
+        frac = np.asarray(bk[k]["cov_frac"], dtype=float)
+        out = frac if out is None else out + frac
+    if out is None:
+        raise ValueError("empty knob_names for stacked joint GENIE")
+    meta["joint_genie_knob_mode"] = list(knob_names)
+    return out, meta
+
+
+def load_stacked_extra_frac_cov(
+    syst_cc_root: str | os.PathLike[str] | None,
+    category: str,
+) -> tuple[np.ndarray, dict] | None:
+    """Stacked unisim extra (detector/cosmics/POT/ntargets), or ``None`` if absent."""
+    if category not in _JOINT_EXTRAS_PATH_KEYS:
+        raise ValueError("unknown joint extras category %r" % category)
+    root = resolve_syst_disk_cc_root(syst_cc_root)
+    cell = _load_stacked_cell(syst_disk_cc_paths(root)[_JOINT_EXTRAS_PATH_KEYS[category]])
+    if cell is None:
+        return None
+    names, sizes = _stack_cell_meta(cell)
+    inner = joint_extras_inner_key(category)
+    pack = cell[inner]
+    meta = dict(cell.get("meta") or {})
+    meta["var_save_names"] = names
+    meta["n_bins_per_var"] = sizes
+    meta["joint_extras_category"] = category
+    return np.asarray(pack["cov_frac"], dtype=float), meta
+
+
+def stacked_npz_present(syst_cc_root: str | os.PathLike[str] | None = None) -> bool:
+    root = resolve_syst_disk_cc_root(syst_cc_root)
+    paths = syst_disk_cc_paths(root)
+    if _load_stacked_cell(paths["joint_genie_combined"]) is not None:
+        return True
+    return any(
+        _load_stacked_cell(paths[k]) is not None for k in _JOINT_MULTISIM_PATH_KEYS.values()
+    )
+
+
+def _category_extras_block_diag(
+    var_blocks,
+    mu_blocks: Sequence[np.ndarray],
+    offsets: Sequence[int],
+    sizes: Sequence[int],
+    sigma: np.ndarray,
+    *,
+    syst_marginal_root: str,
+    extras_categories: Sequence[str],
+) -> None:
+    from analysis_village.numucc_1p0pi.syst_category_summary import (
+        category_cov_frac,
+        load_category_syst_summary,
+    )
+    from analysis_village.numucc_1p0pi.syst_disk_layout import category_summary_npz_path
+
+    npz = category_summary_npz_path(str(syst_marginal_root))
+    summary = load_category_syst_summary(npz)
+    for k, vk in enumerate(var_blocks):
+        extra = None
+        for cat in extras_categories:
+            frac_c = category_cov_frac(summary, vk.var_save_name, cat)
+            extra = frac_c if extra is None else extra + frac_c
+        if extra is None:
+            continue
+        sigma[
+            offsets[k] : offsets[k] + sizes[k], offsets[k] : offsets[k] + sizes[k]
+        ] += cov_from_fraccov(extra, mu_blocks[k])
+
+
 def inspect_joint_cc_disk(
     var_X,
     var_Y,
@@ -382,15 +551,28 @@ def inspect_joint_cc_disk(
     root = resolve_syst_disk_cc_root(syst_cc_root)
     paths = syst_disk_cc_paths(root)
     pair_slug = joint_multisim_npz_pair_key(var_X, var_Y)
-    out: dict = {"root": root, "pair_slug": pair_slug, "multisim": {}, "genie": {}}
+    out: dict = {
+        "root": root,
+        "pair_slug": pair_slug,
+        "stack_slug": STACK_SLUG,
+        "stacked_present": stacked_npz_present(root),
+        "multisim": {},
+        "genie": {},
+    }
     for cat in JOINT_MULTISIM_CATEGORY_ORDER:
         pth = paths[_JOINT_MULTISIM_PATH_KEYS[cat]]
         if not os.path.isfile(pth):
             out["multisim"][cat] = {"path": pth, "present": False}
             continue
         blob = np.load(pth, allow_pickle=True)
+        stacked_in = STACK_SLUG in blob.files
         if pair_slug not in blob.files:
-            out["multisim"][cat] = {"path": pth, "present": True, "pair_in_file": False}
+            out["multisim"][cat] = {
+                "path": pth,
+                "present": True,
+                "pair_in_file": False,
+                "stacked_in_file": stacked_in,
+            }
             continue
         cell = dict(blob)[pair_slug].item()
         inner = joint_multisim_category_inner_key(cat)
@@ -400,21 +582,127 @@ def inspect_joint_cc_disk(
             "path": pth,
             "present": True,
             "pair_in_file": True,
+            "stacked_in_file": stacked_in,
             "knobs": knobs,
         }
     gpath = paths["joint_genie_combined"]
     if not os.path.isfile(gpath):
         out["genie"] = {"path": gpath, "present": False}
-    elif pair_slug not in np.load(gpath, allow_pickle=True).files:
-        out["genie"] = {"path": gpath, "present": True, "pair_in_file": False}
     else:
-        cell = dict(np.load(gpath, allow_pickle=True))[pair_slug].item()
-        bk = cell.get("JointGenie_by_knob") or {}
-        if not isinstance(bk, dict):
-            bk = dict(bk)
-        knobs = sorted(bk.keys()) if bk else []
-        out["genie"] = {"path": gpath, "present": True, "pair_in_file": True, "knobs": knobs}
+        gblob = np.load(gpath, allow_pickle=True)
+        g_stacked = STACK_SLUG in gblob.files
+        if pair_slug not in gblob.files:
+            out["genie"] = {
+                "path": gpath,
+                "present": True,
+                "pair_in_file": False,
+                "stacked_in_file": g_stacked,
+            }
+        else:
+            cell = dict(gblob)[pair_slug].item()
+            bk = cell.get("JointGenie_by_knob") or {}
+            if not isinstance(bk, dict):
+                bk = dict(bk)
+            knobs = sorted(bk.keys()) if bk else []
+            out["genie"] = {
+                "path": gpath,
+                "present": True,
+                "pair_in_file": True,
+                "stacked_in_file": g_stacked,
+                "knobs": knobs,
+            }
     return out
+
+
+def _build_from_stacked(
+    var_X,
+    var_Ys: Sequence,
+    mu_X: np.ndarray,
+    mu_Ys: Sequence[np.ndarray],
+    mu_nu_X: np.ndarray,
+    mu_nu_Ys: Sequence[np.ndarray],
+    *,
+    syst_cc_root,
+    syst_marginal_root,
+    joint_multisim_categories,
+    joint_multisim_knobs_by_category,
+    use_joint_multisim: bool,
+    use_joint_genie: bool,
+    joint_genie_knobs,
+    extras_categories: Sequence[str],
+) -> np.ndarray:
+    """Assemble ``Σ`` from one inclusive stacked NPZ cell (no pair stitching)."""
+    mu_X = np.asarray(mu_X, dtype=float)
+    mu_Ys = tuple(np.asarray(m, dtype=float) for m in mu_Ys)
+    mu_nu_X = np.asarray(mu_nu_X, dtype=float)
+    mu_nu_Ys = tuple(np.asarray(m, dtype=float) for m in mu_nu_Ys)
+    n_X = mu_X.size
+    n_Ys = [int(m.size) for m in mu_Ys]
+    n_tot = n_X + int(sum(n_Ys))
+    offsets = [0]
+    sizes = [n_X] + list(n_Ys)
+    for s in sizes[:-1]:
+        offsets.append(offsets[-1] + s)
+    mu_blocks = [mu_X] + list(mu_Ys)
+    mu_nu_blocks = [mu_nu_X] + list(mu_nu_Ys)
+    var_blocks = [var_X] + list(var_Ys)
+    mu_nu_stacked = np.concatenate(mu_nu_blocks)
+    if mu_nu_stacked.size != n_tot:
+        raise ValueError("μ_nu stacked length %d != n_tot %d" % (mu_nu_stacked.size, n_tot))
+
+    sigma = np.zeros((n_tot, n_tot), dtype=float)
+    applied = False
+    if use_joint_multisim:
+        pack = load_stacked_multisim_frac_cov(
+            syst_cc_root,
+            categories=joint_multisim_categories,
+            knobs_by_category=joint_multisim_knobs_by_category,
+        )
+        if pack is not None:
+            frac, meta = pack
+            frac = perm_stack_to_constraint(
+                frac, meta["var_save_names"], meta["n_bins_per_var"], var_X, var_Ys
+            )
+            sigma += cov_from_fraccov(frac, mu_nu_stacked)
+            applied = True
+    if use_joint_genie:
+        pack_g = load_stacked_genie_frac_cov(syst_cc_root, knob_names=joint_genie_knobs)
+        if pack_g is not None:
+            frac_g, gmeta = pack_g
+            frac_g = perm_stack_to_constraint(
+                frac_g, gmeta["var_save_names"], gmeta["n_bins_per_var"], var_X, var_Ys
+            )
+            sigma += cov_from_fraccov(frac_g, mu_nu_stacked)
+            applied = True
+    if not applied:
+        raise FileNotFoundError(
+            "stacked joint CC cell %r not found under %s (JointFlux/JointG4/JointGenie). "
+            "Re-run analysis_village/numucc_1p0pi/scripts/run_cc_systs.sh"
+            % (STACK_SLUG, resolve_syst_disk_cc_root(syst_cc_root))
+        )
+    remaining_extras: list[str] = []
+    mu_tot_stacked = np.concatenate(mu_blocks)
+    for cat in extras_categories:
+        pack_e = load_stacked_extra_frac_cov(syst_cc_root, cat)
+        if pack_e is None:
+            remaining_extras.append(str(cat))
+            continue
+        frac_e, emeta = pack_e
+        frac_e = perm_stack_to_constraint(
+            frac_e, emeta["var_save_names"], emeta["n_bins_per_var"], var_X, var_Ys
+        )
+        sigma += cov_from_fraccov(frac_e, mu_tot_stacked)
+    if syst_marginal_root and remaining_extras:
+        _category_extras_block_diag(
+            var_blocks,
+            mu_blocks,
+            offsets,
+            sizes,
+            sigma,
+            syst_marginal_root=str(syst_marginal_root),
+            extras_categories=remaining_extras,
+        )
+    return sigma
 
 
 def build_joint_covariance_abs(
@@ -532,61 +820,19 @@ def build_joint_multi_covariance_abs(
     use_joint_genie: bool = True,
     joint_genie_knobs: Sequence[str] | None = None,
     marginal_genie_cov_frac_key: str = "genie_rate",
+    mu_nu_X: np.ndarray | None = None,
+    mu_nu_Ys: Sequence[np.ndarray] | None = None,
+    extras_categories: Sequence[str] | None = JOINT_CC_EXTRAS_CATEGORIES,
+    use_pair_fallback: bool = False,
 ) -> np.ndarray:
     """Absolute joint covariance for stacked vector ``[X; Y_1; Y_2; …]``.
 
-    **This is one joint model, not a sequence of separate single-Y constraints.** The map
-    pipeline writes **pairwise** NPZs (each is the covariance of stacked histograms
-    ``[A; B]`` in one GENIE/multisim universe family). Here those blocks are **recombined**
-    into the unique big matrix ``Σ`` for     ``[X; Y_1; Y_2; …]``: cross blocks ``Σ_{X Y_i}``
-    and ``Σ_{Y_i Y_j}`` come from the corresponding pair NPZs, and ``Σ_{Y_i Y_j}`` for
-    ``i≠j`` is essential so that conditioning uses **one** inverted ``Σ_{YY}`` on the
-    **concatenated** data vector ``n_Y = [n_{Y_1}; n_{Y_2}; …]`` (same formula as single-Y,
-    larger blocks). Pairwise shards exist because the chunk step only histograms two
-    variables at a time; they are not themselves separate published constraints.
+    **Default:** one inclusive stacked NPZ cell ``stacked_mu_p`` (same universes,
+    ``bkgd_subtract=False``). Joint Flux/G4/GENIE fractions are rescaled with
+    neutrino-MC ``μ_nu`` (overlay ``mc_total_raw``); detector/cosmics/POT/ntargets
+    come block-diagonally from PRL CategorySummary on overlay ``μ`` (``mc_total``).
 
-    Per the MicroBooNE data-driven model-validation prescription (Abratenko *et al.*,
-    "Data-driven model validation for neutrino-nucleus cross section measurements"), the full
-    joint covariance ``Σ`` is assembled from independent contributions:
-
-    * **Joint multisim** (Flux / G4 / MCstat) — per-category per-pair fractional covariances
-      from :func:`load_joint_multisim_frac_cov`. Disabled with ``use_joint_multisim=False``.
-
-    * **Joint GENIE** (rate universes) — per-pair fractional covariance from
-      :func:`load_joint_genie_frac_cov`. Disabled with ``use_joint_genie=False``.
-      ``joint_genie_knobs`` selects a subset of reweight knobs from ``JointGenie_by_knob``.
-
-    * **Marginal disk** — block-diagonal augmentation from :func:`utils.get_syst_unc` applied
-      independently to each variable's diagonal block (the joint NPZ tree does **not** encode
-      flux/G4/GENIE detector/cosmics/etc. cross blocks beyond what is in the joint multisim /
-      GENIE files). GENIE is **omitted** from the marginal pass when joint GENIE is loaded
-      so the diagonal GENIE term is not double-counted (matches the legacy single-Y
-      :func:`build_joint_covariance_abs` semantics).
-
-    Each pair ``(X, Y_i)`` and ``(Y_i, Y_j)`` is loaded from its preset *pair_slug* NPZ and
-    re-oriented as ``[A; B]`` so the cross block can be placed into the correct off-diagonal
-    location of the stacked ``Σ``. Per-variable diagonal blocks are averaged across all NPZ
-    pairs that touch that variable (each variable typically appears in multiple pair NPZs;
-    fractional covariances for the *same* variable should be identical up to MC-stat noise,
-    so averaging is a deliberate stabilization).
-
-    Parameters
-    ----------
-    var_X : VariableConfig
-        Target / constrained variable.
-    var_Ys : Sequence[VariableConfig]
-        Ordered list of constraining variables. May be length 1 (single-Y, equivalent to
-        :func:`build_joint_covariance_abs`).
-    mu_X : np.ndarray
-        Central-value MC prediction for ``X``, length ``n_X``.
-    mu_Ys : Sequence[np.ndarray]
-        Central-value MC predictions for each ``Y_i``, same order as ``var_Ys``.
-
-    Returns
-    -------
-    sigma : np.ndarray
-        ``(n_tot, n_tot)`` symmetric covariance, ``n_tot = n_X + Σ_i n_{Y_i}``. Bin layout
-        ``[X bins; Y_1 bins; Y_2 bins; …]``.
+    Pairwise NPZ stitching is **not** used unless ``use_pair_fallback=True``.
     """
     from analysis_village.numucc_1p0pi.utils import SYST_UNC_DISK_KEYS
 
@@ -605,6 +851,41 @@ def build_joint_multi_covariance_abs(
         raise ValueError("build_joint_multi_covariance_abs: var_Ys must be non-empty")
 
     mu_X = np.asarray(mu_X, dtype=float)
+    if mu_nu_X is None:
+        mu_nu_X = mu_X
+    if mu_nu_Ys is None:
+        mu_nu_Ys = mu_Ys
+    mu_nu_Ys = tuple(np.asarray(m, dtype=float) for m in mu_nu_Ys)
+    if len(mu_nu_Ys) != len(mu_Ys):
+        raise ValueError("len(mu_nu_Ys) must match len(mu_Ys)")
+
+    extras = tuple(extras_categories) if extras_categories is not None else ()
+    use_stacked = stacked_npz_present(syst_cc_root) and not use_pair_fallback
+    if use_stacked:
+        return _build_from_stacked(
+            var_X,
+            var_Ys,
+            mu_X,
+            mu_Ys,
+            mu_nu_X,
+            mu_nu_Ys,
+            syst_cc_root=syst_cc_root,
+            syst_marginal_root=syst_marginal_root,
+            joint_multisim_categories=joint_multisim_categories,
+            joint_multisim_knobs_by_category=joint_multisim_knobs_by_category,
+            use_joint_multisim=use_joint_multisim,
+            use_joint_genie=use_joint_genie,
+            joint_genie_knobs=joint_genie_knobs,
+            extras_categories=extras,
+        )
+    if not use_pair_fallback:
+        raise FileNotFoundError(
+            "No stacked joint CC cell %r under %s. Re-run "
+            "analysis_village/numucc_1p0pi/scripts/run_cc_systs.sh "
+            "(or pass use_pair_fallback=True for legacy pair NPZs)."
+            % (STACK_SLUG, resolve_syst_disk_cc_root(syst_cc_root))
+        )
+
     n_X = mu_X.size
     n_Ys = [int(m.size) for m in mu_Ys]
     n_tot = n_X + int(sum(n_Ys))
@@ -795,12 +1076,19 @@ def inspect_joint_multi_cc_disk(
     calling :func:`build_joint_multi_covariance_abs`.
     """
     var_blocks = [var_X] + list(var_Ys)
-    out: dict = {}
+    out: dict = {
+        "root": resolve_syst_disk_cc_root(syst_cc_root),
+        "stack_slug": STACK_SLUG,
+        "stacked_present": stacked_npz_present(syst_cc_root),
+        "pairs": {},
+    }
     for a in range(len(var_blocks)):
         for b in range(a + 1, len(var_blocks)):
             label = "%s__%s" % (var_blocks[a].var_save_name, var_blocks[b].var_save_name)
             try:
-                out[label] = inspect_joint_cc_disk(var_blocks[a], var_blocks[b], syst_cc_root=syst_cc_root)
+                out["pairs"][label] = inspect_joint_cc_disk(
+                    var_blocks[a], var_blocks[b], syst_cc_root=syst_cc_root
+                )
             except KeyError as ex:
-                out[label] = {"error": str(ex)}
+                out["pairs"][label] = {"error": str(ex)}
     return out

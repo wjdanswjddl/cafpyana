@@ -189,6 +189,7 @@ def _plot_product(
                 plot_labels=["", "", "%s cov_frac" % slug],
                 plot=False,
                 cmap="viridis",
+                approval="",
                 save_fig=True,
                 save_name=stem + "-cov_frac",
             )
@@ -197,6 +198,8 @@ def _plot_product(
                 dummy_bins,
                 plot_labels=["", "", "%s corr" % slug],
                 plot=False,
+                cmap="coolwarm",
+                approval="",
                 save_fig=True,
                 save_name=stem + "-corr",
             )

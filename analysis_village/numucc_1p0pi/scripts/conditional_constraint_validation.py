@@ -50,29 +50,20 @@ this path therefore adds a **leading** cross block from same-universe multisim h
 ``mc_df`` plus an MC-stat-style event sum (see :func:`mc_cross_cov_xy` and
 :func:`multisim_cross_cov_xy`). This legacy path is **only** available for a single ``Y``.
 
-**Recommended (``--syst-disk-cc-root``):** load **joint** covariance from ``syst_disk_CC``:
-``JointMCstat/``, ``JointFlux/``, ``JointG4/`` (per-category ``joint_*_combined.npz``; summed by
-:mod:`cc_joint_cov`) and, when present, ``JointGenie/joint_genie_combined.npz`` (GENIE
-**rate** reweight universes). For a **single Y**, :func:`cc_joint_cov.build_joint_covariance_abs`
-assembles ``[X; Y]``; for a **multi-Y** stack the new
-:func:`cc_joint_cov.build_joint_multi_covariance_abs` walks every required pair
-``(X, Y_i)`` and ``(Y_i, Y_j)``, re-orienting each pair NPZ to ``[A; B]``, then augments the
-block diagonal with marginal sources (GENIE omitted when joint GENIE is loaded so the diagonal
-GENIE term is not double-counted).
+**Recommended:** load **joint** covariance from PRL Product B ``JointCC/``
+(``default_syst_disk_cc_root``): one inclusive stacked cell ``stacked_mu_p``
+written by ``run_cc_systs.sh``. Histograms come from
+``PRL/data_mc_overlays/productB_sel_mup/counts_report.npz``. Pairwise NPZ
+stitching is an emergency fallback (``--from-dfs`` / ``use_pair_fallback``).
 
 Usage
 -----
-Set ``NUMUCC_SYST_DISK_ROOT`` / ``--syst-disk-root`` for marginal syst files. For joint CC files,
-set ``NUMUCC_SYST_DISK_CC_ROOT`` or ``--syst-disk-cc-root`` (producers:
-``run_syst_cc_joint_multisim_chunked.sh``, ``run_syst_cc_joint_genie_chunked.sh``).
+Defaults pull PRL Product B: overlay ``counts_report.npz``, CategorySummary
+under ``prl_syst_disk_root("B")``, and joint NPZs under ``<that>/JointCC``.
+Override with ``--overlay-counts-npz``, ``--syst-disk-root``, ``--syst-disk-cc-root``.
 
 Single-variable constraint: ``--kinematic-pair muon_p__proton_costheta``.
-Multi-variable constraint: ``--constrain-with muon_p,muon_costheta --target proton_p`` —
-``Y`` is the concatenation of both muon distributions and the script reads all three joint
-NPZs (proton_p × muon_p, proton_p × muon_costheta, muon_p × muon_costheta).
-
-Data and MC load like ``selected_events.ipynb`` via
-:func:`analysis_village.numucc_1p0pi.files_config.get_ana_dfs`.
+Multi-variable constraint: ``--constrain-with muon_p,muon_costheta --target proton_p``.
 """
 
 from __future__ import annotations
@@ -87,6 +78,9 @@ from typing import Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.legend_handler import HandlerBase
+from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 from scipy.stats import chi2 as chi2_dist
 
 # Repository root (…/cafpyana)
@@ -95,10 +89,19 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from analysis_village.numucc_1p0pi.categories import get_topo_category  # noqa: E402
+from analysis_village.numucc_1p0pi.constants import MC_POT_FIX  # noqa: E402
+from analysis_village.numucc_1p0pi.dataset_locations import (  # noqa: E402
+    prl_overlay_counts_npz,
+    prl_syst_disk_root,
+)
 from analysis_village.numucc_1p0pi.files_config import get_ana_dfs  # noqa: E402
 from analysis_village.numucc_1p0pi.utils import (  # noqa: E402
+    UNFOLD_PLOT_POT,
+    add_pot_text,
+    format_pot_corner_text,
     get_clipped_evts,
     get_syst_unc as get_syst_unc_disk,
+    set_ratio_panel_ylim,
 )
 from analysis_village.numucc_1p0pi.variable_configs import VariableConfig  # noqa: E402
 from pyanalib.covariance import cov_from_fraccov  # noqa: E402
@@ -194,6 +197,73 @@ def data_histogram(data_df: pd.DataFrame, var_config) -> np.ndarray:
     w = data_df["pot_weight"] if "pot_weight" in data_df.columns else np.ones(len(data_df))
     vals, _ = np.histogram(vardf, bins=var_config.bins, weights=w)
     return vals
+
+
+def _overlay_counts_mc_pot_fix_already_applied(counts_npz: str) -> float | None:
+    """Return the factor stored on the overlay counts, or None if not applied."""
+    man = Path(counts_npz).with_name("counts_report_manifest.json")
+    if not man.is_file():
+        return None
+    extra = (json.loads(man.read_text()).get("extra") or {})
+    factor = extra.get("mc_pot_fix_factor")
+    if factor in (None, 0, 0.0):
+        return None
+    return float(factor)
+
+
+def load_overlay_constraint_hists(counts_npz: str | os.PathLike, var_config) -> dict[str, np.ndarray]:
+    """Load n_data / μ_total / μ_nu for one variable from PRL ``counts_report.npz``.
+
+    * ``n_data`` — ``{var}__data``
+    * ``mu_total`` — overlay stack ``{var}__mc_total`` (signal + ν bkg + MC cosmic + offbeam + dirt)
+    * ``mu_nu`` — overlay MC inclusive ``{var}__mc_total_raw`` (signal + ν bkg + MC cosmic; joint CV)
+
+    Neutrino-MC pieces are multiplied by ``MC_POT_FIX`` unless the overlay
+    manifest already recorded that factor. Offbeam and dirt are unchanged.
+    """
+    vsn = var_config.var_save_name
+    path = os.path.abspath(os.path.expanduser(str(counts_npz)))
+    if not os.path.isfile(path):
+        raise FileNotFoundError("overlay counts_report not found: %s" % path)
+    blob = np.load(path)
+    n_exp = int(len(var_config.bin_centers))
+
+    def _need(suffix: str) -> np.ndarray:
+        key = "%s__%s" % (vsn, suffix)
+        if key not in blob.files:
+            raise KeyError(
+                "%r missing from %s (have: %s)"
+                % (key, path, ", ".join(sorted(blob.files)[:24]))
+            )
+        arr = np.asarray(blob[key], dtype=float).reshape(-1)
+        if arr.size != n_exp:
+            raise ValueError(
+                "%s length %d != VariableConfig n_bins %d" % (key, arr.size, n_exp)
+            )
+        return arr
+
+    n_data = _need("data")
+    mu_total = _need("mc_total")
+    mu_nu = _need("mc_total_raw")
+    mc_signal = _need("mc_signal")
+    offbeam = _need("offbeam") if ("%s__offbeam" % vsn) in blob.files else np.zeros(n_exp)
+    dirt = _need("dirt") if ("%s__dirt" % vsn) in blob.files else np.zeros(n_exp)
+
+    already = _overlay_counts_mc_pot_fix_already_applied(path)
+    if already is None:
+        mu_nu = mu_nu * MC_POT_FIX
+        mc_signal = mc_signal * MC_POT_FIX
+        mu_total = mu_nu + offbeam + dirt
+
+    return {
+        "n_data": n_data,
+        "mu_total": mu_total,
+        "mu_nu": mu_nu,
+        "mc_signal": mc_signal,
+        "offbeam": offbeam,
+        "dirt": dirt,
+        "mc_pot_fix_factor": float(already if already is not None else MC_POT_FIX),
+    }
 
 
 def mc_cross_cov_xy(
@@ -1106,6 +1176,48 @@ def plot_chi2_ndof_comparison(
     plt.close(fig)
 
 
+# Overlay-style proton panel: pre/post predictions as step histograms;
+# systematic bands as opposite-diagonal hatches (pre //////, post \\\\\).
+_PRE_FACE = "steelblue"
+_CONSTR_EDGE = "indianred"
+_PRE_HATCH = "//////"
+_CONSTR_HATCH = "\\\\\\\\\\\\"
+_HATCH_LINEWIDTH = 0.45
+
+
+class _LineHatchHandle:
+    """Legend dummy: prediction line through a hatched systematic band."""
+
+    def __init__(self, color: str, hatch: str):
+        self.color = color
+        self.hatch = hatch
+
+
+class _HandlerLineHatch(HandlerBase):
+    def create_artists(self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans):
+        x0, y0 = -xdescent, -ydescent
+        rect = Rectangle(
+            (x0, y0),
+            width,
+            height,
+            transform=trans,
+            facecolor="none",
+            edgecolor=orig_handle.color,
+            hatch=orig_handle.hatch,
+            linewidth=0.8,
+        )
+        ymid = y0 + 0.5 * height
+        line = Line2D(
+            [x0, x0 + width],
+            [ymid, ymid],
+            color=orig_handle.color,
+            linewidth=2.0,
+            solid_capstyle="butt",
+            transform=trans,
+        )
+        return [rect, line]
+
+
 def _plot_proton_panel(
     var_X,
     n_X: np.ndarray,
@@ -1116,42 +1228,50 @@ def _plot_proton_panel(
     pot_label: str,
     save_path: Path,
     pinv_rcond: float | None = None,
+    legend_loc: str = "upper right",
 ) -> Path:
     centers = var_X.bin_centers
     bins = np.asarray(var_X.bins, dtype=float)
     widths = np.diff(bins)
 
-    _, ndof_pre, r_pre = data_mc_chi2_ndof(n_X, mu_X, sigma_XX, pinv_rcond=pinv_rcond)
-    _, ndof_post, r_post = data_mc_chi2_ndof(n_X, mu_X_c, sigma_XX_c, pinv_rcond=pinv_rcond)
+    chi2_pre, ndof_pre, r_pre = data_mc_chi2_ndof(n_X, mu_X, sigma_XX, pinv_rcond=pinv_rcond)
+    chi2_post, ndof_post, r_post = data_mc_chi2_ndof(n_X, mu_X_c, sigma_XX_c, pinv_rcond=pinv_rcond)
 
     d_lo, d_hi = return_data_stat_err(n_X)
     unc_diag = np.sqrt(np.maximum(np.diag(sigma_XX), 0.0))
     con_diag = np.sqrt(np.maximum(np.diag(sigma_XX_c), 0.0))
 
+    _hatch_lw = plt.rcParams["hatch.linewidth"]
+    plt.rcParams["hatch.linewidth"] = _HATCH_LINEWIDTH
+
     fig, (ax, ax_r) = plt.subplots(
         2,
         1,
-        figsize=(8.5, 8.0),
+        figsize=(8.5, 8.5),
         sharex=True,
-        gridspec_kw={"height_ratios": [3.2, 1.0]},
+        gridspec_kw={"height_ratios": [4, 1]},
     )
-    ax.bar(
-        centers,
-        mu_X,
-        width=widths,
-        facecolor="steelblue",
-        edgecolor=None,
-        alpha=0.35,
-        label="MC (unconstr.)",
+    fig.subplots_adjust(hspace=0.1, top=0.9)
+
+    ax.hist(
+        bins[:-1],
+        bins=bins,
+        weights=mu_X,
+        histtype="step",
+        color=_PRE_FACE,
+        linewidth=2.0,
+        zorder=4,
+        label="Pred. (pre-constraint)",
     )
-    ax.errorbar(centers, n_X, yerr=[d_lo, d_hi], fmt="ko", capsize=3, label="Data")
-    ax.step(
-        bins,
-        np.append(mu_X_c, mu_X_c[-1]),
-        where="post",
-        color="darkorange",
-        linewidth=2.2,
-        label="MC (constr.)",
+    ax.hist(
+        bins[:-1],
+        bins=bins,
+        weights=mu_X_c,
+        histtype="step",
+        color=_CONSTR_EDGE,
+        linewidth=2.0,
+        zorder=4,
+        label="Pred. (post-constraint)",
     )
     ax.bar(
         centers,
@@ -1159,10 +1279,11 @@ def _plot_proton_panel(
         width=widths,
         bottom=mu_X - unc_diag,
         facecolor="none",
-        edgecolor="gray",
-        hatch="xxx",
+        edgecolor=_PRE_FACE,
+        hatch=_PRE_HATCH,
         linewidth=0.0,
-        label=r"$\pm 1\sigma$ unc. (unconstr.)",
+        zorder=8,
+        label=r"Syst. Unc. (pre-constraint)",
     )
     ax.bar(
         centers,
@@ -1170,104 +1291,146 @@ def _plot_proton_panel(
         width=widths,
         bottom=mu_X_c - con_diag,
         facecolor="none",
-        edgecolor="darkorange",
-        hatch="xxx",
+        edgecolor=_CONSTR_EDGE,
+        hatch=_CONSTR_HATCH,
         linewidth=0.0,
-        label=r"$\pm 1\sigma$ unc. (constr.)",
+        zorder=8,
+        label=r"Syst. Unc. (post-constraint)",
     )
-    ylabel = pot_label
-    if "POT=" in pot_label:
-        ylabel = pot_label.split("(POT=")[0].rstrip()
-    ax.set_ylabel(ylabel)
+    data_h = ax.errorbar(
+        centers,
+        n_X,
+        yerr=np.vstack((d_lo, d_hi)),
+        color="black",
+        fmt="o",
+        markersize=5,
+        capsize=3,
+        linewidth=1.5,
+        zorder=10,
+        label="Data",
+    )
+
+    ax.set_xlim(float(bins[0]), float(bins[-1]))
+    ax.set_ylabel("Events", fontsize=20)
+    ax.tick_params(axis="both", which="major", labelsize=15)
+    ax.tick_params(axis="both", which="minor", labelsize=13)
+    ax.minorticks_on()
 
     n_tot = float(np.sum(n_X))
-    mu_tot_pre = float(np.sum(mu_X))
-    mu_tot_post = float(np.sum(mu_X_c))
-    rate_ratio_pre = n_tot / max(mu_tot_pre, 1e-12)
-    rate_ratio_post = n_tot / max(mu_tot_post, 1e-12)
-
-    # Summary table (no frame): χ²/ndof and total data/MC rate, pre vs post.
-    _summary_table = (
-        f"{'':16s}  {'pre':>7s}  {'post':>7s}\n"
-        f"{'χ² / N_dof':16s}  {r_pre:7.3f}  {r_post:7.3f}\n"
-        f"{'Data / MC rate':16s}  {rate_ratio_pre:7.3f}  {rate_ratio_post:7.3f}"
-    )
-    ax.text(
-        0.98,
-        0.68,
-        _summary_table,
-        transform=ax.transAxes,
-        fontsize=11,
-        ha="right",
-        va="top",
-        family="monospace",
-    )
-    ax.text(
-        0.98,
-        0.82,
-        r"$\mathbf{SBND}$ Internal",
-        transform=ax.transAxes,
-        fontsize=18,
-        ha="right",
-        va="top",
-        color="rosybrown",
-    )
+    handles = [
+        data_h,
+        _LineHatchHandle(_PRE_FACE, _PRE_HATCH),
+        _LineHatchHandle(_CONSTR_EDGE, _CONSTR_HATCH),
+    ]
+    labels = [
+        "Data ({:.0f})".format(n_tot),
+        "Pred. (pre-constraint)\n"
+        r"$\chi^2_{\mathrm{pre}}$/ndof = %.1f/%d" % (chi2_pre, int(ndof_pre)),
+        "Pred. (post-constraint)\n"
+        r"$\chi^2_{\mathrm{post}}$/ndof = %.1f/%d" % (chi2_post, int(ndof_post)),
+    ]
     ax.legend(
-        fontsize=12,
-        ncol=2,
-        loc="upper right",
-        bbox_to_anchor=(1.0, 1.0),
+        handles,
+        labels,
+        loc=legend_loc,
+        fontsize=14,
         frameon=False,
+        ncol=1,
+        handler_map={_LineHatchHandle: _HandlerLineHatch()},
+        handlelength=2.4,
+        handleheight=1.6,
+        labelspacing=1.1,
     )
-    ax.set_xlim(float(bins[0]), float(bins[-1]))
+    pot_text = format_pot_corner_text(pot_label or UNFOLD_PLOT_POT)
+    if pot_text:
+        add_pot_text(pot_text, 0.99, 1.01, "right", fontsize=16)
 
     r_unc = n_X / np.maximum(mu_X, 1e-12)
     r_con = n_X / np.maximum(mu_X_c, 1e-12)
     r_err_lo = d_lo / np.maximum(mu_X, 1e-12)
     r_err_hi = d_hi / np.maximum(mu_X, 1e-12)
+    r_err_lo_c = d_lo / np.maximum(mu_X_c, 1e-12)
+    r_err_hi_c = d_hi / np.maximum(mu_X_c, 1e-12)
     pred_band_unc = unc_diag / np.maximum(mu_X, 1e-12)
     pred_band_c = con_diag / np.maximum(mu_X_c, 1e-12)
 
-    ax_r.axhline(1.0, color="k", linestyle="--", linewidth=0.8)
-    ax_r.fill_between(
+    ax_r.axhline(1.0, color="red", linestyle="--", linewidth=1)
+    ax_r.bar(
         centers,
-        1.0 - pred_band_unc,
-        1.0 + pred_band_unc,
-        step="mid",
+        2 * pred_band_unc,
+        width=widths,
+        bottom=1.0 - pred_band_unc,
         facecolor="none",
-        edgecolor="gray",
-        hatch="xxx",
+        edgecolor=_PRE_FACE,
+        hatch=_PRE_HATCH,
         linewidth=0.0,
-        label=r"MC $\pm 1\sigma$ (unconstr.)",
+        zorder=8,
     )
-    ax_r.fill_between(
+    ax_r.bar(
         centers,
-        1.0 - pred_band_c,
-        1.0 + pred_band_c,
-        step="mid",
+        2 * pred_band_c,
+        width=widths,
+        bottom=1.0 - pred_band_c,
         facecolor="none",
-        edgecolor="darkorange",
-        hatch="xxx",
+        edgecolor=_CONSTR_EDGE,
+        hatch=_CONSTR_HATCH,
         linewidth=0.0,
-        label=r"MC $\pm 1\sigma$ (constr.)",
+        zorder=8,
     )
-    ax_r.errorbar(centers, r_unc, yerr=[r_err_lo, r_err_hi], fmt="o", color="black", capsize=2, markersize=3, label="Data / MC (unconstr.)")
-    ax_r.plot(centers, r_con, "s", color="darkorange", markersize=4, label="Data / MC (constr.)")
-    ax_r.set_ylabel("Data / Pred")
-    ax_r.set_xlabel(var_X.var_labels[1])
-    ax_r.set_ylim(0.0, 2.0)
-    ax_r.grid(True, alpha=0.25)
-    fig.tight_layout()
-    fig.savefig(save_path, bbox_inches="tight", dpi=200)
+    ax_r.errorbar(
+        centers,
+        r_unc,
+        yerr=np.vstack((r_err_lo, r_err_hi)),
+        fmt="o",
+        color=_PRE_FACE,
+        markersize=5,
+        capsize=3,
+        linewidth=1.5,
+        zorder=10,
+        label="Data / pred. (pre-constraint)",
+    )
+    ax_r.errorbar(
+        centers,
+        r_con,
+        yerr=np.vstack((r_err_lo_c, r_err_hi_c)),
+        fmt="s",
+        color=_CONSTR_EDGE,
+        markersize=5,
+        capsize=3,
+        linewidth=1.5,
+        zorder=10,
+        label="Data / pred. (post-constraint)",
+    )
+    ax_r.set_ylabel("Data/Pred.", fontsize=20)
+    ax_r.set_xlabel(var_X.var_labels[0], fontsize=20)
+    ax_r.grid(True)
+    ax_r.grid(which="minor", linestyle=":", linewidth=0.5, color="gray", alpha=0.5)
+    ax_r.minorticks_on()
+    ax_r.tick_params(axis="both", which="major", labelsize=15)
+    ax_r.tick_params(axis="both", which="minor", labelsize=13)
+    set_ratio_panel_ylim(
+        ax_r,
+        data_ratio=r_unc,
+        data_ratio_eyhigh=r_err_hi,
+        data_ratio_eylow=r_err_lo,
+        syst_err_ratio=np.maximum(pred_band_unc, pred_band_c),
+        pad=1.2,
+    )
+    save_kw = {"bbox_inches": "tight"}
+    if Path(save_path).suffix.lower() != ".pdf":
+        save_kw["dpi"] = 200
+    fig.savefig(save_path, **save_kw)
     plt.close(fig)
+    plt.rcParams["hatch.linewidth"] = _hatch_lw
 
+    extra_suffix = ".png"
     chi2_bar_path = save_path.with_name(
-        save_path.stem.replace("_conditional", "") + "_chi2_ndof" + save_path.suffix
+        save_path.stem.replace("_conditional", "") + "_chi2_ndof" + extra_suffix
     )
     if chi2_bar_path == save_path:
-        chi2_bar_path = save_path.with_name(save_path.stem + "_chi2_ndof" + save_path.suffix)
+        chi2_bar_path = save_path.with_name(save_path.stem + "_chi2_ndof" + extra_suffix)
     plot_chi2_ndof_comparison(r_pre, r_post, chi2_bar_path, ndof=ndof_pre)
-    chi2_diag_path = save_path.with_name(save_path.stem + "_chi2_diagnostics" + save_path.suffix)
+    chi2_diag_path = save_path.with_name(save_path.stem + "_chi2_diagnostics" + extra_suffix)
     plot_proton_chi2_diagnostics(
         var_X, n_X, mu_X, mu_X_c, sigma_XX, sigma_XX_c, chi2_diag_path, pinv_rcond=pinv_rcond
     )
@@ -1345,14 +1508,27 @@ def main() -> None:
     p.add_argument(
         "--syst-disk-root",
         default=None,
-        help="Override NUMUCC_SYST_DISK_ROOT for :func:`utils.get_syst_unc` (marginal syst_disk).",
+        help="PRL Product B CategorySummary root (default: prl_syst_disk_root('B')).",
     )
     p.add_argument(
         "--syst-disk-cc-root",
         default=None,
-        help="Root of syst_disk_CC (joint ``JointMCstat/``, ``JointFlux/``, ``JointG4/`` NPZs and optional ``JointGenie/*.npz``). "
-        "When set, Σ is built from those joint files plus marginal diagonal augmentation; "
-        "otherwise marginal-only covariances and multisim-on-mc_df cross cov are used.",
+        help="JointCC root (default: prl_syst_disk_root('B')/JointCC).",
+    )
+    p.add_argument(
+        "--overlay-counts-npz",
+        default=None,
+        help="PRL overlay counts_report.npz (default: prl_overlay_counts_npz('B')).",
+    )
+    p.add_argument(
+        "--from-dfs",
+        action="store_true",
+        help="Legacy: histogram n/μ from get_ana_dfs('selected_events') instead of PRL counts.",
+    )
+    p.add_argument(
+        "--use-pair-fallback",
+        action="store_true",
+        help="Emergency: stitch legacy pairwise joint NPZs instead of stacked_mu_p.",
     )
     p.add_argument(
         "--output-dir",
@@ -1399,11 +1575,6 @@ def main() -> None:
             raise SystemExit(
                 "Cannot combine --kinematic-pair with --target / --constrain-with; pick one mode."
             )
-        if not args.syst_disk_cc_root and not os.environ.get("NUMUCC_SYST_DISK_CC_ROOT"):
-            raise SystemExit(
-                "Multi-Y conditional constraint needs joint syst_disk_CC NPZs "
-                "(set --syst-disk-cc-root or NUMUCC_SYST_DISK_CC_ROOT)."
-            )
         var_X = _resolve_variable(args.target)
         var_Ys = tuple(
             _resolve_variable(tok) for tok in str(args.constrain_with).split(",") if tok.strip()
@@ -1423,43 +1594,67 @@ def main() -> None:
 
     if args.syst_disk_root:
         os.environ["NUMUCC_SYST_DISK_ROOT"] = os.path.abspath(args.syst_disk_root)
+    else:
+        os.environ["NUMUCC_SYST_DISK_ROOT"] = str(prl_syst_disk_root("B"))
     if args.syst_disk_cc_root:
         os.environ["NUMUCC_SYST_DISK_CC_ROOT"] = os.path.abspath(args.syst_disk_cc_root)
+    else:
+        os.environ["NUMUCC_SYST_DISK_CC_ROOT"] = str(prl_syst_disk_root("B") / "JointCC")
 
-    dfs = get_ana_dfs(option="selected_events")
-    mc_df = dfs["mc"]
-    data_evt = dfs["data"]
-    intime_df = dfs["intime"]
-    data_hdr = dfs["data_hdr"]
+    counts_npz = args.overlay_counts_npz or str(prl_overlay_counts_npz("B"))
+    use_joint = True
+    dfs = None
+    pot_label = "Events / bin"
 
-    mc_df = mc_df.copy()
-    data_evt = data_evt.copy()
-    intime_df = intime_df.copy()
-    mc_df.loc[mc_df.mc.iscc.isna(), ("mc", "iscc")] = 999
-    data_evt["mc", "iscc"] = 999
+    if args.from_dfs:
+        dfs = get_ana_dfs(option="selected_events")
+        mc_df = dfs["mc"]
+        data_evt = dfs["data"]
+        intime_df = dfs["intime"]
+        data_hdr = dfs["data_hdr"]
 
-    if args.n_time_splits > 1:
-        data_evt, data_hdr = slice_data_time_batch(data_evt, data_hdr, args.n_time_splits, args.exposure_batch_index)
-        data_tot_pot = data_hdr["pot"].sum()
-        mc_tot_pot = dfs["mc_hdr"]["pot"].sum()
-        mc_pot_scale = data_tot_pot / mc_tot_pot
-        mc_df["pot_weight"] = mc_pot_scale * np.ones(len(mc_df))
-        intime_gates = dfs["intime_hdr"][dfs["intime_hdr"]["first_in_subrun"] == 1]["noffbeambnb"].sum()
-        data_gates = data_hdr.nbnbinfo.sum()
-        f_beam = 0.0753
-        scale_intime = (1 - f_beam) * data_gates / intime_gates
-        intime_df["pot_weight"] = scale_intime * np.ones(len(intime_df))
+        mc_df = mc_df.copy()
+        data_evt = data_evt.copy()
+        intime_df = intime_df.copy()
+        mc_df.loc[mc_df.mc.iscc.isna(), ("mc", "iscc")] = 999
+        data_evt["mc", "iscc"] = 999
 
-    mu_X = topology_total_mc(mc_df, intime_df, var_X)
-    n_X = data_histogram(data_evt, var_X)
-    mu_Ys = tuple(topology_total_mc(mc_df, intime_df, vy) for vy in var_Ys)
-    n_Ys = tuple(data_histogram(data_evt, vy) for vy in var_Ys)
+        if args.n_time_splits > 1:
+            data_evt, data_hdr = slice_data_time_batch(data_evt, data_hdr, args.n_time_splits, args.exposure_batch_index)
+            data_tot_pot = data_hdr["pot"].sum()
+            mc_tot_pot = dfs["mc_hdr"]["pot"].sum()
+            mc_pot_scale = (data_tot_pot / mc_tot_pot) * MC_POT_FIX
+            mc_df["pot_weight"] = mc_pot_scale * np.ones(len(mc_df))
+            intime_gates = dfs["intime_hdr"][dfs["intime_hdr"]["first_in_subrun"] == 1]["noffbeambnb"].sum()
+            data_gates = data_hdr.nbnbinfo.sum()
+            f_beam = 0.0753
+            scale_intime = (1 - f_beam) * data_gates / intime_gates
+            intime_df["pot_weight"] = scale_intime * np.ones(len(intime_df))
+
+        mu_X = topology_total_mc(mc_df, intime_df, var_X)
+        n_X = data_histogram(data_evt, var_X)
+        mu_Ys = tuple(topology_total_mc(mc_df, intime_df, vy) for vy in var_Ys)
+        n_Ys = tuple(data_histogram(data_evt, vy) for vy in var_Ys)
+        mu_nu_X = mu_X
+        mu_nu_Ys = mu_Ys
+        pot_label = dfs.get("pot_label", "Events / bin")
+    else:
+        hx = load_overlay_constraint_hists(counts_npz, var_X)
+        n_X = hx["n_data"]
+        mu_X = hx["mu_total"]
+        mu_nu_X = hx["mu_nu"]
+        hy = [load_overlay_constraint_hists(counts_npz, vy) for vy in var_Ys]
+        n_Ys = tuple(h["n_data"] for h in hy)
+        mu_Ys = tuple(h["mu_total"] for h in hy)
+        mu_nu_Ys = tuple(h["mu_nu"] for h in hy)
+
     mu_Y = np.concatenate(mu_Ys)
     n_Y = np.concatenate(n_Ys)
 
-    marg_root = args.syst_disk_root or os.environ.get("NUMUCC_SYST_DISK_ROOT")
+    marg_root = os.environ.get("NUMUCC_SYST_DISK_ROOT")
+    cc_root = os.environ.get("NUMUCC_SYST_DISK_CC_ROOT")
 
-    if args.syst_disk_cc_root or os.environ.get("NUMUCC_SYST_DISK_CC_ROOT"):
+    if use_joint:
         from analysis_village.numucc_1p0pi.cc_joint_cov import (  # noqa: PLC0415
             build_joint_multi_covariance_abs,
             split_joint_multi_sigma,
@@ -1470,10 +1665,11 @@ def main() -> None:
             var_Ys,
             mu_X,
             mu_Ys,
-            syst_cc_root=args.syst_disk_cc_root,
+            syst_cc_root=cc_root,
             syst_marginal_root=marg_root,
-            marginal_syst_components=None,
-            marginal_genie_cov_frac_key="genie_rate",
+            mu_nu_X=mu_nu_X,
+            mu_nu_Ys=mu_nu_Ys,
+            use_pair_fallback=bool(args.use_pair_fallback),
         )
         sigma_XX, sigma_XY, sigma_YY, _slices_Y = split_joint_multi_sigma(
             sigma_joint, len(mu_X), [len(m) for m in mu_Ys]
@@ -1483,7 +1679,7 @@ def main() -> None:
     else:
         if len(var_Ys) != 1:
             raise SystemExit(
-                "Multi-Y constraint requires --syst-disk-cc-root (joint CC NPZs); the legacy "
+                "Multi-Y constraint requires joint CC NPZs; the legacy "
                 "mc_df cross-covariance path only supports a single Y variable."
             )
         var_Y_single = var_Ys[0]
@@ -1497,7 +1693,9 @@ def main() -> None:
 
         sigma_YY = _symmetrize(cov_from_fraccov(frac_Y, mu_Y_single))
         sigma_XX = _symmetrize(cov_from_fraccov(frac_X, mu_X))
-        sigma_XY = mc_cross_cov_xy(mc_df, intime_df, var_X, var_Y_single)
+        if dfs is None:
+            raise SystemExit("--from-dfs is required for the legacy mc_df cross-covariance path")
+        sigma_XY = mc_cross_cov_xy(dfs["mc"], dfs["intime"], var_X, var_Y_single)
 
         sigma_joint = np.block([[sigma_XX, sigma_XY], [sigma_XY.T, sigma_YY]])
 
@@ -1518,12 +1716,14 @@ def main() -> None:
         "kinematic_pair": kinematic_label,
         "mode": "multi_Y" if multi_mode else "single_Y",
         "joint_covariance_source": (
-            "syst_disk_CC_joint_plus_marginal_diag"
-            if (args.syst_disk_cc_root or os.environ.get("NUMUCC_SYST_DISK_CC_ROOT"))
+            "stacked_joint_plus_category_extras"
+            if use_joint
             else "marginal_disk_plus_mc_multisim_cross"
         ),
+        "overlay_counts_npz": None if args.from_dfs else os.path.abspath(counts_npz),
         "add_data_poisson_diag_sigma_yy": (not args.no_y_poisson_diag),
-        "syst_disk_cc_root": os.path.abspath(args.syst_disk_cc_root) if args.syst_disk_cc_root else None,
+        "syst_disk_cc_root": os.path.abspath(cc_root) if cc_root else None,
+        "syst_disk_root": os.path.abspath(marg_root) if marg_root else None,
         "var_Y_list": [vy.var_save_name for vy in var_Ys],
         "var_X": var_X.var_save_name,
         "n_bins_Y_per_var": [int(m.size) for m in mu_Ys],
@@ -1545,7 +1745,6 @@ def main() -> None:
     with open(out_dir / "summary.json", "w") as f:
         json.dump(summary, f, indent=2)
 
-    pot_label = dfs.get("pot_label", "Events / bin")
     chi2_path = _plot_proton_panel(
         var_X,
         n_X,

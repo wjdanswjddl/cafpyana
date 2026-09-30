@@ -136,11 +136,14 @@ def _plot_matrices(
     }
     for matrix_type in ("cov", "cov_frac", "corr"):
         save_fig_name = path.join(save_fig_dir, f"{prefix}-{matrix_type}")
+        cmap = "coolwarm" if matrix_type == "corr" else "viridis"
         plot_heatmap(
             ret[matrix_type],
             var_config.bins,
             plot_labels=[var_config.var_labels[1], var_config.var_labels[1], labels[matrix_type]],
             plot=False,
+            cmap=cmap,
+            approval="",
             save_fig=save_plots,
             save_name=save_fig_name,
         )

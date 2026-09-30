@@ -297,6 +297,31 @@ def sel_trks_concat_not_mu(state, sample):
     return pd.concat([trks[~mu_cut], trks[mu_cut].groupby(level=list(range(nlevels))).nth(1)])
 
 
+def sel_trks_concat_len50(state, sample):
+    """Concat trk1+trk2 with ``pfp.trk.len > MU_LEN_TH`` (default 50 cm)."""
+    trks = sel_trks_concat(state, sample)
+    if trks is None or len(trks) == 0:
+        return None
+    pid_kw = dict(state.get("_mu_p_candidate_kwargs") or {})
+    mu_len_th = float(pid_kw.get("mu_len_th", MU_LEN_TH))
+    lengths = np.asarray(trks.pfp.trk.len, dtype=float)
+    return trks[lengths > mu_len_th]
+
+
+def sel_trks_concat_len50_qual(state, sample):
+    """len>50 and ``|Δp|/p < QUAL_TH`` (MCS/range quality)."""
+    trks = sel_trks_concat_len50(state, sample)
+    if trks is None or len(trks) == 0:
+        return None
+    pid_kw = dict(state.get("_mu_p_candidate_kwargs") or {})
+    qual_th = float(pid_kw.get("qual_th", QUAL_TH))
+    mcs_range_diff = np.abs(
+        (trks.pfp.trk.rangeP.p_muon - trks.pfp.trk.mcsP.fwdP_muon)
+        / trks.pfp.trk.rangeP.p_muon
+    )
+    return trks[np.asarray(mcs_range_diff, dtype=float) < qual_th]
+
+
 # ===========================================================================
 # Variables for the efficiency curve (cell 82-86 in the notebook)
 # ===========================================================================
@@ -488,6 +513,15 @@ def build_pipeline() -> List[Stage]:
                 # Keep |Δp|/p < QUAL_TH: arrow into the kept window at each edge.
                 save_kwargs={"ratio": True, "vline": [[-QUAL_TH, 1], [QUAL_TH, 0]]},
             ),
+            # MCS/range after muon length cut (len > 50 cm)
+            PlotSpec(
+                var_config=VariableConfig.mcs_range_diff(),
+                breakdown_type="pdg",
+                selector=sel_trks_concat_len50,
+                name_suffix="len50",
+                plot_label_template=(VariableConfig.mcs_range_diff().var_labels[0], "Tracks / Bin (POT={pot})", ""),
+                save_kwargs={"ratio": True, "vline": [[-QUAL_TH, 1], [QUAL_TH, 0]]},
+            ),
             PlotSpec(
                 var_config=VariableConfig.chi2_mu(),
                 breakdown_type="pdg",
@@ -521,11 +555,44 @@ def build_pipeline() -> List[Stage]:
                 # Proton candidate: χ²p < P_CHI2P_TH (keep left).
                 save_kwargs={"ratio": True, "vline": [[P_CHI2P_TH, 0]]},
             ),
+            # tracks longer than the muon length threshold (PID length cut sample)
+            PlotSpec(
+                var_config=VariableConfig.chi2_mu(),
+                breakdown_type="pdg",
+                selector=sel_trks_concat_len50,
+                name_suffix="len50",
+                plot_label_template=(VariableConfig.chi2_mu().var_labels[0], "Tracks / Bin (POT={pot})", ""),
+                save_kwargs={"ratio": True, "vline": [[MU_CHI2MU_TH, 0]]},
+            ),
+            PlotSpec(
+                var_config=VariableConfig.chi2_proton(),
+                breakdown_type="pdg",
+                selector=sel_trks_concat_len50,
+                name_suffix="len50",
+                plot_label_template=(VariableConfig.chi2_proton().var_labels[0], "Tracks / Bin (POT={pot})", ""),
+                save_kwargs={"ratio": True, "vline": [[MU_CHI2P_TH, 1]], "ax_ylim_ratio": 1.8},
+            ),
+            # len>50 and MCS/range quality
+            PlotSpec(
+                var_config=VariableConfig.chi2_mu(),
+                breakdown_type="pdg",
+                selector=sel_trks_concat_len50_qual,
+                name_suffix="len50_qual",
+                plot_label_template=(VariableConfig.chi2_mu().var_labels[0], "Tracks / Bin (POT={pot})", ""),
+                save_kwargs={"ratio": True, "vline": [[MU_CHI2MU_TH, 0]]},
+            ),
+            PlotSpec(
+                var_config=VariableConfig.chi2_proton(),
+                breakdown_type="pdg",
+                selector=sel_trks_concat_len50_qual,
+                name_suffix="len50_qual",
+                plot_label_template=(VariableConfig.chi2_proton().var_labels[0], "Tracks / Bin (POT={pot})", ""),
+                save_kwargs={"ratio": True, "vline": [[MU_CHI2P_TH, 1]], "ax_ylim_ratio": 1.8},
+            ),
         ],
         save_for_efficiency=True,
         save_for_breakdown=True,
     ))
-
     # ------------------------------------------------------------------
     # Stage 8: get mu/p candidates and apply muX cut + mu kinematics
     # ------------------------------------------------------------------

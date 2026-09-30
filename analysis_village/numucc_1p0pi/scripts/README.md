@@ -49,6 +49,14 @@ Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `d
 
 ## Detector variations
 
+- **Nominal Detector** (Product A + B): nested WireMod+DENT under
+  `PRL/systematics/product{A,B}_*/Detector/` — geometry vs matched CV;
+  calo/efield components on top of WireMod cv; YZ/XTXW distinct DoFs; + DENT.
+  Product A overlays consume detector as `diag(u**2)`; Product B keeps full cov
+  in CategorySummary. Alternate recipes live under
+  `product*__detector_{legacy_3knob,unisim3,wiremod10,wiremod_nested,...}/` as **tests**.
+- **`build_detector_unisim_test_trees.py`**: rebuild parallel test Detector trees
+  (does not overwrite nominal).
 - **`syst_detvar_chunk.py`** → **`syst_detvar_aggregate.py`** (driver: `run_syst_detvar_chunked.sh`): WireMod / calorimetry / E-field unisim covariances from DetVar CAF `.df` files.
 - **`wiremod_match_common_events.py`** (driver: `run_match_detvars.sh`): match common events between CV and WireMod samples.
 - **`sce_match_common_events.py`** (driver: `run_match_sce.sh`): same for 0x/2x SCE samples.
@@ -59,10 +67,19 @@ Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `d
 
 ## Joint (cross-variable) covariances for the conditional constraint
 
-- **`syst_cc_joint_multisim_{chunk,parallel,aggregate}.py`** (driver: `run_syst_cc_joint_multisim_chunked.sh`) and
-  **`syst_cc_joint_genie_{chunk,parallel,aggregate}.py`** (driver: `run_syst_cc_joint_genie_chunked.sh`, combined: `run_cc_systs.sh`):
-  build joint covariances across variable pairs, consumed by `../cc_joint_cov.py`.
-- **`conditional_constraint_validation.py`**: conditional Gaussian constraint (muon → proton) validation plots and JSON diagnostics.
+Default production writes **one inclusive stacked vector** per universe
+(`stacked_mu_p`: muon *p*, muon cosθ, proton *p*, proton cosθ) with
+`get_univ_rates(..., bkgd_subtract=False)`. Outputs live under PRL Product B
+`JointCC/` (`dataset_locations.default_syst_disk_cc_root()`).
+
+- **`syst_cc_joint_multisim_{chunk,parallel,aggregate}.py`** (driver: `run_syst_cc_joint_multisim_chunked.sh`)
+  — Flux / G4 (MCstat optional). Prefix `nu__joint_cc_stack__`.
+- **`syst_cc_joint_genie_{chunk,parallel,aggregate}.py`** (driver: `run_syst_cc_joint_genie_chunked.sh`;
+  combined: `run_cc_systs.sh`) — default group `FSI_compare` (`GENIE_slim_v3` only); `align_joint_cc_genie.py` writes that slim_v3 joint as the combined cell (full off-diagonals). Pass `--mec-splice` to add May−Sep interpolator joints.
+  Prefix `nu__joint_cc_genie_stack__`.
+- **`conditional_constraint_validation.py`**: Gaussian constraint using PRL overlay
+  `counts_report.npz` + stacked joint NPZs + CategorySummary detector/cosmics/POT/ntargets.
+  Pairwise `--mode pairs` is an emergency fallback only.
 
 ---
 
@@ -74,6 +91,9 @@ Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `d
 - **`selected_events.py`** / **`selected_events_cumulative.py`** (drivers: `run_event_rate_comp*.sh`):
   final-selection data/MC rate comparisons, per exposure batch or cumulative.
 - **`unfolding_data.py`**: scripted Wiener-SVD unfolding of beam data (twin of `notebooks/unfolding-data.ipynb`).
+- **`response_matrices_product_b.py`**: batch-accumulate Product B efficiencies + response matrices (streams `evt`/`mcnu` MC files; merges data/bkg from `counts_report.npz`) → `PRL/response_matrices/`. Called by `notebooks/unfolding-prepare.ipynb`.
+- **`fake_data_unfold_tests.py`**: stream Product B GENIE + GiBUU histograms for `notebooks/unfolding-fake_data_tests.ipynb` → `PRL/unfolded/fake_data_tests/`.
+- **`data_mc_overlay_products.py`**: Product A/B data–MC overlays with OffBeam cosmics → `PRL/data_mc_overlays/`. Product B nominal `productB_sel_mup` is a real directory (`genie_rate`, DENT rolling 80% w=3 + Gauss σ=1); raw DENT overlays at `productB_sel_mup__dent_raw/`; former FSI v1×v3 overlays kept at `productB_sel_mup__FSI_v1v3/`.
 
 ---
 
@@ -95,7 +115,9 @@ Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `d
 | Detector variations | `run_syst_detvar_chunked.sh` |
 | Joint covariances for the constraint | `run_cc_systs.sh` |
 | Event selection map/reduce + plots | `run_event_selection_batched.sh` |
-| Unfolded cross section from data | `unfolding_data.py` |
+| Product B overlays (OffBeam) | `data_mc_overlay_products.py --product B` |
+| Product B response/efficiency (batched) | `response_matrices_product_b.py` |
+| Unfolded cross section from data | `unfolding_data.py` / `notebooks/unfolding.ipynb` |
 
 ---
 

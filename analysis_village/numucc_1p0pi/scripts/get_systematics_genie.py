@@ -741,6 +741,8 @@ def covariance_bundle_univ_events(
                 var_config.bins,
                 plot_labels=[var_config.var_labels[1], var_config.var_labels[1], lab],
                 plot=plot,
+                cmap="coolwarm" if matrix_type == "corr" else "viridis",
+                approval="",
                 save_fig=True,
                 save_name=path.join(save_fig_dir, f"{var_config.var_save_name}-{syst_name[1]}_{cov_tag}-{matrix_type}"),
             )

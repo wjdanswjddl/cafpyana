@@ -8,8 +8,10 @@ Two input layouts are supported:
   background-subtracted rate covariance) per (syst, var).  For **G4**, the default is ``--g4-mode knobs``: weights under ``(mc, <knob>, univ_i)``
   from ``makedf.g4syst.g4_systematics``.  For **Flux**, the default is ``--flux-mode knobs``:
   weights under ``(mc, <knob>, univ_i)`` from ``makedf.bnbsyst`` (see ``--flux-knob-groups``).
-  Use ``--g4-mode bundled`` / ``--flux-mode bundled`` only when the HDF has consolidated
-  ``mc.G4`` / ``mc.Flux`` blocks.
+  Use ``--g4-mode bundled`` / ``--flux-mode bundled`` for a single product-of-knobs
+  rate cov: if the HDF has consolidated ``mc.G4`` / ``mc.Flux`` blocks those are used;
+  otherwise per-knob weights are multiplied into ``(mc, Flux|G4, univ_i)`` once per
+  split (≈N_knobs× faster than ``--*-mode knobs``).
 
 * ``--input-stage sel_all``: ``.df`` is a sel_all bundle (raw ``evt`` / ``trk`` /
   ``hdr`` with the multi-universe weight columns attached). We re-run the full
@@ -127,7 +129,7 @@ def parse_args():
         "on raw evt+trk+hdr and accumulate per-universe rate histograms at every "
         "cut stage AND at the final stage.",
     )
-    p.add_argument("--var-set", choices=("final", "intermediate", "both"), default="final")
+    p.add_argument("--var-set", choices=("final", "intermediate", "both", "vertex_multi"), default="final")
     p.add_argument(
         "--syst-names",
         default=None,
@@ -147,14 +149,14 @@ def parse_args():
         choices=("knobs", "bundled"),
         default="knobs",
         help="``knobs``: loop ``makedf.g4syst.g4_systematics`` → ``(mc, knob, univ_i)``. "
-        "``bundled``: single ``(mc, G4, univ_i)`` / ``mc.G4`` block.",
+        "``bundled``: one product-of-knobs ``(mc, G4, univ_i)`` (inject if needed).",
     )
     p.add_argument(
         "--flux-mode",
         choices=("knobs", "bundled"),
         default="knobs",
         help="``knobs``: loop ``makedf.bnbsyst`` flux knobs → ``(mc, knob, univ_i)``. "
-        "``bundled``: single ``(mc, Flux, univ_i)`` / ``mc.Flux`` block.",
+        "``bundled``: one product-of-knobs ``(mc, Flux, univ_i)`` (inject if needed).",
     )
     p.add_argument(
         "--flux-knob-groups",
@@ -165,6 +167,49 @@ def parse_args():
     return p.parse_args()
 
 
+def _inject_product_of_mc_knob_weights(
+    df: pd.DataFrame,
+    knobs: Sequence[str],
+    bundled_tag: str,
+    n_univ: int,
+) -> pd.DataFrame:
+    """Write ``(mc, bundled_tag, univ_i)`` as the product of per-knob weights."""
+    df = df.copy()
+    n = len(df)
+    for uidx in range(int(n_univ)):
+        w = np.ones(n, dtype=float)
+        missing = False
+        for knob in knobs:
+            key = multicol_resolve_column_key(df, ("mc", knob, f"univ_{uidx}"))
+            if key is None:
+                missing = True
+                break
+            wi = np.asarray(df.loc[:, key], dtype=float)
+            wi = np.nan_to_num(wi, nan=1.0, posinf=1.0, neginf=1.0)
+            w *= wi
+        if missing:
+            continue
+        col = ("mc", bundled_tag, f"univ_{uidx}", "", "", "", "")
+        df.loc[:, col] = w
+    return df
+
+
+def _ensure_bundled_mc_weights(
+    mc_evt_df: pd.DataFrame,
+    *,
+    sname: str,
+    knobs: Sequence[str],
+    n_univ: int,
+) -> pd.DataFrame:
+    """Return frame with ``(mc, sname, univ_i)`` present (inject product-of-knobs if needed)."""
+    sk = ("mc", sname)
+    if _count_univ_columns(mc_evt_df, sk) > 0:
+        return mc_evt_df
+    if not knobs:
+        return mc_evt_df
+    return _inject_product_of_mc_knob_weights(mc_evt_df, knobs, sname, n_univ)
+
+
 # ===========================================================================
 # Final-stage input path (legacy: signal+bkgd-subtracted rate via get_univ_rates).
 # ===========================================================================
@@ -172,12 +217,13 @@ def _accumulate_final(args, syst_names) -> Dict[str, Any]:
     syst_active = frozenset(syst_names)
     var_configs = build_var_configs(args.var_set)
     acc_syst: Dict[str, Any] = {sn: {} for sn in NEUTRINO_SYST_ORDER}
-    g4_knobs = g4_mc_knob_names() if getattr(args, "g4_mode", "knobs") == "knobs" else ()
+    # Knob lists: needed for knobs-mode loops AND for bundled product-of-knobs inject.
+    g4_knobs = g4_mc_knob_names() if "G4" in syst_active else ()
     flux_knobs = (
-        flux_mc_knob_names(args.flux_knob_groups)
-        if getattr(args, "flux_mode", "knobs") == "knobs"
-        else ()
+        flux_mc_knob_names(args.flux_knob_groups) if "Flux" in syst_active else ()
     )
+    g4_mode = getattr(args, "g4_mode", "knobs")
+    flux_mode = getattr(args, "flux_mode", "knobs")
 
     def flush_evt(mc_evt_df: pd.DataFrame) -> None:
         # get_univ_rates expects evtdf.topo_categ for signal vs background topology (utils.py).
@@ -185,23 +231,31 @@ def _accumulate_final(args, syst_names) -> Dict[str, Any]:
             mc_evt_df = mc_evt_df.copy()
             mc_evt_df.loc[:, "topo_categ"] = get_topo_category(mc_evt_df)
         mc_evt_df = ensure_derived_trk_kinematics_cols(mc_evt_df)
-        if "G4" in syst_active:
-            if args.g4_mode == "knobs":
-                mc_evt_df = drop_bad_g4_knob_weights(mc_evt_df, knobs=g4_knobs, n_univ=args.n_universe)
-            else:
-                mc_evt_df = drop_bad_g4_weights(mc_evt_df, n_univ=args.n_universe)
-        if "Flux" in syst_active and args.flux_mode == "knobs" and flux_knobs:
+        if "G4" in syst_active and g4_knobs:
+            mc_evt_df = drop_bad_g4_knob_weights(mc_evt_df, knobs=g4_knobs, n_univ=args.n_universe)
+        elif "G4" in syst_active and g4_mode == "bundled":
+            mc_evt_df = drop_bad_g4_weights(mc_evt_df, n_univ=args.n_universe)
+        if "Flux" in syst_active and flux_knobs:
             mc_evt_df = drop_bad_flux_knob_weights(mc_evt_df, knobs=flux_knobs, n_univ=args.n_universe)
         if len(mc_evt_df) == 0:
             return
+        # Bundled: inject product-of-knobs once, then one get_univ_rates per var.
+        if "Flux" in syst_active and flux_mode == "bundled":
+            mc_evt_df = _ensure_bundled_mc_weights(
+                mc_evt_df, sname="Flux", knobs=flux_knobs, n_univ=args.n_universe
+            )
+        if "G4" in syst_active and g4_mode == "bundled":
+            mc_evt_df = _ensure_bundled_mc_weights(
+                mc_evt_df, sname="G4", knobs=g4_knobs, n_univ=args.n_universe
+            )
         for sname in syst_names:
-            if sname == "Flux" and args.flux_mode == "knobs":
+            if sname == "Flux" and flux_mode == "knobs":
                 if flux_knobs:
                     _accum_univ_rates_for_mc_knobs(
                         mc_evt_df, var_configs, flux_knobs, acc_syst["Flux"], "Flux", args.n_universe
                     )
                 continue
-            if sname == "G4" and args.g4_mode == "knobs":
+            if sname == "G4" and g4_mode == "knobs":
                 if g4_knobs:
                     _accum_univ_rates_for_mc_knobs(
                         mc_evt_df, var_configs, g4_knobs, acc_syst["G4"], "G4", args.n_universe

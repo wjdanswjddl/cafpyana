@@ -314,6 +314,8 @@ def _covariance_nested_knob_block(
                         matrix_type.capitalize(),
                     ],
                     plot=False,
+                    cmap="coolwarm" if matrix_type == "corr" else "viridis",
+                    approval="",
                     save_fig=True,
                     save_name=path.join(
                         cat_dir,
@@ -391,6 +393,8 @@ def covariance_dict_from_merged(
                             matrix_type.capitalize(),
                         ],
                         plot=False,
+                        cmap="coolwarm" if matrix_type == "corr" else "viridis",
+                        approval="",
                         save_fig=True,
                         save_name=path.join(
                             cat_dir,
@@ -502,7 +506,7 @@ def parse_args():
     )
     p.add_argument(
         "--var-set",
-        choices=("final", "intermediate", "both", "sel_all"),
+        choices=("final", "intermediate", "both", "sel_all", "vertex_multi"),
         default="final",
         help="Variable catalogue. ``sel_all`` selects pipeline-walker cut variables + "
         "final variables; auto-applied when sel_all chunk pickles are detected.",

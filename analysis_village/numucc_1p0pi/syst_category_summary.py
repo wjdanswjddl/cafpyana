@@ -5,6 +5,10 @@ Each variable entry stores fractional covariance matrices and per-bin uncertaint
 using the same conventions as the summary breakdown plots (cosmics = contamination-scaled
 ``SelectedRate``; GENIE rate and xsec totals available separately).
 
+``categories`` keep unrebased source fracs (Flux/G4/MCstat/GENIE rate = frac vs signal CV).
+``total_rate`` optionally rebases those signal-CV sources onto total-selected CV before
+summing (see :func:`rebase_fraccov_signal_to_total`); ``total_xsec`` is never rebased.
+
 Example
 -------
 >>> from analysis_village.numucc_1p0pi.syst_category_summary import (
@@ -28,7 +32,7 @@ from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional, Seque
 
 import numpy as np
 
-from pyanalib.covariance import corr_from_fraccov, cov_from_fraccov
+from pyanalib.covariance import corr_from_fraccov, cov_from_fraccov, fraccov_from_cov
 
 from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV, normalized_root
 
@@ -104,6 +108,98 @@ _XSEC_TOTAL_CATEGORIES = (
     CAT_POT,
     CAT_NTARGETS,
 )
+
+# Multisim / GENIE **rate** fracs are built with ``bkgd_subtract=True`` (fractional
+# vs signal CV). Overlay bands apply ``frac × total_mc``, so these sources must be
+# rebased onto total-selected CV before entering ``total_rate``.
+# Do **not** rebase detector, cosmics ``SelectedRate``, pot, or ntargets.
+RATE_REBASE_TO_TOTAL_CATEGORIES = (
+    CAT_FLUX,
+    CAT_G4,
+    CAT_MCSTAT,
+    CAT_GENIE_RATE,
+)
+
+
+def rebase_fraccov_signal_to_total(
+    frac_sig: np.ndarray,
+    n_signal: np.ndarray,
+    n_total: np.ndarray,
+) -> np.ndarray:
+    """Rebase a fractional covariance from signal CV onto total-selected CV.
+
+    Flux / G4 / MCstat / GENIE-rate matrices are produced with
+    ``bkgd_subtract=True``, so ``cov_frac[i,j]`` is
+    ``(δ_i / n_signal_i)(δ_j / n_signal_j)``. Overlay hatch / χ² paths convert
+    frac → absolute with ``cov_from_fraccov(frac, total_mc)``, which under-scales
+    the absolute uncertainty unless the frac is first rewritten vs ``n_total``::
+
+        abs = cov_from_fraccov(frac_sig, n_signal)
+        frac_tot = fraccov_from_cov(abs, n_total)
+
+    Parameters
+    ----------
+    frac_sig
+        Fractional covariance relative to the signal CV.
+    n_signal, n_total
+        Per-bin signal and total-selected (stack) counts; same length as the
+        matrix dimension.
+
+    Returns
+    -------
+    np.ndarray
+        Fractional covariance relative to ``n_total``.
+
+    Notes
+    -----
+    Do **not** apply this to detector, cosmics ``SelectedRate``, pot, or
+    ntargets — those are already fractional vs the total-selected (or are
+    pure multiplicative scales on the full stack).
+    """
+    frac_sig = np.asarray(frac_sig, dtype=np.float64)
+    n_signal = np.asarray(n_signal, dtype=np.float64).reshape(-1)
+    n_total = np.asarray(n_total, dtype=np.float64).reshape(-1)
+    if frac_sig.ndim != 2 or frac_sig.shape[0] != frac_sig.shape[1]:
+        raise ValueError(
+            "frac_sig must be square; got shape %s" % (frac_sig.shape,)
+        )
+    n = frac_sig.shape[0]
+    if n_signal.shape[0] != n or n_total.shape[0] != n:
+        raise ValueError(
+            "n_signal/n_total length (%d, %d) != cov dim %d"
+            % (n_signal.shape[0], n_total.shape[0], n)
+        )
+    abs_cov = cov_from_fraccov(frac_sig, n_signal)
+    return np.asarray(fraccov_from_cov(abs_cov, n_total), dtype=np.float64)
+
+
+def assemble_total_rate_cov_frac(
+    category_covs: Mapping[str, np.ndarray],
+    *,
+    n_signal: Optional[np.ndarray] = None,
+    n_total: Optional[np.ndarray] = None,
+    rebase: bool = True,
+) -> Optional[np.ndarray]:
+    """Sum rate-total category fracs, optionally rebasing signal-CV sources.
+
+    ``category_covs`` keys match :data:`CATEGORY_KEYS` (``flux``, ``g4``, …).
+    When ``rebase`` is True and both ``n_signal`` / ``n_total`` are supplied,
+    entries in :data:`RATE_REBASE_TO_TOTAL_CATEGORIES` are passed through
+    :func:`rebase_fraccov_signal_to_total` before summing; other categories
+    (detector, cosmics, pot, ntargets) are left unchanged.
+
+    Returns ``None`` if no category matrices are present.
+    """
+    parts: list[np.ndarray] = []
+    do_rebase = bool(rebase) and n_signal is not None and n_total is not None
+    for key in _RATE_TOTAL_CATEGORIES:
+        if key not in category_covs or category_covs[key] is None:
+            continue
+        cf = np.asarray(category_covs[key], dtype=np.float64)
+        if do_rebase and key in RATE_REBASE_TO_TOTAL_CATEGORIES:
+            cf = rebase_fraccov_signal_to_total(cf, n_signal, n_total)
+        parts.append(cf)
+    return sum_cov_frac_matrices(parts)
 
 
 def frac_unc_diag(cov_frac: np.ndarray) -> np.ndarray:
@@ -421,8 +517,18 @@ def build_variable_pack(
     genie_blob: Optional[Mapping] = None,
     include_flat: bool = True,
     nominal_mc: Optional[np.ndarray] = None,
+    nominal_mc_signal: Optional[np.ndarray] = None,
+    nominal_mc_total: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
-    """Full export payload for one ``VariableConfig``."""
+    """Full export payload for one ``VariableConfig``.
+
+    ``categories`` store **unrebased** source fractional covariances (Flux / G4 /
+    MCstat / GENIE rate remain frac-vs-signal CV as written by the multisim
+    producers). ``total_rate`` rebases those sources onto total-selected CV when
+    ``nominal_mc_signal`` and ``nominal_mc_total`` are both provided; detector /
+    cosmics / pot / ntargets are summed as-is. ``total_xsec`` always uses the
+    unrebased category fracs (identical to the pre-rebase convention).
+    """
     vsn = var_config.var_save_name
     nbins = len(var_config.bin_centers)
     covs = build_category_cov_frac(
@@ -441,18 +547,19 @@ def build_variable_pack(
         covs[CAT_POT] = _flat_cov_frac(nbins, POT_FRAC_UNC_PCT)
         covs[CAT_NTARGETS] = _flat_cov_frac(nbins, NTARGETS_FRAC_UNC_PCT)
 
+    # Per-category blocks keep unrebased source fracs (documented above).
     categories: Dict[str, Dict[str, np.ndarray]] = {
         k: _category_block(c, var_config, nominal_mc=nominal_mc)
         for k, c in covs.items()
     }
 
-    def _total_block(keys: Sequence[str]) -> Dict[str, np.ndarray]:
-        parts = [covs[k] for k in keys if k in covs]
-        if not parts:
-            return {}
-        total = sum_cov_frac_matrices(parts)
-        assert total is not None
-        blk = _category_block(total, var_config, nominal_mc=nominal_mc)
+    def _total_block(
+        keys: Sequence[str],
+        *,
+        cov_frac: np.ndarray,
+        abs_mc: Optional[np.ndarray],
+    ) -> Dict[str, np.ndarray]:
+        blk = _category_block(cov_frac, var_config, nominal_mc=abs_mc)
         blk["category_keys"] = np.array(list(keys), dtype=object)
         return blk
 
@@ -464,12 +571,31 @@ def build_variable_pack(
         "categories": categories,
         "cosmics_kind": "selected_rate",
     }
-    rate_blk = _total_block(_RATE_TOTAL_CATEGORIES)
-    if rate_blk:
-        pack[TOTAL_RATE] = rate_blk
-    xsec_blk = _total_block(_XSEC_TOTAL_CATEGORIES)
-    if xsec_blk:
-        pack[TOTAL_XSEC] = xsec_blk
+
+    rate_total = assemble_total_rate_cov_frac(
+        covs,
+        n_signal=nominal_mc_signal,
+        n_total=nominal_mc_total,
+        rebase=(nominal_mc_signal is not None and nominal_mc_total is not None),
+    )
+    if rate_total is not None:
+        # Absolute cov for total_rate prefers the stack CV used after rebase.
+        abs_mc_rate = (
+            nominal_mc_total
+            if nominal_mc_total is not None
+            else nominal_mc
+        )
+        pack[TOTAL_RATE] = _total_block(
+            _RATE_TOTAL_CATEGORIES, cov_frac=rate_total, abs_mc=abs_mc_rate
+        )
+
+    xsec_parts = [covs[k] for k in _XSEC_TOTAL_CATEGORIES if k in covs]
+    if xsec_parts:
+        xsec_total = sum_cov_frac_matrices(xsec_parts)
+        assert xsec_total is not None
+        pack[TOTAL_XSEC] = _total_block(
+            _XSEC_TOTAL_CATEGORIES, cov_frac=xsec_total, abs_mc=nominal_mc
+        )
     return pack
 
 
@@ -489,12 +615,16 @@ def export_category_syst_summary(
     syst_disk_root: Optional[str] = None,
     include_flat: bool = True,
     nominal_mc_by_var: Optional[Mapping[str, np.ndarray]] = None,
+    nominal_mc_signal_by_var: Optional[Mapping[str, np.ndarray]] = None,
+    nominal_mc_total_by_var: Optional[Mapping[str, np.ndarray]] = None,
 ) -> Dict[str, Any]:
     """Write ``category_syst_summary.npz`` and companion manifest JSON."""
     out_npz = os.path.abspath(out_npz)
     os.makedirs(os.path.dirname(out_npz), exist_ok=True)
     manifest_path = category_summary_manifest_path(out_npz)
     nominal_mc_by_var = nominal_mc_by_var or {}
+    nominal_mc_signal_by_var = nominal_mc_signal_by_var or {}
+    nominal_mc_total_by_var = nominal_mc_total_by_var or {}
 
     by_var: Dict[str, Any] = {}
     skipped: list[str] = []
@@ -514,6 +644,8 @@ def export_category_syst_summary(
                 genie_blob=genie_blob,
                 include_flat=include_flat,
                 nominal_mc=nominal_mc_by_var.get(vsn),
+                nominal_mc_signal=nominal_mc_signal_by_var.get(vsn),
+                nominal_mc_total=nominal_mc_total_by_var.get(vsn),
             )
         except Exception as ex:
             skipped.append(f"{vsn}: {ex}")
@@ -531,6 +663,13 @@ def export_category_syst_summary(
         "cosmics_kind": "selected_rate",
         "flat_frac_unc_pct": {"pot": POT_FRAC_UNC_PCT, "ntargets": NTARGETS_FRAC_UNC_PCT},
         "matrix_keys_per_category": ["cov_frac", "corr", "cov", "frac_unc_pct"],
+        "rate_rebase_to_total_categories": list(RATE_REBASE_TO_TOTAL_CATEGORIES),
+        "note_total_rate": (
+            "total_rate rebases flux/g4/mcstat/genie_rate from signal CV onto "
+            "total-selected CV when nominal_mc_signal and nominal_mc_total are "
+            "supplied at export; categories[] keep unrebased source fracs. "
+            "total_xsec is never rebased."
+        ),
         "usage": {
             "load": "load_category_syst_summary(npz_path) or load_category_syst_summary(syst_disk_root=...)",
             "cov_frac": "category_cov_frac(summary, var_save_name, category_key)",
@@ -545,6 +684,38 @@ def export_category_syst_summary(
         mf.write("\n")
 
     return manifest
+
+
+def rebuild_total_rate_in_summary_pack(
+    pack: MutableMapping[str, Any],
+    var_config: Any,
+    *,
+    n_signal: np.ndarray,
+    n_total: np.ndarray,
+) -> Dict[str, np.ndarray]:
+    """Rewrite ``pack[TOTAL_RATE]`` from unrebased ``categories`` + overlay counts.
+
+    Leaves ``categories`` and ``total_xsec`` untouched. Returns the new
+    ``total_rate`` block.
+    """
+    cats = pack.get("categories") or {}
+    cat_covs = {
+        k: np.asarray(cats[k]["cov_frac"], dtype=np.float64)
+        for k in _RATE_TOTAL_CATEGORIES
+        if k in cats and isinstance(cats[k], Mapping) and "cov_frac" in cats[k]
+    }
+    rate_total = assemble_total_rate_cov_frac(
+        cat_covs, n_signal=n_signal, n_total=n_total, rebase=True
+    )
+    if rate_total is None:
+        raise ValueError(
+            "No rate category matrices to assemble for %r"
+            % (getattr(var_config, "var_save_name", "?"),)
+        )
+    blk = _category_block(rate_total, var_config, nominal_mc=n_total)
+    blk["category_keys"] = np.array(list(_RATE_TOTAL_CATEGORIES), dtype=object)
+    pack[TOTAL_RATE] = blk
+    return blk
 
 
 def load_category_syst_summary(

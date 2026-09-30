@@ -31,14 +31,20 @@ from analysis_village.numucc_1p0pi.syst_disk_layout import (
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.collections as mcoll
 from matplotlib.patches import Patch
 from matplotlib.legend import Legend
+from matplotlib.legend_handler import HandlerErrorbar
+from matplotlib.lines import Line2D
 plt.style.use(os.path.join(os.path.dirname(os.path.abspath(__file__)), "notebooks", "presentation.mplstyle"))
 cmap = mpl.cm.viridis
 norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
 
 pdg_labels = [r"$\mu^{\pm}$", r"$p$", r"$\pi^{\pm}$", r"Other"]
 pdg_colors = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
+# Data-driven (offbeam/intime) cosmic layer stacked *in addition to* MC cosmics.
+PDG_COSMIC_LABEL = "Intime Cosmics"
+PDG_COSMIC_COLOR = "dimgray"
 
 dpi = 300
 fig_ext = ".png"
@@ -192,23 +198,14 @@ def get_syst_unc(
         syst_name = _SYST_UNC_DISK_LABELS[key]
         try:
             syst = _load_disk_frac_cov(key)
-            if key == "cosmics":
-                from analysis_village.numucc_1p0pi.syst_cosmics_common import (
-                    flat_uncorrelated_cov_frac,
-                )
-
-                syst = flat_uncorrelated_cov_frac(syst)
-            syst_uncert = np.sqrt(np.diag(syst))
-            if key == "cosmics":
-                flat_val = float(np.max(syst_uncert)) if len(syst_uncert) else 0.0
-                syst_uncert = flat_val * np.ones(n_bins)
+            syst_uncert = np.sqrt(np.maximum(np.diag(np.asarray(syst, dtype=float)), 0.0))
             if syst.shape != (n_bins, n_bins):
                 raise ValueError(
                     "cov_frac shape %s does not match %d bins for %r"
                     % (syst.shape, n_bins, var_config.var_save_name)
                 )
             frac_uncert_total += syst_uncert ** 2
-            frac_cov_matrix_total += syst
+            frac_cov_matrix_total += np.asarray(syst, dtype=float)
             if plot:
                 plt.hist(
                     var_config.bin_centers,
@@ -229,17 +226,20 @@ def get_syst_unc(
             continue
 
     if "pot" in active:
+        # Multiplicative exposure scale → fully correlated fractional cov.
         syst_name = "POT"
-        syst_uncert = pot_frac_unc * np.ones(len(var_config.bin_centers))
+        u = pot_frac_unc
+        syst_uncert = u * np.ones(n_bins)
         frac_uncert_total += syst_uncert ** 2
-        frac_cov_matrix_total += np.diag(syst_uncert ** 2)
+        frac_cov_matrix_total += np.full((n_bins, n_bins), u * u, dtype=float)
         if plot:
             plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert,   histtype="step", linewidth=2, label=syst_name)
     if "ntargets" in active:
         syst_name = "Ntargets"
-        syst_uncert = ntargets_frac_unc * np.ones(len(var_config.bin_centers))
+        u = ntargets_frac_unc
+        syst_uncert = u * np.ones(n_bins)
         frac_uncert_total += syst_uncert ** 2
-        frac_cov_matrix_total += np.diag(syst_uncert ** 2)
+        frac_cov_matrix_total += np.full((n_bins, n_bins), u * u, dtype=float)
         if plot:
             plt.hist(var_config.bin_centers, bins=var_config.bins, weights=syst_uncert,   histtype="step", linewidth=2, label=syst_name)
 
@@ -272,7 +272,9 @@ def get_syst_unc(
 
 
 _CATEGORY_SYST_SUMMARY_CACHE = {}
-# Canonical consumer tree: PRL Product B (see dataset_locations.prl_syst_disk_root).
+# Nominal Product B syst disk in the 2026-09-30 PRL tree (real files, formerly
+# the dentsmooth consumer: GENIE_slim_v3 + MEC May, ``tki-del_Tp`` GENIE from
+# v1×v3, DENT rolling 80% w=3 + Gauss σ=1).
 _DEFAULT_SYST_DISK_ROOT = (
     "/exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/PRL/systematics/productB_sel_mup"
 )
@@ -477,76 +479,163 @@ def _overlay_syst_sigma(total_mc, mc_stat_err, syst_frac_cov, *, add_poisson_mc_
     return syst_sigma
 
 
-def _overlay_chi2_valid_bins(total_data, total_mc):
-    """Bins with MC or data content (skip empty bins in χ²)."""
-    total_data = np.asarray(total_data, dtype=float)
-    total_mc = np.asarray(total_mc, dtype=float)
-    return (total_mc > 0) | (total_data > 0)
+def _overlay_chi2_valid_bins(total_data, total_mc, *, drop_first_bin: bool = False):
+    """Bins with MC or data content (skip empty bins in χ²).
 
-
-def _overlay_compute_chi2(total_data, total_mc, syst_frac_cov, data_eylow, data_eyhigh):
-    """χ² using diagonal errors consistent with hatched syst. band + data error bars.
-
-    The hatched MC band is drawn from ``√diag(cov)`` only.  Using the full
-    covariance inverse here would charge shape residuals against a nearly
-    rank-1 (rate-like) WireMod/unisim matrix and can make χ² explode even when
-    every point sits inside the band.  The displayed χ² therefore uses the
-    same diagonal variances as the band (syst) plus data stat. errors.
-
-    Also computes a shape-only χ² (MC normalized to the data integral) with the
-    same diagonal treatment.
+    ``drop_first_bin``: exclude bin 0 (e.g. nu_score Pandora failure bin).
     """
     total_data = np.asarray(total_data, dtype=float)
     total_mc = np.asarray(total_mc, dtype=float)
-    valid = _overlay_chi2_valid_bins(total_data, total_mc)
-    if not np.any(valid):
-        return None, None, None, None, None, None, None, None
+    valid = (total_mc > 0) | (total_data > 0)
+    if drop_first_bin and valid.size:
+        valid = np.asarray(valid, dtype=bool).copy()
+        valid[0] = False
+    return valid
 
-    data_stat_var = (
+
+def _overlay_data_xlim_range(bins, total_data, *, drop_first_bin: bool = False):
+    """``(xmin, xmax, i_lo, i_hi)`` from bins with data > 0, or ``None``.
+
+    Used to clip the x-axis to the support of the data. With ``drop_first_bin``,
+    bin 0 is ignored (nu_score failure / dummy bin).
+    """
+    bins = np.asarray(bins, dtype=float)
+    data = np.asarray(total_data, dtype=float)
+    if data.size == 0 or bins.size < 2:
+        return None
+    mask = data > 0
+    if drop_first_bin and mask.size:
+        mask = mask.copy()
+        mask[0] = False
+    if not np.any(mask):
+        return None
+    idx = np.flatnonzero(mask)
+    i_lo, i_hi = int(idx[0]), int(idx[-1])
+    return float(bins[i_lo]), float(bins[i_hi + 1]), i_lo, i_hi
+
+
+def _overlay_is_nu_score(var_config=None, histdata=None) -> bool:
+    vsn = None
+    if histdata is not None:
+        vsn = getattr(histdata, "var_save_name", None)
+    if not vsn and var_config is not None:
+        vsn = getattr(var_config, "var_save_name", None)
+    return str(vsn or "") == "nu_score"
+
+
+def _overlay_data_stat_variance(data_eylow, data_eyhigh) -> np.ndarray:
+    """Symmetrized data-stat variance from asymmetric error bars."""
+    return (
         0.5
         * (
             np.asarray(data_eylow, dtype=float)
             + np.asarray(data_eyhigh, dtype=float)
         )
     ) ** 2
-    # Absolute syst variance matching the hatched band: (√diag(frac) * MC)^2
+
+
+def _overlay_absolute_cov(
+    total_mc,
+    syst_frac_cov,
+    data_eylow,
+    data_eyhigh,
+    *,
+    mc_stat_err=None,
+) -> np.ndarray:
+    """Absolute covariance for overlay χ² / pulls.
+
+    ``C_ij = Cfrac_ij * m_i * m_j`` plus diagonal data (and optional MC) stat.
+    """
+    from pyanalib.covariance import cov_from_fraccov
+
+    m = np.asarray(total_mc, dtype=float)
+    C = cov_from_fraccov(syst_frac_cov, m)
+    diag = np.diag(C).copy() + _overlay_data_stat_variance(data_eylow, data_eyhigh)
+    if mc_stat_err is not None:
+        diag = diag + np.asarray(mc_stat_err, dtype=float) ** 2
+    np.fill_diagonal(C, diag)
+    C = 0.5 * (C + C.T)
+    return np.nan_to_num(C, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _overlay_compute_chi2(
+    total_data,
+    total_mc,
+    syst_frac_cov,
+    data_eylow,
+    data_eyhigh,
+    *,
+    mc_stat_err=None,
+    drop_first_bin: bool = False,
+):
+    """χ² with the **full** absolute covariance (syst + data stat [+ MC stat]).
+
+    Absolute syst block: ``C_ij = Cfrac_ij * m_i * m_j`` (same frac matrix as the
+    hatched band). Data (and optional MC Poisson) variances are added on the
+    diagonal. Off-diagonal syst correlations are kept.
+
+    Also computes a shape-only χ² (MC normalized to the data integral): the syst
+    block is rescaled by ``scale**2`` and its normalization component projected
+    out, ``P C P^T`` with ``P = I - N 1^T / sum(N)``, before adding stat diagonals.
+
+    ``drop_first_bin``: exclude bin 0 from the χ² (nu_score failure bin).
+    """
+    total_data = np.asarray(total_data, dtype=float)
+    total_mc = np.asarray(total_mc, dtype=float)
+    valid = _overlay_chi2_valid_bins(
+        total_data, total_mc, drop_first_bin=drop_first_bin
+    )
+    if not np.any(valid):
+        return None, None, None, None, None, None, None, None
+
     syst_frac_cov = np.nan_to_num(
         np.asarray(syst_frac_cov, dtype=float), nan=0.0, posinf=0.0, neginf=0.0
     )
-    syst_var = np.maximum(np.diag(syst_frac_cov), 0.0) * (total_mc ** 2)
-    combined_var = syst_var + data_stat_var
-
-    d = total_data[valid]
-    m = total_mc[valid]
-    var = combined_var[valid]
-    good = var > 0
-    d, m, var = d[good], m[good], var[good]
-    ndof = int(len(d))
+    C = _overlay_absolute_cov(
+        total_mc,
+        syst_frac_cov,
+        data_eylow,
+        data_eyhigh,
+        mc_stat_err=mc_stat_err,
+    )
+    keep = valid & (np.diag(C) > 0)
+    idx = np.flatnonzero(keep)
+    ndof = int(idx.size)
     if ndof == 0:
         return None, None, None, None, None, None, None, None
 
-    c = np.diag(var)
-    chi2_total, p_val = get_chi2(d, m, c)
+    d = total_data[idx]
+    m = total_mc[idx]
+    C_sub = np.asarray(C[np.ix_(idx, idx)], dtype=float)
+    chi2_total, p_val = get_chi2(d, m, C_sub)
     chi2_reduced = chi2_total / ndof if ndof > 0 else None
 
-    # Shape-only χ²: MC normalized to data integral; diagonal cov scaled with MC².
     chi2_shape = None
     p_val_shape = None
     ndof_shape = None
     if m.sum() > 0 and ndof > 1:
-        scale = d.sum() / m.sum()
-        var_shape = syst_var[valid][good] * scale**2 + data_stat_var[valid][good]
-        good_s = var_shape > 0
-        n_shape = int(np.sum(good_s))
-        if n_shape > 1:
-            chi2_shape, p_val_shape = get_chi2_shape(
-                d[good_s], m[good_s], np.diag(var_shape[good_s])
-            )
-            ndof_shape = n_shape - 1  # overall rate floated
+        scale = float(d.sum() / m.sum())
+        # Syst absolute cov scales as model²; data/MC-stat diagonals do not.
+        C_syst = np.asarray(cov_from_fraccov(syst_frac_cov, total_mc), dtype=float)
+        Cs = (scale**2) * C_syst[np.ix_(idx, idx)]
+        n_norm = scale * m
+        P = np.eye(ndof) - np.outer(n_norm, np.ones(ndof)) / n_norm.sum()
+        Cs = P @ Cs @ P.T
+        data_var = np.asarray(_overlay_data_stat_variance(data_eylow, data_eyhigh), dtype=float)
+        diag_s = np.diag(Cs).copy() + data_var[idx]
+        if mc_stat_err is not None:
+            # MC-stat on the *normalized* prediction ≈ scale² × raw MC-stat var
+            diag_s = diag_s + (scale**2) * np.asarray(mc_stat_err, dtype=float)[idx] ** 2
+        np.fill_diagonal(Cs, diag_s)
+        Cs = np.nan_to_num(0.5 * (Cs + Cs.T), nan=0.0, posinf=0.0, neginf=0.0)
+        chi2_shape, p_val_shape = get_chi2_shape(d, m, Cs)
+        ndof_shape = ndof - 1
 
     chi2_pull = np.full_like(total_data, np.nan, dtype=float)
-    pull_idx = np.flatnonzero(valid)[good]
-    chi2_pull[pull_idx] = (d - m) / np.sqrt(np.maximum(var, 1e-10))
+    # Diagonal pulls (full-cov Mahalanobis pulls are not shown on the overlay).
+    sig = np.sqrt(np.maximum(np.diag(C), 0.0))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        chi2_pull[idx] = (d - m) / np.maximum(sig[idx], 1e-10)
     return (
         chi2_total,
         chi2_reduced,
@@ -610,6 +699,9 @@ def format_pot_corner_text(pot) -> str:
     if isinstance(pot, (int, float)):
         return f"{prefix}{get_pot_str(float(pot))} POT"
     s = str(pot).strip()
+    # Efficiency / fake-data plots stamp "SBND Simulation", not a POT value.
+    if re.search(r"Simulation", s, flags=re.IGNORECASE):
+        return s
     s = re.sub(r"\$\\mathbf\{SBND\\?\s*BNB\}\$\s*", "", s)
     s = re.sub(r"SBND\s+BNB\s*", "", s, flags=re.IGNORECASE)
     m = re.search(r"POT=\s*([^)]*)", s)
@@ -1066,6 +1158,609 @@ def get_textloc_x(values, bins, textloc=[0.05, 0.55]):
     return textloc_x, textloc_ha
 
 
+def _overlay_chi2_axes_loc(
+    height_profile,
+    ylim_max,
+    *,
+    breakdown_type: str = "",
+    textloc=(0.05, 0.55),
+    prefer_left: bool | None = None,
+    reserved=None,
+    block_h: float = 0.20,
+):
+    """Axes fraction (x, y, ha) for χ² text: in the clear band above all content.
+
+    Y is placed above the *global* stack/syst peak (the headroom under the legend).
+    X prefers the quieter half of the plot; PDG keeps χ² off the upper-left legend.
+    ``reserved`` is a list of ``(x0, y0, x1, y1)`` axes-fraction boxes (legend /
+    insets) that the χ² + GENIE block must not overlap.
+    """
+    h = np.asarray(height_profile, dtype=float)
+    n = h.size
+    if n == 0 or not np.isfinite(ylim_max) or ylim_max <= 0:
+        return float(textloc[0]), 0.88, "left"
+
+    mid = max(n // 2, 1)
+    left_max = float(np.nanmax(h[:mid])) if mid else 0.0
+    right_max = float(np.nanmax(h[mid:])) if mid < n else 0.0
+    global_max = float(np.nanmax(h)) if n else 0.0
+
+    if prefer_left is None:
+        use_left = left_max <= right_max
+        content_ref = global_max
+    else:
+        use_left = bool(prefer_left)
+        # Explicit side (topology/genie): sit above the *local* stack, so a
+        # 1-col legend on the empty side can keep χ² tucked under it.
+        content_ref = left_max if use_left else right_max
+
+    content_frac = max(0.0, min(1.0, content_ref / float(ylim_max)))
+
+    # PDG legend is upper-left — keep χ² on the right.
+    if breakdown_type == "pdg":
+        use_left = False
+        content_frac = max(0.0, min(1.0, global_max / float(ylim_max)))
+
+    x0 = float(textloc[0])
+    if use_left:
+        tx, ha = x0, "left"
+        ty = 0.88 if prefer_left is not None else min(0.70, content_frac + 0.12)
+    else:
+        tx, ha = 1.0 - x0, "right"
+        ty = 0.90 if prefer_left is not None else min(0.90, content_frac + 0.12)
+    ty = max(ty, content_frac + 0.06)
+
+    if reserved:
+        x_lo, x_hi = (tx - 0.52, tx) if ha == "right" else (tx, tx + 0.52)
+        for rx0, ry0, rx1, ry1 in reserved:
+            x_overlap = not (x_hi < rx0 or x_lo > rx1)
+            y_lo, y_hi = ty - block_h, ty
+            y_overlap = not (y_hi < ry0 or y_lo > ry1)
+            if x_overlap and y_overlap:
+                ty = min(ty, float(ry0) - 0.02)
+        ty = max(ty, content_frac + 0.04)
+    return tx, float(ty), ha
+
+
+def _overlay_rate_ylabel(label: str) -> str:
+    """Overlay top-panel ylabel: drop POT; ``Events / Bin`` → ``Events``."""
+    s = strip_pot_from_ylabel(label) if label else ""
+    compact = "".join(str(s).split()).lower()
+    if compact in ("events/bin", "event/bin"):
+        return "Events"
+    return s or "Events"
+
+
+def _overlay_reserved_axes_boxes(ax):
+    """Legend + inset axes as ``(x0, y0, x1, y1)`` in axes fraction."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    trans = ax.transAxes.inverted()
+    out = []
+    tight = _overlay_legend_tight_box(ax)
+    if tight is not None:
+        out.append(tight)
+    else:
+        leg = ax.get_legend()
+        if leg is not None:
+            bb = leg.get_window_extent(renderer).transformed(trans)
+            out.append((float(bb.x0), float(bb.y0), float(bb.x1), float(bb.y1)))
+    for child in getattr(ax, "child_axes", []) or []:
+        try:
+            bb = child.get_window_extent(renderer).transformed(trans)
+        except Exception:
+            continue
+        out.append((float(bb.x0), float(bb.y0), float(bb.x1), float(bb.y1)))
+    return out
+
+
+def _overlay_apply_tight_ylim(
+    ax,
+    ymax_content,
+    *,
+    max_headroom: float = 1.9,
+    min_headroom: float = 1.18,
+    pad: float = 0.05,
+):
+    """Shrink top-panel ylim so the stack sits just under the main legend.
+
+    Uses the lowest bottom edge among *wide* reserved boxes (the 2–3 column
+    legend), not the small GENIE-SB Signal/Background inset. Returns the
+    reserved boxes for χ² placement.
+    """
+    reserved = []
+    if not (ymax_content > 0 and np.isfinite(ymax_content)):
+        return reserved
+    reserved = _overlay_reserved_axes_boxes(ax)
+    y0s = [y0 for x0, y0, x1, y1 in reserved if (x1 - x0) > 0.25]
+    if not y0s and reserved:
+        y0s = [y0 for _, y0, _, _ in reserved]
+    if y0s:
+        usable = max(0.50, min(y0s) - pad)
+        headroom = 1.0 / usable
+    else:
+        headroom = min_headroom
+    headroom = min(max(float(headroom), float(min_headroom)), float(max_headroom))
+    ax.set_ylim(0.0, headroom * ymax_content)
+    return reserved
+
+
+def _overlay_classify_shape(height_profile) -> str:
+    """``left`` / ``right`` / ``center`` / ``flat`` from a 1D stack(+syst) profile."""
+    h = np.asarray(height_profile, dtype=float)
+    if h.size == 0:
+        return "flat"
+    h = np.where(np.isfinite(h), h, 0.0)
+    peak = float(np.max(h))
+    if peak <= 0:
+        return "flat"
+    n = int(h.size)
+    i0, i1 = n // 3, (2 * n) // 3
+    left = float(np.max(h[:i0])) if i0 else 0.0
+    mid = float(np.max(h[i0:i1])) if i1 > i0 else 0.0
+    right = float(np.max(h[i1:])) if i1 < n else 0.0
+    flatness = float(np.median(h)) / peak
+    peak_frac = (float(np.argmax(h)) + 0.5) / n
+    contrast = max(left, right) / max(min(left, right), 1e-12)
+    # Flat only when both ends are high. Ramps (cosθ, pμ) are not flat.
+    if (
+        flatness >= 0.38
+        and contrast < 1.55
+        and (left / peak) >= 0.55
+        and (right / peak) >= 0.55
+    ):
+        return "flat"
+    if peak_frac <= 0.45 and left >= 0.80 * max(mid, right, 1e-12):
+        return "left"
+    if peak_frac >= 0.55 and right >= 0.80 * max(left, mid, 1e-12):
+        return "right"
+    if mid >= left and mid >= right:
+        return "center"
+    return "left" if left >= right else "right"
+
+
+def _overlay_stack_legend_style(breakdown_type, height_profile, var_save=None):
+    """Adaptive legend for topology / genie. ``None`` keeps the existing layout."""
+    if breakdown_type not in ("topology", "genie"):
+        return None
+    shape = _overlay_classify_shape(height_profile)
+    fs = 14
+    if shape == "flat":
+        style = {
+            "shape": shape,
+            "ncol": 2,
+            "loc": "upper left",
+            "bbox_to_anchor": (0.02, 0.98),
+            "fontsize": fs,
+            "ylim_scale": 2.25,
+            "prefer_left": False,
+            "chi2_fontsize": 18,
+            "clear_boxes": [(0.50, 0.60, 0.99, 0.99)],
+        }
+    elif shape == "right":
+        style = {
+            "shape": shape,
+            "ncol": 1,
+            "loc": "upper left",
+            "bbox_to_anchor": (0.02, 0.98),
+            "fontsize": fs,
+            "ylim_scale": 1.85,
+            "prefer_left": True,
+            "chi2_fontsize": 18,
+            "clear_boxes": [],
+        }
+    elif shape == "center":
+        style = {
+            "shape": shape,
+            "ncol": 1,
+            "loc": "upper left",
+            "bbox_to_anchor": (0.02, 0.98),
+            "fontsize": fs,
+            "ylim_scale": 1.22,
+            "prefer_left": True,
+            "chi2_fontsize": 18,
+            "clear_boxes": [],
+        }
+    else:
+        style = {
+            "shape": shape,
+            "ncol": 1,
+            "loc": "upper right",
+            "bbox_to_anchor": (0.98, 0.98),
+            "fontsize": fs,
+            "ylim_scale": 1.22,
+            "prefer_left": False,
+            "chi2_fontsize": 18,
+            "clear_boxes": [],
+        }
+    style.setdefault("chi2_columns", 1)
+    style.setdefault("genie_oneline", False)
+    style.setdefault("genie_under_legend", False)
+    style.setdefault("chi2_corner", None)
+    style.setdefault("tight_fit", False)
+    v = str(var_save or "")
+    if v == "tki-del_alpha":
+        style.update({
+            "chi2_columns": 2,
+            "genie_oneline": True,
+            "chi2_fontsize": 14,
+            "chi2_under_legend": True,
+            "genie_under_legend": True,
+            "tight_fit": True,
+            "ylim_scale": 1.18,
+            "tight_min_scale": 1.04,
+            "tight_pad": 0.030,
+            "clear_boxes": [],
+        })
+    elif v == "proton-dir_z":
+        style.update({
+            "tight_fit": True,
+            "ylim_scale": 1.08,
+            "tight_min_scale": 1.05,
+            "tight_pad": 0.028,
+            "clear_boxes": [],
+        })
+    elif v == "muon-dir_z":
+        style.update({
+            "chi2_corner": "right",
+            "chi2_fontsize": 16,
+            "genie_under_legend": True,
+            "tight_fit": True,
+            "ylim_scale": 1.10,
+            "tight_min_scale": 1.05,
+            "tight_pad": 0.028,
+            "prefer_left": False,
+            "clear_boxes": [],
+        })
+    return style
+
+
+def _overlay_needed_ylim(ax, height_profile, bins, reserved, *, pad=0.06):
+    """Smallest ylim that keeps ``height_profile`` below reserved axes-fraction boxes."""
+    if height_profile is None or not reserved:
+        return None
+    h = np.asarray(height_profile, dtype=float)
+    edges = np.asarray(bins, dtype=float)
+    if h.size != len(edges) - 1:
+        return None
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    xlim = ax.get_xlim()
+    xspan = float(xlim[1] - xlim[0])
+    if xspan <= 0:
+        return None
+    needed = 0.0
+    for x0, y0, x1, _y1 in reserved:
+        xa = xlim[0] + float(x0) * xspan
+        xb = xlim[0] + float(x1) * xspan
+        mask = (centers >= min(xa, xb)) & (centers <= max(xa, xb))
+        if not np.any(mask):
+            continue
+        local = float(np.nanmax(h[mask]))
+        if not np.isfinite(local) or local <= 0:
+            continue
+        y_clear = max(0.18, float(y0) - pad)
+        if y_clear <= 0:
+            continue
+        needed = max(needed, local / y_clear)
+    return needed if needed > 0 else None
+
+
+def _overlay_fit_ylim(
+    ax,
+    height_profile,
+    bins,
+    reserved,
+    ymax_content,
+    *,
+    pad=0.06,
+    min_scale=1.08,
+):
+    """Set ylim to the minimum that clears ``reserved`` boxes (may shrink or grow)."""
+    needed = 0.0
+    if ymax_content and np.isfinite(ymax_content) and ymax_content > 0:
+        needed = float(min_scale) * float(ymax_content)
+    extra = _overlay_needed_ylim(ax, height_profile, bins, reserved, pad=pad)
+    if extra:
+        needed = max(needed, extra)
+    if needed > 0:
+        ax.set_ylim(0.0, needed)
+
+
+def _overlay_raise_ylim_for_legend(ax, height_profile, bins, reserved, *, pad=0.08):
+    """Raise ylim so stack/syst hatches stay below reserved legend boxes."""
+    extra = _overlay_needed_ylim(ax, height_profile, bins, reserved, pad=pad)
+    if extra is None:
+        return
+    ylim = float(ax.get_ylim()[1])
+    if extra > ylim * 1.01:
+        ax.set_ylim(0.0, extra)
+
+
+def _overlay_artist_axes_boxes(ax, n_from=0):
+    """Axes-fraction boxes for ``ax.texts[n_from:]``."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    trans = ax.transAxes.inverted()
+    out = []
+    for t in list(ax.texts)[n_from:]:
+        try:
+            bb = t.get_window_extent(renderer).transformed(trans)
+        except Exception:
+            continue
+        out.append((float(bb.x0), float(bb.y0), float(bb.x1), float(bb.y1)))
+    return out
+
+
+def _overlay_legend_tight_box(ax):
+    """Axes-fraction box around legend handles+labels, without frame padding."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    trans = ax.transAxes.inverted()
+    leg = ax.get_legend()
+    if leg is None:
+        return None
+    xs0, ys0, xs1, ys1 = [], [], [], []
+    # Texts only: legend handles can be the original data errorbar, whose
+    # window extent spans the whole axes and wrecks the content box.
+    for artist in list(leg.get_texts() or []):
+        try:
+            bb = artist.get_window_extent(renderer).transformed(trans)
+        except Exception:
+            continue
+        if bb.width <= 0 or bb.height <= 0:
+            continue
+        xs0.append(float(bb.x0))
+        ys0.append(float(bb.y0))
+        xs1.append(float(bb.x1))
+        ys1.append(float(bb.y1))
+    if ys0:
+        box = (min(xs0), min(ys0), max(xs1), max(ys1))
+        bases = []
+        for artist in list(leg.get_texts() or []):
+            try:
+                disp = artist.get_transform().transform(artist.get_position())
+                axp = trans.transform(disp)
+                bases.append((float(axp[0]), float(axp[1])))
+            except Exception:
+                continue
+        if os.environ.get("OVERLAY_DEBUG_LEGEND"):
+            n = len(ys0)
+            print(
+                f"  legend-tight n={n} box=({box[0]:.3f},{box[1]:.3f},"
+                f"{box[2]:.3f},{box[3]:.3f}) "
+                f"y0s={[round(y,3) for y in ys0]} "
+                f"bases={[ (round(x,3), round(y,3)) for x,y in bases ]}",
+                flush=True,
+            )
+        if bases:
+            yb = min(y for _, y in bases)
+            xb = min(x for x, _ in bases)
+            x1 = max(x for x, _ in bases)
+            # baseline is the glyph line; pad down by ~0.35 of a 14pt line in axes
+            return (xb, yb - 0.012, max(x1, box[2]), box[3])
+        return box
+    box = getattr(leg, "_legend_box", None) or leg
+    try:
+        bb = box.get_window_extent(renderer).transformed(trans)
+        return (float(bb.x0), float(bb.y0), float(bb.x1), float(bb.y1))
+    except Exception:
+        return None
+
+
+def _overlay_legend_column_xs(ax):
+    """Axes x0 of each legend column (column-major handle order)."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    trans = ax.transAxes.inverted()
+    leg = ax.get_legend()
+    if leg is None:
+        return []
+    texts = list(leg.get_texts() or [])
+    if not texts:
+        return []
+    ncol = int(
+        getattr(leg, "_ncols", None)
+        or getattr(leg, "_ncol", None)
+        or 1
+    )
+    n = len(texts)
+    nrows = int(np.ceil(n / float(ncol)))
+    xs = []
+    for col in range(ncol):
+        i = col * nrows
+        if i >= n:
+            continue
+        try:
+            bb = texts[i].get_window_extent(renderer).transformed(trans)
+        except Exception:
+            continue
+        xs.append(float(bb.x0))
+    return xs
+
+
+def _overlay_genie_under_legend_loc(ax, fallback=None, gap=0.008):
+    """Axes (x, y, ha) just below the legend content (handles + labels)."""
+    box = _overlay_legend_tight_box(ax)
+    if box is not None:
+        return float(box[0]), float(box[1]) - float(gap), "left"
+    if fallback:
+        wide = max(fallback, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+        return float(wide[0]), float(wide[1]) - float(gap), "left"
+    return 0.02, 0.70, "left"
+
+
+def _overlay_place_chi2_genie(
+    ax,
+    *,
+    style,
+    reserved_boxes,
+    textloc,
+    height_profile,
+    bins,
+    ymax_content,
+    breakdown_type,
+    var_save,
+    textchi2,
+    chi2_val,
+    p_val,
+    ndof,
+    chi2_shape_val,
+    p_val_shape,
+    ndof_shape,
+    fontsize,
+    chi2_fontsize,
+    prefer_left_chi2,
+):
+    """Draw χ² + GENIE; tighten ylim when ``style['tight_fit']``."""
+    style = style or {}
+    ylim_max = float(ax.get_ylim()[1]) if ax.get_ylim()[1] > 0 else 1.0
+    chi2_columns = int(style.get("chi2_columns") or 1)
+    genie_oneline = bool(style.get("genie_oneline"))
+    genie_under_legend = bool(style.get("genie_under_legend"))
+    chi2_under_legend = bool(style.get("chi2_under_legend"))
+    chi2_corner = style.get("chi2_corner")
+    tight_fit = bool(style.get("tight_fit"))
+    chi2_block_h = 0.14 if chi2_columns >= 2 else (0.32 if style else 0.20)
+    x_shape = None
+
+    if var_save == "mcs_range_diff":
+        textloc_x, textloc_ha = float(textloc[0]), "left"
+        textloc_y = min(0.70, float(textloc[1]) + 0.08)
+        chi2_y = textloc_y
+    elif chi2_under_legend:
+        gx, gy, gha = _overlay_genie_under_legend_loc(
+            ax, fallback=reserved_boxes, gap=0.008
+        )
+        textloc_x, chi2_y, textloc_ha = gx, gy, gha
+        textloc_y = chi2_y
+        if chi2_columns >= 2:
+            col_xs = _overlay_legend_column_xs(ax)
+            if len(col_xs) >= 2:
+                textloc_x, x_shape = col_xs[0], col_xs[1]
+                textloc_ha = "left"
+    elif style.get("chi2_anchor"):
+        textloc_x, chi2_y, textloc_ha = style["chi2_anchor"]
+        textloc_y = chi2_y
+    elif chi2_corner == "right":
+        textloc_x, textloc_ha = 1.0 - float(textloc[0]), "right"
+        chi2_y = 0.985
+        textloc_y = chi2_y
+    elif chi2_corner == "left":
+        textloc_x, textloc_ha = float(textloc[0]), "left"
+        chi2_y = 0.96
+        textloc_y = chi2_y
+    elif height_profile is not None:
+        textloc_x, chi2_y, textloc_ha = _overlay_chi2_axes_loc(
+            height_profile,
+            ylim_max,
+            breakdown_type=breakdown_type,
+            textloc=textloc,
+            prefer_left=prefer_left_chi2,
+            reserved=reserved_boxes,
+            block_h=chi2_block_h,
+        )
+        textloc_y = chi2_y
+    else:
+        textloc_x, textloc_ha = float(textloc[0]), "left"
+        textloc_y = float(textloc[1])
+        chi2_y = textloc_y + 0.08
+
+    n0 = len(ax.texts)
+    chi2_h = 0.0
+    if textchi2 and chi2_val is not None:
+        chi2_h = add_chi2_text(
+            chi2_val,
+            p_val,
+            ndof,
+            textloc_x,
+            chi2_y,
+            textloc_ha,
+            chi2_shape=chi2_shape_val,
+            p_val_shape=p_val_shape,
+            ndof_shape=ndof_shape,
+            fontsize=chi2_fontsize,
+            columns=chi2_columns,
+            x_shape=x_shape,
+        )
+
+    if breakdown_type != "pdg":
+        if genie_under_legend and chi2_under_legend and chi2_h:
+            extra = _overlay_artist_axes_boxes(ax, n_from=n0)
+            if extra:
+                gx = float(min(b[0] for b in extra))
+                gy = float(min(b[1] for b in extra)) - 0.006
+                gha = "left"
+            else:
+                gx, gy, gha = textloc_x, chi2_y - chi2_h, "left"
+        elif genie_under_legend:
+            gx, gy, gha = _overlay_genie_under_legend_loc(
+                ax, fallback=reserved_boxes, gap=0.008
+            )
+        else:
+            gx, gha = textloc_x, textloc_ha
+            gy = (
+                chi2_y - chi2_h
+                if (textchi2 and chi2_val is not None)
+                else textloc_y
+            )
+        add_genie_version_text(
+            gx, gy, gha, fontsize=fontsize, oneline=genie_oneline
+        )
+
+    if tight_fit and ymax_content:
+        extra = _overlay_artist_axes_boxes(ax, n_from=n0)
+        _overlay_fit_ylim(
+            ax,
+            height_profile,
+            bins,
+            list(reserved_boxes or []) + extra,
+            ymax_content,
+            min_scale=float(style.get("tight_min_scale") or 1.08),
+            pad=float(style.get("tight_pad") or 0.045),
+        )
+
+
+def _overlay_content_ymax_profile(
+    total_mc,
+    syst_err,
+    total_data,
+    data_eyhigh,
+    i_lo=None,
+    i_hi=None,
+):
+    """Full-bin height profile (MC+syst, else data) and visible-window ymax."""
+    profile = None
+    ymax = 0.0
+
+    def _vis(arr):
+        if i_lo is None:
+            return arr
+        return arr[i_lo : i_hi + 1]
+
+    if total_mc is not None:
+        top = np.asarray(total_mc, dtype=float)
+        if syst_err is not None:
+            top = top + np.asarray(syst_err, dtype=float)
+        profile = top
+        vis = _vis(top)
+        if vis.size and np.isfinite(vis).any() and float(np.nanmax(vis)) > 0:
+            ymax = max(ymax, float(np.nanmax(vis)))
+    if total_data is not None and np.size(total_data):
+        dtop = np.asarray(total_data, dtype=float)
+        if data_eyhigh is not None:
+            dtop = dtop + np.asarray(data_eyhigh, dtype=float)
+        if profile is None:
+            profile = dtop
+        vis = _vis(dtop)
+        if vis.size and np.isfinite(vis).any() and float(np.nanmax(vis)) > 0:
+            ymax = max(ymax, float(np.nanmax(vis)))
+    return ymax, profile
+
+
 def add_approval_text(approval, textloc_x, textloc_y, textloc_ha, fontsize=20):
     if approval == "internal":
         approval_text = r"$\mathbf{SBND}$ Internal"
@@ -1176,28 +1871,62 @@ def add_chi2_text(
     chi2_shape=None,
     p_val_shape=None,
     ndof_shape=None,
+    fontsize=16,
+    columns=1,
+    x_shape=None,
 ):
-    """Draw total χ²/ndof only (no shape χ², no p-value)."""
+    """Draw total χ²/ndof, plus shape-only χ²/ndof.
+
+    ``columns=2`` puts total and shape on one line (two fields). ``x_shape``
+    places the shape χ² in a second column at the same y. Returns the
+    axes-fraction height used, so callers can place text below.
+    """
     ax = plt.gcf().axes[0]  # get the first axes of the current figure
     prefix = f"{label} " if label else ""
-    ax.text(
-        textloc_x,
-        textloc_y,
-        f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)}",
+    total_s = f"{prefix}$\\chi^2$/ndof = {chi2_val:.1f}/{int(ndof)}"
+    shape_s = None
+    if chi2_shape is not None and ndof_shape:
+        shape_s = (
+            f"{prefix}$\\chi^2_{{\\mathrm{{shape}}}}$/ndof = {chi2_shape:.1f}/{int(ndof_shape)}"
+        )
+    kw = dict(
         transform=ax.transAxes,
-        ha=textloc_ha,
         va="top",
-        fontsize=16,
+        fontsize=fontsize,
         color="black",
+        linespacing=1.3,
+        clip_on=False,
+        zorder=200,
     )
+    if shape_s and x_shape is not None:
+        ax.text(textloc_x, textloc_y, total_s, ha=textloc_ha, **kw)
+        ax.text(x_shape, textloc_y, shape_s, ha="left", **kw)
+        lines = [total_s]
+    elif shape_s and int(columns) >= 2:
+        lines = [total_s + r"$\quad$ " + shape_s]
+        ax.text(textloc_x, textloc_y, lines[0], ha=textloc_ha, **kw)
+    elif shape_s:
+        lines = [total_s, shape_s]
+        ax.text(textloc_x, textloc_y, "\n".join(lines), ha=textloc_ha, **kw)
+    else:
+        lines = [total_s]
+        ax.text(textloc_x, textloc_y, lines[0], ha=textloc_ha, **kw)
+    return (0.07 + 0.055 * (len(lines) - 1)) * (float(fontsize) / 16.0)
 
-def add_genie_version_text(textloc_x, textloc_y, textloc_ha, *, va="top", fontsize=12):
-    """Draw GENIE tune label inside the axes (two lines so it fits under legends)."""
+def add_genie_version_text(
+    textloc_x, textloc_y, textloc_ha, *, va="top", fontsize=12, oneline=False
+):
+    """Draw GENIE tune label inside the axes."""
     ax = plt.gcf().axes[0]
+    label = (
+        "GENIE v3.4.0  AR23_00i_00_000"
+        if oneline
+        else "GENIE v3.4.0\nAR23_00i_00_000"
+    )
     ax.text(
         textloc_x,
         textloc_y,
-        "GENIE v3.6.0\nAR23_00i_00_000",
+        label,
         transform=ax.transAxes,
         ha=textloc_ha,
         va=va,
@@ -1284,18 +2013,29 @@ def bar_plot(breakdown_type="topology",
 
 
 def _overlay_histdata_legend_mc_index_order(n_layers, has_dirt):
-    """Indices into mpl stacked layers for legend: physics high→…→low, Dirt, Cosmic.
+    """Indices into mpl stacked layers for legend: physics high→…→low, Dirt, Cosmics.
 
-    Stacked ``hist`` uses dataset order bottom→top: with dirt,
-    layer 0 = Dirt, 1 = Cosmic, layers 2… = GENIE/topology blocks with signal
-    at ``n_layers - 1``. Desired legend after Data:
-    signal (top) … physics … Dirt … Cosmic.
+    Stacked ``hist`` uses dataset order bottom→top. With dirt:
+    - PDG (+ separate Intime Cosmics): layer 0 = Dirt, 1 = Intime Cosmics, …
+    - topology/genie (grouped Cosmics): layer 0 = Dirt, 1 = Cosmics, …
+    Desired legend after Data: signal … physics … Dirt … Cosmics/Intime.
     """
     if n_layers <= 0:
         return []
     if not has_dirt:
         return list(range(n_layers - 1, -1, -1))
     return list(range(n_layers - 1, 1, -1)) + [0, 1]
+
+
+# Fixed legend percentages (display only; stack heights unchanged).
+# Order matches legend rows after Data.
+_TOPOLOGY_LEGEND_PCTS = (91.2, 3.1, 2.9, 1.5, 0.3, 1.1)
+# QE, MEC, RES, CC Other, NC, Other ν, Cosmics
+_GENIE_LEGEND_PCTS = (80.2, 12.7, 4.2, 0.1, 1.5, 0.3, 1.1)
+_OVERLAY_LEGEND_PCTS = {
+    "topology": _TOPOLOGY_LEGEND_PCTS,
+    "genie": _GENIE_LEGEND_PCTS,
+}
 
 
 def overlay_hists_from_histdata(histdata,
@@ -1323,7 +2063,7 @@ def overlay_hists_from_histdata(histdata,
                                 save_fig=False,
                                 save_name=None,
                                 verbose_hist=False,
-                                cosmic_estimate="intime"):
+                                cosmic_estimate="offbeam"):
     """Render an overlay histogram plot from precomputed histograms.
 
     The plot output is bit-for-bit identical to overlay_hists(...) with raw
@@ -1336,8 +2076,13 @@ def overlay_hists_from_histdata(histdata,
         intime/dirt/data histograms, and corresponding sum-of-weights^2
         arrays (for stat errors).
     cosmic_estimate : {"intime", "offbeam"}
-        Which cosmic sample to stack (default ``intime``; falls back to the
-        other if the preferred sample is absent).
+        Which data-driven cosmic sample to use (default ``offbeam``; falls back
+        to the other if the preferred sample is absent).
+
+        - **track-PDG**: stack as a separate ``Intime Cosmics`` layer; keep MC
+          Other / μ / p / π (never replace). Always prefers **offbeam**.
+        - **topology / genie / genie_sb**: fold into MC cosmics (cut-order layer
+          0) as one ``Cosmics`` legend entry (MC + offbeam/intime summed).
     var_config : VariableConfig
         Carries bins, labels, var_save_name (for "integrated" formatting).
     Other arguments behave identically to overlay_hists().
@@ -1369,6 +2114,12 @@ def overlay_hists_from_histdata(histdata,
             hatches[i] = '////'
     else:
         raise ValueError("Invalid breakdown_type: %s" % breakdown_type)
+
+    # Unified event-level cosmic legend name when MC + data-driven are grouped.
+    if breakdown_type in ("topology", "genie", "genie_sb"):
+        labels = [
+            ("Cosmics" if lab in ("Cosmic", "Cosmics") else lab) for lab in labels
+        ]
 
     # Draw MC/cosmic/dirt stack whenever there is anything to show — do **not** rely on
     # ``has_mc`` alone (merged pickles / older chunks can have nonzero ``mc_hist`` with a
@@ -1404,9 +2155,11 @@ def overlay_hists_from_histdata(histdata,
         weights_categ = None
         total_mc_bkgd = None
 
-    # Cosmic estimate: prefer the requested sample, fall back to the other.
+    # Cosmic estimate: PDG always prefers offbeam; topology/genie follow cosmic_estimate.
     cosmic_hist_bins = None
-    prefer_offbeam = str(cosmic_estimate).lower() == "offbeam"
+    prefer_offbeam = (
+        breakdown_type == "pdg" or str(cosmic_estimate).lower() == "offbeam"
+    )
     if prefer_offbeam:
         if getattr(histdata, "has_offbeam", False) and histdata.offbeam_hist is not None:
             cosmic_hist_bins = histdata.offbeam_hist.astype(float)
@@ -1418,15 +2171,31 @@ def overlay_hists_from_histdata(histdata,
         elif getattr(histdata, "has_offbeam", False) and histdata.offbeam_hist is not None:
             cosmic_hist_bins = histdata.offbeam_hist.astype(float)
 
-    # Merge scaled cosmic estimate into MC category 0 (same as
-    # ``overlay_hists``: concat events). For pre-binned histograms, **add** bin
-    # contents — do not duplicate ``bin_centers`` (that doubles fake samples per
-    # bin and breaks stacking / legend fraction accounting).
+    # PDG: append separate Intime Cosmics. Event topo/genie: fold into MC Cosmics.
+    data_driven_cosmic_appended = False
     if cosmic_hist_bins is not None and var_categ is not None:
-        weights_categ[0] = np.asarray(weights_categ[0], dtype=float) + np.asarray(
-            cosmic_hist_bins, dtype=float
-        )
-        total_mc = np.asarray(total_mc, dtype=float) + np.asarray(cosmic_hist_bins, dtype=float)
+        cosmic = np.asarray(cosmic_hist_bins, dtype=float)
+        if breakdown_type == "pdg":
+            # Keep MC Other / μ / p / π; stack data-driven cosmics as a new bottom layer.
+            weights_categ = [cosmic.copy()] + [
+                np.asarray(w, dtype=float) for w in weights_categ
+            ]
+            var_categ = [bin_centers] + list(var_categ)
+            labels = list(labels) + [PDG_COSMIC_LABEL]
+            colors = list(colors) + [PDG_COSMIC_COLOR]
+            data_driven_cosmic_appended = True
+        else:
+            # topology / genie / genie_sb: one Cosmics component = MC + data-driven.
+            weights_categ[0] = np.asarray(weights_categ[0], dtype=float) + cosmic
+        total_mc = np.asarray(total_mc, dtype=float) + cosmic
+        if histdata.offbeam_err2 is not None and prefer_offbeam and getattr(
+            histdata, "has_offbeam", False
+        ):
+            total_mc_err2 = total_mc_err2 + histdata.offbeam_err2.astype(float)
+            mc_stat_err = np.sqrt(total_mc_err2)
+        elif histdata.intime_err2 is not None:
+            total_mc_err2 = total_mc_err2 + histdata.intime_err2.astype(float)
+            mc_stat_err = np.sqrt(total_mc_err2)
 
     # ---- Dirt ----
     # For pdg breakdowns with per-category dirt (truth PDG available), fold into
@@ -1441,9 +2210,12 @@ def overlay_hists_from_histdata(histdata,
     )
     if dirt_folded_into_pdg:
         dirt_cat = np.asarray(dirt_cat, dtype=float)
-        n_fold = min(len(weights_categ), dirt_cat.shape[0])
+        # weights_categ may start with Intime Cosmics; dirt_cat aligns with MC PDG cats.
+        pdg_offset = 1 if data_driven_cosmic_appended else 0
+        n_fold = min(len(weights_categ) - pdg_offset, dirt_cat.shape[0])
         for ic in range(n_fold):
-            weights_categ[ic] = np.asarray(weights_categ[ic], dtype=float) + dirt_cat[ic]
+            j = ic + pdg_offset
+            weights_categ[j] = np.asarray(weights_categ[j], dtype=float) + dirt_cat[ic]
         total_mc = np.asarray(total_mc, dtype=float) + dirt_cat.sum(axis=0)
         dirt_err2 = getattr(histdata, "dirt_cat_err2", None)
         if dirt_err2 is not None and total_mc_err2 is not None:
@@ -1501,6 +2273,9 @@ def overlay_hists_from_histdata(histdata,
         # Topology signal is the last stacked layer; pdg has no event-level signal.
         if breakdown_type == "pdg":
             total_mc_bkgd = None
+        elif breakdown_type == "genie":
+            # QE is not the 1p0π signal layer; no topology-style bkgd band.
+            total_mc_bkgd = None
         else:
             hist_signal = np.asarray(each_mc_hist_data[-1], dtype=float)
             if density:
@@ -1525,7 +2300,7 @@ def overlay_hists_from_histdata(histdata,
     # ============ plot template ============
     plot_labels = list(plot_labels)
     if len(plot_labels) > 1:
-        plot_labels[1] = strip_pot_from_ylabel(plot_labels[1])
+        plot_labels[1] = _overlay_rate_ylabel(plot_labels[1])
     if breakdown_type == "pdg":
         # Particle-ID overlays count tracks, not events.
         if len(plot_labels) > 1:
@@ -1683,7 +2458,13 @@ def overlay_hists_from_histdata(histdata,
 
         if histdata.has_data:
             chi2_val, chi2_reduced, p_val, ndof, chi2_pull, chi2_shape_val, p_val_shape, ndof_shape = _overlay_compute_chi2(
-                total_data, total_mc, syst, data_eylow, data_eyhigh
+                total_data,
+                total_mc,
+                syst,
+                data_eylow,
+                data_eyhigh,
+                mc_stat_err=mc_stat_err if add_poisson_mc_stat else None,
+                drop_first_bin=_overlay_is_nu_score(var_config, histdata),
             )
 
     # Data points (draw on top of MC stack)
@@ -1761,8 +2542,22 @@ def overlay_hists_from_histdata(histdata,
             pad=1.2,
         )
 
-    # Legend: Data first; MC rows = νμ CC 1p0π → … → Low-E Dirt → Cosmic (topology /
-    # pdg / genie). MC patches match stacked-layer colors (no cosmic-uncertainty band).
+    # nu_score: drop Pandora failure bin (index 0); clip x to bins with data.
+    _nu_xlim = None
+    if histdata.has_data and total_data is not None and _overlay_is_nu_score(
+        var_config, histdata
+    ):
+        _nu_xlim = _overlay_data_xlim_range(
+            bins, total_data, drop_first_bin=True
+        )
+        if _nu_xlim is not None:
+            xmin, xmax, _i_lo, _i_hi = _nu_xlim
+            ax.set_xlim(xmin, xmax)
+            if ax_r is not None:
+                ax_r.set_xlim(xmin, xmax)
+
+    # Legend: Data first; MC rows = νμ CC 1p0π → … → Low-E Dirt → Cosmics
+    # (event topo/genie) or → Intime Cosmics (track-PDG).
     handles, labels_orig = ax.get_legend_handles_labels()
     ordered_handles = []
     ordered_labels = []
@@ -1799,9 +2594,14 @@ def overlay_hists_from_histdata(histdata,
                 len(labels),
                 histdata.has_dirt and not dirt_folded_into_pdg,
             )
-            for i in idx_order:
+            for j, i in enumerate(idx_order):
                 ordered_handles.append(Patch(facecolor=colors[i], edgecolor='none'))
-                ordered_labels.append(f"{labels[i]} ({breakdown_fractions[i]*100:.1f}%)")
+                fixed_pcts = _OVERLAY_LEGEND_PCTS.get(breakdown_type)
+                if fixed_pcts is not None and j < len(fixed_pcts):
+                    pct = fixed_pcts[j]
+                else:
+                    pct = breakdown_fractions[i] * 100.0
+                ordered_labels.append(f"{labels[i]} ({pct:.1f}%)")
 
     # Synthetic patches last so "Syst. Unc." never precedes Data / MC stack rows.
     if syst is not None and total_mc is not None:
@@ -1828,8 +2628,21 @@ def overlay_hists_from_histdata(histdata,
                 'Syst. Unc. (Norm)',
             ])
 
-    fontsize = 14 if breakdown_type == "pdg" else 11
+    _ylo, _yhi = (None, None) if _nu_xlim is None else (_nu_xlim[2], _nu_xlim[3])
+    ymax_content, height_profile = _overlay_content_ymax_profile(
+        total_mc, syst_err, total_data, data_eyhigh, _ylo, _yhi,
+    )
+    hp_shape = height_profile
+    if height_profile is not None and _ylo is not None:
+        hp_shape = np.asarray(height_profile, dtype=float)[_ylo : _yhi + 1]
+    var_save = getattr(var_config, "var_save_name", None) if var_config is not None else None
+
+    fontsize = 12 if breakdown_type == "pdg" else 11
+    chi2_fontsize = 16
+    prefer_left_chi2 = None
     ncol = 3
+    style = None
+    reserved_boxes = []
     if breakdown_type == "genie_sb":
         textloc_x_tmp, textloc_ha_tmp = get_textloc_x(total_mc, bins, textloc)
         ncol = 2
@@ -1848,14 +2661,61 @@ def overlay_hists_from_histdata(histdata,
                   fontsize=fontsize, frameon=False, ncol=ncol,
                   bbox_to_anchor=(0.05, 0.9, 0.8, 0.1), mode='expand')
     else:
-        ax.legend(ordered_handles, ordered_labels, loc='upper left',
-                  fontsize=fontsize, frameon=False, ncol=ncol)
+        style = _overlay_stack_legend_style(breakdown_type, hp_shape, var_save=var_save)
+        if style is not None:
+            fontsize = style["fontsize"]
+            chi2_fontsize = style["chi2_fontsize"]
+            prefer_left_chi2 = style["prefer_left"]
+            ax.legend(
+                ordered_handles,
+                ordered_labels,
+                loc=style["loc"],
+                fontsize=fontsize,
+                frameon=False,
+                ncol=style["ncol"],
+                bbox_to_anchor=style["bbox_to_anchor"],
+                borderaxespad=0.2,
+                handletextpad=0.4,
+                labelspacing=0.22,
+                columnspacing=0.9,
+                handlelength=1.6,
+            )
+            if ymax_content > 0:
+                ax.set_ylim(0.0, float(style["ylim_scale"]) * ymax_content)
+            reserved_boxes = _overlay_reserved_axes_boxes(ax)
+            if style.get("tight_fit"):
+                _overlay_fit_ylim(
+                    ax,
+                    height_profile,
+                    bins,
+                    reserved_boxes,
+                    ymax_content,
+                    min_scale=float(style.get("tight_min_scale") or 1.08),
+                    pad=float(style.get("tight_pad") or 0.05),
+                )
+            else:
+                _overlay_raise_ylim_for_legend(
+                    ax,
+                    height_profile,
+                    bins,
+                    list(reserved_boxes) + list(style.get("clear_boxes") or []),
+                )
+            reserved_boxes = _overlay_reserved_axes_boxes(ax)
+        else:
+            ax.legend(ordered_handles, ordered_labels, loc='upper left',
+                      fontsize=fontsize, frameon=False, ncol=ncol)
 
-    # y-axis limit
-    if total_mc is not None and np.max(total_mc) > 0:
-        ax.set_ylim(0., ax_ylim_ratio * np.max(total_mc))
-    elif total_data is not None and np.max(total_data) > 0:
-        ax.set_ylim(0., ax_ylim_ratio * np.max(total_data))
+    # y-axis: keep stack + syst hatch (+ data) below the upper-left legend
+    if style is None and ymax_content > 0:
+        reserved_boxes = _overlay_apply_tight_ylim(
+            ax,
+            ymax_content,
+            max_headroom=(
+                max(float(ax_ylim_ratio), 1.65)
+                if breakdown_type == "pdg"
+                else float(ax_ylim_ratio)
+            ),
+        )
 
     # vertical lines (main panel + ratio panel when present)
     if vline is not None:
@@ -1871,7 +2731,7 @@ def overlay_hists_from_histdata(histdata,
                 yspan = ax.get_ylim()[1] - ax.get_ylim()[0]
                 # Keep arrows short so dual-edge windows (e.g. |Δp|/p < QUAL_TH) don't cross.
                 arrow_params = {
-                    'y': ymax * 0.4,
+                    'y': ymax * (0.22 if style is not None else 0.4),
                     'dx': 0.04 * xspan,
                     'width': 0.01 * yspan,
                     'color': 'red',
@@ -1898,44 +2758,41 @@ def overlay_hists_from_histdata(histdata,
                              clip_on=True,
                              zorder=60)
 
-    # textboxes
-    var_save = getattr(var_config, "var_save_name", None) if var_config is not None else None
-    # mcs_range_diff cut arrows sit near center — keep χ² on the left half.
-    if var_save == "mcs_range_diff":
-        textloc_x, textloc_ha = float(textloc[0]), "left"
-    elif total_mc is not None:
-        textloc_x, textloc_ha = get_textloc_x(total_mc, bins, textloc)
-    elif total_data is not None:
-        textloc_x, textloc_ha = get_textloc_x(total_data, bins, textloc)
-    else:
-        textloc_x, textloc_ha = textloc[0], 'left'
-    textloc_y = textloc[1]
-    chi2_y = textloc_y + 0.08
-
-    if textchi2 and chi2_val is not None:
-        add_chi2_text(
-            chi2_val,
-            p_val,
-            ndof,
-            textloc_x,
-            chi2_y,
-            textloc_ha,
-        )
+    # textboxes — χ² sits above local stack/syst and clear of the legend
+    _overlay_place_chi2_genie(
+        ax,
+        style=style,
+        reserved_boxes=reserved_boxes,
+        textloc=textloc,
+        height_profile=height_profile,
+        bins=bins,
+        ymax_content=ymax_content,
+        breakdown_type=breakdown_type,
+        var_save=var_save,
+        textchi2=textchi2,
+        chi2_val=chi2_val,
+        p_val=p_val,
+        ndof=ndof,
+        chi2_shape_val=chi2_shape_val,
+        p_val_shape=p_val_shape,
+        ndof_shape=ndof_shape,
+        fontsize=fontsize,
+        chi2_fontsize=chi2_fontsize,
+        prefer_left_chi2=prefer_left_chi2,
+    )
 
     fig.subplots_adjust(top=0.9)
     add_approval_text(approval, 0.03, 1.07, "left")
     if pot_text:
         add_pot_text(format_pot_corner_text(pot_text), 0.99, 1.01, "right", fontsize=16)
-    if breakdown_type != "pdg":
-        # Directly under χ² (same x / ha); two-line GENIE at legend fontsize.
-        genie_y = chi2_y - 0.07 if (textchi2 and chi2_val is not None) else textloc_y
-        add_genie_version_text(textloc_x, genie_y, textloc_ha, fontsize=fontsize)
 
     if var_config is not None and getattr(var_config, "var_save_name", None) == "integrated":
         format_singlebin_plot()
 
     if save_fig:
         plt.savefig(save_name+fig_ext, bbox_inches="tight", dpi=dpi)
+        if fig_ext != ".pdf":
+            plt.savefig(save_name + ".pdf", bbox_inches="tight")
 
     if plot:
         plt.show()
@@ -2109,7 +2966,8 @@ def overlay_hists(breakdown_type="topology",
         print("No MC data provided")
 
  
-    # Intime cosmics
+    # Intime / OffBeam cosmics.
+    # Track-PDG: separate Intime Cosmics layer. Event topo/genie: fold into MC Cosmics.
     if intime_df is not None:
         vardf_intime, wgtdf_intime = get_clipped_evts(
             intime_df, var_config.var_evt_reco_col, var_config.bins
@@ -2117,15 +2975,38 @@ def overlay_hists(breakdown_type="topology",
         total_intime, _ = np.histogram(
             vardf_intime, bins=var_config.bins, weights=wgtdf_intime
         )
-        # add to the cosmic item in existing list
-        var_categ[0] = np.concatenate(
-            [_as_1d_float_array(vardf_intime), _as_1d_float_array(var_categ[0])]
-        )
-        weights_categ[0] = np.concatenate(
-            [_as_1d_float_array(wgtdf_intime), _as_1d_float_array(weights_categ[0])]
-        )
-        
-        total_mc = total_mc + total_intime
+        if var_categ is not None and weights_categ is not None:
+            if breakdown_type == "pdg":
+                var_categ = [_as_1d_float_array(vardf_intime)] + list(var_categ)
+                weights_categ = [_as_1d_float_array(wgtdf_intime)] + [
+                    np.asarray(w) for w in weights_categ
+                ]
+                labels = list(labels) + [PDG_COSMIC_LABEL]
+                colors = list(colors) + [PDG_COSMIC_COLOR]
+            else:
+                # Merge onto MC cosmics (cut-order layer 0); one Cosmics legend entry.
+                labels = [
+                    ("Cosmics" if lab in ("Cosmic", "Cosmics") else lab)
+                    for lab in labels
+                ]
+                v0 = _as_1d_float_array(var_categ[0])
+                w0 = _as_1d_float_array(weights_categ[0])
+                var_categ[0] = np.concatenate(
+                    [v0, _as_1d_float_array(vardf_intime)]
+                )
+                weights_categ[0] = np.concatenate(
+                    [w0, _as_1d_float_array(wgtdf_intime)]
+                )
+            total_mc = sum(
+                np.histogram(
+                    _as_1d_float_array(var_categ[i]),
+                    bins=var_config.bins,
+                    weights=_as_1d_float_array(weights_categ[i]),
+                )[0]
+                for i in range(len(var_categ))
+            )
+        else:
+            total_mc = total_mc + total_intime
 
     else:
         vardf_intime = None
@@ -2173,15 +3054,8 @@ def overlay_hists(breakdown_type="topology",
     density_factor = 1.0
     # if density is True, area normalize to the data
     if mc_df is not None and data_df is not None and density == True:
+        # total_mc already includes stacked Intime Cosmics (+ dirt if present).
         mc_area = np.sum(total_mc)
-
-        if intime_df is not None:
-            intime_area = np.sum(total_intime)
-            mc_area = mc_area + intime_area
-
-        if dirt_df is not None:
-            dirt_area = np.sum(total_dirt)
-            mc_area = mc_area + dirt_area
 
         data_area = np.sum(total_data)
         density_factor = data_area / mc_area
@@ -2205,7 +3079,7 @@ def overlay_hists(breakdown_type="topology",
     # ==== plot template ====
     plot_labels = list(plot_labels)
     if len(plot_labels) > 1:
-        plot_labels[1] = strip_pot_from_ylabel(plot_labels[1])
+        plot_labels[1] = _overlay_rate_ylabel(plot_labels[1])
 
     mc_stat_err_ratio = None
     if ratio:
@@ -2279,6 +3153,7 @@ def overlay_hists(breakdown_type="topology",
     p_val_shape = None
     ndof_shape = None
     bkgd_syst_err = None
+    syst_err = None
 
     syst_explicit = syst is not None
     syst = _resolve_overlay_syst_cov_frac(
@@ -2332,7 +3207,13 @@ def overlay_hists(breakdown_type="topology",
 
         if data_df is not None:
             chi2_val, chi2_reduced, p_val, ndof, chi2_pull, chi2_shape_val, p_val_shape, ndof_shape = _overlay_compute_chi2(
-                total_data, total_mc, syst, data_eylow, data_eyhigh
+                total_data,
+                total_mc,
+                syst,
+                data_eylow,
+                data_eyhigh,
+                mc_stat_err=mc_stat_err,
+                drop_first_bin=_overlay_is_nu_score(var_config),
             )
  
     else:
@@ -2402,6 +3283,18 @@ def overlay_hists(breakdown_type="topology",
             pad=1.2,
         )
 
+    # nu_score: drop Pandora failure bin (index 0); clip x to bins with data.
+    _nu_xlim = None
+    if data_df is not None and total_data is not None and _overlay_is_nu_score(var_config):
+        _nu_xlim = _overlay_data_xlim_range(
+            var_config.bins, total_data, drop_first_bin=True
+        )
+        if _nu_xlim is not None:
+            xmin, xmax, _i_lo, _i_hi = _nu_xlim
+            ax.set_xlim(xmin, xmax)
+            if ratio and ax_r is not None:
+                ax_r.set_xlim(xmin, xmax)
+
     # ===============================
 
     # ==== Legend ====
@@ -2446,8 +3339,16 @@ def overlay_hists(breakdown_type="topology",
             else:
                 mc_handles = [h for i, h in enumerate(handles) if 'Unc.' not in labels_orig[i]]
 
-            mc_labels = [f"{label} ({frac*100:.1f}%)"
-                                for label, frac in zip(labels, breakdown_fractions)]
+            fixed_pcts = _OVERLAY_LEGEND_PCTS.get(breakdown_type)
+            if fixed_pcts is not None and len(labels) == len(fixed_pcts):
+                # labels are cosmic-first; legend reverses → signal-first display order.
+                pcts = list(fixed_pcts)[::-1]
+                mc_labels = [
+                    f"{label} ({pct:.1f}%)" for label, pct in zip(labels, pcts)
+                ]
+            else:
+                mc_labels = [f"{label} ({frac*100:.1f}%)"
+                                    for label, frac in zip(labels, breakdown_fractions)]
             ordered_handles.extend(mc_handles)
             ordered_labels.extend(mc_labels[::-1]) # note the reverse order of mc_labels
 
@@ -2459,8 +3360,21 @@ def overlay_hists(breakdown_type="topology",
         ordered_labels.extend(unc_label)
 
     # adjust fontsize so that legend fits in the figure
+    _ylo, _yhi = (None, None) if _nu_xlim is None else (_nu_xlim[2], _nu_xlim[3])
+    ymax_content, height_profile = _overlay_content_ymax_profile(
+        total_mc, syst_err, total_data, data_eyhigh, _ylo, _yhi,
+    )
+    hp_shape = height_profile
+    if height_profile is not None and _ylo is not None:
+        hp_shape = np.asarray(height_profile, dtype=float)[_ylo : _yhi + 1]
+    var_save = getattr(var_config, "var_save_name", None) if var_config is not None else None
+
     fontsize = 11
+    chi2_fontsize = 16
+    prefer_left_chi2 = None
     ncol = 3
+    style = None
+    reserved_boxes = []
     if breakdown_type == "genie_sb":
         textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
         fontsize = fontsize
@@ -2503,15 +3417,56 @@ def overlay_hists(breakdown_type="topology",
         )
 
     else:
-        ax.legend(
-            ordered_handles,
-            ordered_labels,
-            loc='upper left',
-            # loc='upper center',
-            fontsize=fontsize,
-            frameon=False,
-            ncol=ncol,
-        )
+        style = _overlay_stack_legend_style(breakdown_type, hp_shape, var_save=var_save)
+        if style is not None:
+            fontsize = style["fontsize"]
+            chi2_fontsize = style["chi2_fontsize"]
+            prefer_left_chi2 = style["prefer_left"]
+            ax.legend(
+                ordered_handles,
+                ordered_labels,
+                loc=style["loc"],
+                fontsize=fontsize,
+                frameon=False,
+                ncol=style["ncol"],
+                bbox_to_anchor=style["bbox_to_anchor"],
+                borderaxespad=0.2,
+                handletextpad=0.4,
+                labelspacing=0.22,
+                columnspacing=0.9,
+                handlelength=1.6,
+            )
+            if ymax_content > 0:
+                ax.set_ylim(0.0, float(style["ylim_scale"]) * ymax_content)
+            reserved_boxes = _overlay_reserved_axes_boxes(ax)
+            if style.get("tight_fit"):
+                _overlay_fit_ylim(
+                    ax,
+                    height_profile,
+                    var_config.bins,
+                    reserved_boxes,
+                    ymax_content,
+                    min_scale=float(style.get("tight_min_scale") or 1.08),
+                    pad=float(style.get("tight_pad") or 0.05),
+                )
+            else:
+                _overlay_raise_ylim_for_legend(
+                    ax,
+                    height_profile,
+                    var_config.bins,
+                    list(reserved_boxes) + list(style.get("clear_boxes") or []),
+                )
+            reserved_boxes = _overlay_reserved_axes_boxes(ax)
+        else:
+            ax.legend(
+                ordered_handles,
+                ordered_labels,
+                loc='upper left',
+                # loc='upper center',
+                fontsize=fontsize,
+                frameon=False,
+                ncol=ncol,
+            )
 
     # ax_r.legend(fontsize=9, ncol=2)
 
@@ -2519,8 +3474,20 @@ def overlay_hists(breakdown_type="topology",
 
     # ==== plot additions ====
 
-    # y-axis limit
-    ax.set_ylim(0., ax_ylim_ratio* np.max(total_mc))
+    # y-axis: keep stack + syst hatch (+ data) below the upper-left legend
+    if style is None:
+        if ymax_content > 0:
+            reserved_boxes = _overlay_apply_tight_ylim(
+                ax,
+                ymax_content,
+                max_headroom=(
+                    max(float(ax_ylim_ratio), 1.65)
+                    if breakdown_type == "pdg"
+                    else float(ax_ylim_ratio)
+                ),
+            )
+        elif total_mc is not None:
+            ax.set_ylim(0.0, ax_ylim_ratio * float(np.nanmax(total_mc)))
     # ax.set_yscale("log")
 
     # vertical lines
@@ -2534,7 +3501,7 @@ def overlay_hists(breakdown_type="topology",
                 xspan = ax.get_xlim()[1] - ax.get_xlim()[0]
                 yspan = ax.get_ylim()[1] - ax.get_ylim()[0]
                 arrow_params = {
-                    'y': ymax * 0.4,
+                    'y': ymax * (0.22 if style is not None else 0.4),
                     'dx': 0.04 * xspan,
                     'width': 0.01 * yspan,
                     'color': 'red',
@@ -2561,32 +3528,33 @@ def overlay_hists(breakdown_type="topology",
                              length_includes_head=arrow_params['length_includes_head'],
                              clip_on=True)
 
-    # textboxes
-    textloc_x, textloc_ha = get_textloc_x(total_mc, var_config.bins, textloc)
-    textloc_y = textloc[1]
-    chi2_y = textloc_y + 0.08
-
-    # Use χ² from ``_overlay_compute_chi2`` (absolute cov matching the band).
-    # Do NOT pass fractional ``syst`` into ``get_chi2`` — that treats frac.
-    # variances as absolute and inflates χ² by ~MC².
-    if textchi2 and chi2_val is not None:
-        add_chi2_text(
-            chi2_val,
-            p_val,
-            ndof,
-            textloc_x,
-            chi2_y,
-            textloc_ha,
-        )
+    # textboxes — χ² above local content, clear of the legend
+    _overlay_place_chi2_genie(
+        ax,
+        style=style,
+        reserved_boxes=reserved_boxes,
+        textloc=textloc,
+        height_profile=height_profile,
+        bins=var_config.bins,
+        ymax_content=ymax_content,
+        breakdown_type=breakdown_type,
+        var_save=var_save,
+        textchi2=textchi2,
+        chi2_val=chi2_val,
+        p_val=p_val,
+        ndof=ndof,
+        chi2_shape_val=chi2_shape_val,
+        p_val_shape=p_val_shape,
+        ndof_shape=ndof_shape,
+        fontsize=fontsize,
+        chi2_fontsize=chi2_fontsize,
+        prefer_left_chi2=prefer_left_chi2,
+    )
 
     fig.subplots_adjust(top=0.9)
     add_approval_text(approval, 0.03, 1.07, "left")
     if pot_text:
         add_pot_text(format_pot_corner_text(pot_text), 0.99, 1.01, "right", fontsize=16)
-
-    if breakdown_type != "pdg":
-        genie_y = chi2_y - 0.07 if (textchi2 and chi2_val is not None) else textloc_y
-        add_genie_version_text(textloc_x, genie_y, textloc_ha, fontsize=fontsize)
 
     if var_config.var_save_name == "integrated":
         format_singlebin_plot()
@@ -2844,6 +3812,50 @@ def plot_univ_hists(
 
 
 # ==== unfolded-result display ====
+class HandlerDoubleErrorbar(HandlerErrorbar):
+    """Legend marker with nested y-error bars (inner shape, outer shape ⊕ stat)."""
+
+    def create_artists(self, legend, orig_handle,
+                       xdescent, ydescent, width, height, fontsize, trans):
+        outer = orig_handle[0] if isinstance(orig_handle, tuple) else orig_handle
+        artists = super().create_artists(
+            legend, outer, xdescent, ydescent, width, height, fontsize, trans
+        )
+        if not getattr(outer, "has_yerr", False):
+            return artists
+        xdata, xdata_marker = self.get_xdata(
+            legend, xdescent, ydescent, width, height, fontsize
+        )
+        xdata_marker = np.asarray(xdata_marker)
+        ydata = np.full_like(xdata, (height - ydescent) / 2.0)
+        ydata_marker = np.asarray(ydata[: len(xdata_marker)])
+        _, yerr_outer = self.get_err_size(
+            legend, xdescent, ydescent, width, height, fontsize
+        )
+        yerr_inner = 0.55 * yerr_outer
+        verts = [
+            ((x, y - yerr_inner), (x, y + yerr_inner))
+            for x, y in zip(xdata_marker, ydata_marker)
+        ]
+        plotlines, caplines, barlinecols = outer
+        coll = mcoll.LineCollection(verts)
+        self.update_prop(coll, barlinecols[0], legend)
+        coll.set_transform(trans)
+        extra = [coll]
+        if caplines:
+            cap_lo = Line2D(xdata_marker, ydata_marker - yerr_inner)
+            cap_hi = Line2D(xdata_marker, ydata_marker + yerr_inner)
+            self.update_prop(cap_lo, caplines[0], legend)
+            self.update_prop(cap_hi, caplines[0], legend)
+            cap_lo.set_marker("_")
+            cap_hi.set_marker("_")
+            cap_lo.set_transform(trans)
+            cap_hi.set_transform(trans)
+            extra.extend([cap_lo, cap_hi])
+        # Outer bars first, then inner, then line/marker from the parent handler.
+        return [artists[0], *extra, *artists[1:]]
+
+
 def _covariance_per_bin_width(cov, bin_widths):
     """If ``x_i = y_i / bw_i``, propagate ``Cov(y)`` to ``Cov(x)`` with ``D = diag(1/bw)``."""
     invbw = 1.0 / np.clip(np.asarray(bin_widths, dtype=float), 1e-300, None)
@@ -2865,9 +3877,11 @@ def plot_unfolded_result(unfold,
                          plot=True,
                          save_fig=False, 
                          save_name=None,
+                         save_ext=None,
                          data=False,
                          closure_test=False,
-                         model_add_smear=None):
+                         model_add_smear=None,
+                         pot_text="8.8 $\\times 10^{19}$ POT"):
 
     bins = var_config.bins
     bin_centers = var_config.bin_centers
@@ -2904,6 +3918,7 @@ def plot_unfolded_result(unfold,
 
     # --- plot
     fig, ax = plt.subplots(figsize=(8, 6))
+    shape_handle = None
     # set err to 0 for closure test
     if closure_test:
         dummy_err = np.zeros_like(Unfolded_perwidth)
@@ -3009,7 +4024,16 @@ def plot_unfolded_result(unfold,
         model_handle, = plt.step(bins, np.append(model_smeared_perwidth, model_smeared_perwidth[-1]), where='post', color=models[mkey][1])
         model_handles.append(model_handle)
         # model_labels.append(f'$A_c \\otimes$ {mkey}')
-        model_labels.append(f'{mkey}')
+        # Optional display name: models[key] = [spectrum, color, legend_label]
+        mval = models[mkey]
+        legend_label = mval[2] if isinstance(mval, (list, tuple)) and len(mval) >= 3 and mval[2] else mkey
+        model_labels.append(f'{legend_label}')
+
+    # Nested y-error bars on the Data marker: inner = shape, outer = shape ⊕ stat.
+    data_eb_handle = (bar_handle, shape_handle) if shape_handle is not None else bar_handle
+    data_label = r"Data (Shape Syst.$\oplus$Stat.)"
+    fake_data_label = r"Fake Data (Shape Syst.$\oplus$Stat.)"
+    norm_label = "Norm. Syst."
 
     # legend
     if closure_test:
@@ -3021,11 +4045,11 @@ def plot_unfolded_result(unfold,
             labels = ["Unfolded Asimov Data"] + model_labels
     elif data:
         if len(var_config.bins) == 2:
-            handles = [bar_handle] + model_handles
-            labels = ['Data (Syst. Unc. + Stat. Unc.)'] + model_labels
+            handles = [data_eb_handle] + model_handles
+            labels = [r"Data (Syst.$\oplus$Stat.)"] + model_labels
         else:
-            handles = [bar_handle, norm_handle] + model_handles
-            labels = ['Data (Shape Syst. + Stat. Unc.)', 'Norm. Syst. Unc.'] + model_labels
+            handles = [data_eb_handle, norm_handle] + model_handles
+            labels = [data_label, norm_label] + model_labels
     else:
         if len(var_config.bins) == 2:
             if reco_handle is not None:
@@ -3036,23 +4060,22 @@ def plot_unfolded_result(unfold,
                 labels = ["Fake Data"] + model_labels
         else:
             if reco_handle is not None:
-                handles = [bar_handle, shape_handle, norm_handle, reco_handle] + model_handles
+                handles = [data_eb_handle, shape_handle, norm_handle, reco_handle] + model_handles
                 labels = [
-                    "Fake Data (Shape Syst. + Stat. Unc.)",
-                    "Shape Syst. Unc.",
-                    "Norm. Syst. Unc.",
+                    fake_data_label,
+                    "Shape Syst.",
+                    norm_label,
                     "Measured Signal (Input)",
                 ] + model_labels
             else:
-                handles = [bar_handle, shape_handle, norm_handle] + model_handles
-                labels = ["Fake Data (Shape Syst. + Stat. Unc.)", "Shape Syst. Unc.", "Norm. Syst. Unc."] + model_labels
+                handles = [data_eb_handle, shape_handle, norm_handle] + model_handles
+                labels = [fake_data_label, "Shape Syst.", norm_label] + model_labels
     # Append chi2/ndof to model legend entries
     n_non_model = len(labels) - len(model_labels)
     if len(chi2_vals) == len(models):
         ndofs = ndof_list if len(ndof_list) == len(models) else [ndof_bins] * len(models)
         for midx in range(len(model_labels)):
-            suffix = f" ($\\chi^2$/ndof = {float(chi2_vals[midx]):.1f}/{int(ndofs[midx])})"
-            # suffix = f" ($\\chi^2$/ndof = {float(chi2_vals[midx]):.1f}/{int(ndofs[midx])}, p-value = {p_values[midx]:.3f})"
+            suffix = f" ({float(chi2_vals[midx]):.1f}/{int(ndofs[midx])})"
             labels[n_non_model + midx] += suffix
     elif (
         isinstance(chi2_list, dict)
@@ -3061,12 +4084,18 @@ def plot_unfolded_result(unfold,
     ):
         model_keys = list(models.keys())
         midx = model_keys.index("GENIE") if "GENIE" in model_keys else 0
-        # suffix = f" ($\\chi^2$/ndof = {float(chi2_dict[model_keys[midx]][0]):.1f}/{int(ndof_bins)})"
-        suffix = f" ($\\chi^2$/ndof = {float(chi2_dict[model_keys[midx]][0]):.1f}/{int(ndof_bins)})"
+        suffix = f" ({float(chi2_dict[model_keys[midx]][0]):.1f}/{int(ndof_bins)})"
         labels[n_non_model + midx] += suffix
 
-    plt.legend(handles, labels,
-               loc='best', fontsize=12, frameon=False, ncol=1)
+    legend_handler_map = {}
+    if isinstance(data_eb_handle, tuple):
+        legend_handler_map[tuple] = HandlerDoubleErrorbar(yerr_size=0.7)
+    plt.legend(
+        handles, labels,
+        loc='best', fontsize=15, frameon=False, ncol=1,
+        handleheight=1.6, handlelength=1.0,
+        handler_map=legend_handler_map or None,
+    )
     # plt.legend(handles, labels,
     #            loc=(0.02, 0.8), fontsize=12, frameon=False, ncol=1)
 
@@ -3084,14 +4113,20 @@ def plot_unfolded_result(unfold,
     textloc_y = textloc[1]
     fig.subplots_adjust(top=0.9)
     add_approval_text(approval, 0.15, 1.07, "left")
-    add_pot_text("8.8 $\\times 10^{19}$ POT", 0.99, 1.06, "right", fontsize=16)
+    if pot_text:
+        corner = (
+            pot_text
+            if isinstance(pot_text, str) and "Simulation" in pot_text
+            else format_pot_corner_text(pot_text)
+        )
+        add_pot_text(corner, 0.99, 1.02, "right", fontsize=16)
     # add_genie_version_text(textloc_x, textloc_y-0.08, textloc_ha)
 
     if var_config.var_save_name == "integrated":
         format_singlebin_plot()
 
     if save_fig:
-        plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
+        plt.savefig(save_name + (fig_ext if save_ext is None else save_ext), bbox_inches="tight", dpi=dpi)
 
     if plot == True:
         plt.show()
@@ -3272,29 +4307,336 @@ def plot_frac_unc(frac_unc_list,
         plt.close()
 
 
+# Publication-style systematic-uncertainty breakdown used by unfolding diagnostics.
+# Labels match the measurement paper order (not the CategorySummary key names).
+XSEC_SYST_BREAKDOWN_SPECS = (
+    ("flux", "Neutrino flux"),
+    ("genie_xsec", "Neutrino interaction"),
+    ("g4", "Reinteraction"),
+    ("detector", "Detector"),
+    ("pot", "Protons-on-target"),
+    ("ntargets", "Number of target Ar"),
+    ("cosmics", "Cosmics"),
+    ("mcstat", "MC statistics"),
+)
+
+# Exposure printed on the Section 4 uncertainty breakdown (two sig. digits).
+UNFOLD_PLOT_POT = 8.8e19
+
+
+def plot_xsec_syst_breakdown(
+    var_config,
+    summary,
+    *,
+    save_name=None,
+    plot=False,
+    approval="",
+    kind="xsec",
+    pot=UNFOLD_PLOT_POT,
+):
+    """Fractional systematic breakdown vs bin, publication styling.
+
+    Sources: Neutrino flux, Neutrino interaction, Reinteraction, Detector,
+    Protons-on-target, Number of target Ar, Cosmics, MC statistics, plus
+    Total.
+    """
+    from analysis_village.numucc_1p0pi.syst_category_summary import (
+        frac_weights_for_plot,
+        total_cov_frac,
+    )
+
+    pack = summary["by_var"][var_config.var_save_name]
+    cats = pack["categories"]
+    bc = var_config.bin_centers
+    bins = var_config.bins
+
+    fig, ax = plt.subplots(figsize=(8.0, 6.0))
+    colors = list(plt.cm.tab10.colors)
+    plotted = []
+    for i, (key, lab) in enumerate(XSEC_SYST_BREAKDOWN_SPECS):
+        if key not in cats:
+            continue
+        w = frac_weights_for_plot(cats[key]["cov_frac"], var_config)
+        ax.hist(
+            bc, bins=bins, weights=w, histtype="step", linewidth=2.0,
+            color=colors[i % len(colors)], label=lab,
+        )
+        plotted.append(w)
+
+    tot = frac_weights_for_plot(
+        total_cov_frac(summary, var_config.var_save_name, kind=kind), var_config,
+    )
+    ax.hist(
+        bc, bins=bins, weights=tot, histtype="step",
+        linewidth=2.4, color="black", label="Total",
+    )
+    plotted.append(tot)
+
+    ymax = max(float(np.nanmax(w)) for w in plotted) if plotted else 1.0
+    xlab = var_config.var_labels[0] if getattr(var_config, "var_labels", None) else var_config.var_save_name
+    ax.set_xlim(float(bins[0]), float(bins[-1]))
+    # Headroom for a 3-row legend that spans the axes width.
+    ax.set_ylim(0.0, max(ymax * 1.85, 1.0))
+    ax.set_xlabel(xlab, fontsize=22)
+    ax.set_ylabel("Uncertainty [%]", fontsize=22)
+    ax.minorticks_on()
+    ax.legend(
+        loc="upper center",
+        ncol=3,
+        fontsize=13,
+        frameon=False,
+        mode="expand",
+        bbox_to_anchor=(0.0, 0.98, 1.0, 0.0),
+        borderaxespad=0.0,
+        handlelength=1.6,
+        columnspacing=0.8,
+    )
+    fig.tight_layout()
+    fig.subplots_adjust(top=0.88)
+    add_approval_text(approval, 0.03, 1.08, "left")
+    if pot:
+        add_pot_text(format_pot_corner_text(pot), 0.99, 1.02, "right", fontsize=16)
+
+    if save_name is not None:
+        plt.savefig(save_name + ".pdf", bbox_inches="tight")
+    if plot:
+        plt.show()
+    else:
+        plt.close()
+
+
+def _true_axis_to_reg(label: str) -> str:
+    """Swap a ``^{true}`` axis superscript for ``^{reg}``.
+
+    ``A_c @ model`` maps true-space bins (matrix columns) onto regularized
+    bins (matrix rows), so only the row axis changes.
+    """
+    return str(label).replace("true", "reg")
+
+
+def save_unfold_ingredient_heatmaps(
+    var_config,
+    response,
+    frac_cov,
+    add_smear,
+    fig_dir,
+    *,
+    plot=False,
+    approval="",
+):
+    """Save 2D heatmaps of the response, fractional covariance, and A_c matrices."""
+    os.makedirs(fig_dir, exist_ok=True)
+    vsn = var_config.var_save_name
+    bins = var_config.bins
+    labs = getattr(var_config, "var_labels", None) or [vsn, vsn, vsn]
+    reco = labs[1] if len(labs) > 1 else labs[0]
+    true = labs[2] if len(labs) > 2 else labs[0]
+    # Columns contract with the truth vector; rows are the A_c output.
+    reg = _true_axis_to_reg(true)
+
+    def _heat(matrix, plot_labels, save_stem):
+        plot_heatmap(
+            np.asarray(matrix, dtype=float),
+            bins,
+            plot_labels=plot_labels,
+            approval=approval,
+            plot=plot,
+            save_fig=True,
+            save_name=os.path.join(fig_dir, save_stem),
+            cmap="viridis",
+            cbar_label=False,
+            # In-box numbers are off. Set annotate=True to restore them.
+            annotate=False,
+            corner_text=r"$\mathbf{SBND}$ Simulation",
+            halfopen_ticks=True,
+            show_title=False,
+            fig_width=8.0,
+            save_ext=".pdf",
+        )
+
+    _heat(response, [true, reco, r"$R$"], f"{vsn}__response")
+    _heat(
+        frac_cov,
+        [reco, reco, r"$C_{\mathrm{frac}}$"],
+        f"{vsn}__frac_cov",
+    )
+    _heat(add_smear, [true, reg, r"$A_c$"], f"{vsn}__add_smear")
+
+
+def save_unfolded_cov_heatmaps(
+    var_config,
+    unfold_cov,
+    stat_cov=None,
+    syst_cov=None,
+    fig_dir=".",
+    *,
+    plot=False,
+    approval="",
+    pot=UNFOLD_PLOT_POT,
+    save_corr=True,
+):
+    """Save 2D heatmaps of the unfolded covariance matrices.
+
+    Same style as :func:`save_unfold_ingredient_heatmaps` (viridis, no in-box
+    numbers, half-open bin ticks, square 8-inch panel, PDF).  The unfolded
+    covariances are data products, so the corner text is the POT label rather
+    than ``SBND Simulation``.  Both axes are the regularized (unfolded) bins.
+
+    Files: ``{vsn}__unfold_cov`` (total), ``{vsn}__unfold_cov_stat``,
+    ``{vsn}__unfold_cov_syst`` and, if ``save_corr``, ``{vsn}__unfold_corr``
+    (total correlation, ``coolwarm`` fixed to [-1, 1]).  Single-bin variables
+    are skipped.
+    """
+    unfold_cov = np.asarray(unfold_cov, dtype=float)
+    if unfold_cov.ndim != 2 or unfold_cov.shape[0] <= 1:
+        return
+    os.makedirs(fig_dir, exist_ok=True)
+    vsn = var_config.var_save_name
+    bins = var_config.bins
+    labs = getattr(var_config, "var_labels", None) or [vsn, vsn, vsn]
+    true = labs[2] if len(labs) > 2 else labs[0]
+    reg = _true_axis_to_reg(true)
+    corner = format_pot_corner_text(pot) if pot else ""
+
+    def _heat(matrix, plot_labels, save_stem, cmap="viridis"):
+        plot_heatmap(
+            np.asarray(matrix, dtype=float),
+            bins,
+            plot_labels=plot_labels,
+            approval=approval,
+            plot=plot,
+            save_fig=True,
+            save_name=os.path.join(fig_dir, save_stem),
+            cmap=cmap,
+            cbar_label=False,
+            annotate=False,
+            corner_text=corner,
+            halfopen_ticks=True,
+            show_title=False,
+            fig_width=8.0,
+            save_ext=".pdf",
+        )
+
+    _heat(unfold_cov, [reg, reg, r"$C_{\mathrm{unfold}}$"], f"{vsn}__unfold_cov")
+    if stat_cov is not None:
+        _heat(stat_cov, [reg, reg, r"$C_{\mathrm{unfold}}^{\mathrm{stat}}$"], f"{vsn}__unfold_cov_stat")
+    if syst_cov is not None:
+        _heat(syst_cov, [reg, reg, r"$C_{\mathrm{unfold}}^{\mathrm{syst}}$"], f"{vsn}__unfold_cov_syst")
+    if save_corr:
+        d = np.sqrt(np.clip(np.diag(unfold_cov), 0.0, None))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            corr = unfold_cov / np.outer(d, d)
+        corr = np.where(np.isfinite(corr), corr, 0.0)
+        _heat(corr, [reg, reg, r"$\rho_{\mathrm{unfold}}$"], f"{vsn}__unfold_corr", cmap="coolwarm")
+
+
+def save_unfold_diagnostics(
+    var_config,
+    summary,
+    response,
+    frac_cov,
+    add_smear,
+    fig_dir,
+    *,
+    plot=False,
+    approval="",
+    pot=UNFOLD_PLOT_POT,
+):
+    """Per-variable unfolding diagnostics: syst-source breakdown + R / C_frac / A_c heatmaps."""
+    os.makedirs(fig_dir, exist_ok=True)
+    vsn = var_config.var_save_name
+    plot_xsec_syst_breakdown(
+        var_config,
+        summary,
+        save_name=os.path.join(fig_dir, f"{vsn}__syst_breakdown"),
+        plot=plot,
+        approval=approval,
+        pot=pot,
+    )
+    if np.asarray(response).shape[0] > 1:
+        save_unfold_ingredient_heatmaps(
+            var_config, response, frac_cov, add_smear, fig_dir,
+            plot=plot, approval=approval,
+        )
+
+
 # ==== 2D plots ====
 
-def get_text_color(value):
-    rgba = cmap(norm(value))
-    # Compute luminance (perceived brightness)
+_DIVERGING_CMAPS = frozenset(
+    {"bwr", "coolwarm", "seismic", "RdBu", "RdBu_r", "coolwarm_r", "bwr_r"}
+)
+
+
+def get_text_color(value, cmap_name="viridis", vmin=0.0, vmax=1.0):
+    """Pick black/white annotation color from luminance under *cmap_name*."""
+    try:
+        cm = plt.get_cmap(cmap_name)
+    except Exception:
+        cm = mpl.cm.viridis
+    if vmax == vmin:
+        vmax = vmin + 1e-12
+    t = (float(value) - float(vmin)) / (float(vmax) - float(vmin))
+    t = min(max(t, 0.0), 1.0)
+    rgba = cm(t)
     luminance = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
     return "black" if luminance > 0.5 else "white"
 
 
-def bin_range_labels(edges):
-    return [f"{edges[i]:.2f}–{edges[i+1]:.2f}" for i in range(len(edges)-1)]
+def _edges_are_integral(edges):
+    arr = np.asarray(edges, dtype=float)
+    return bool(arr.size) and np.all(np.isfinite(arr) & (np.abs(arr - np.round(arr)) < 1e-6))
+
+
+def bin_range_labels(edges, halfopen=False):
+    """Bin tick labels.
+
+    ``halfopen=False`` is ``min–max`` with two decimals. ``halfopen=True`` is
+    ``[min, max)``. Integral edges (``del_alpha``, ``del_phi``) drop the decimals.
+    """
+    integral = halfopen and _edges_are_integral(edges)
+    labels = []
+    for i in range(len(edges) - 1):
+        if integral:
+            lo = str(int(round(float(edges[i]))))
+            hi = str(int(round(float(edges[i + 1]))))
+        else:
+            lo = f"{float(edges[i]):.2f}"
+            hi = f"{float(edges[i + 1]):.2f}"
+        if halfopen:
+            labels.append(f"[{lo}, {hi})")
+        else:
+            labels.append(f"{lo}–{hi}")
+    return labels
 
 
 def plot_heatmap(matrix, 
                  bins,
                  plot_labels=["", "", ""],
-                 approval="internal",
+                 approval="",
                  verbose=False,
                  plot=True,
-                 cmap="bwr",
+                 cmap="viridis",
                  save_fig=False, 
                  save_name=None,
-                 leave_open=False):
+                 leave_open=False,
+                 cbar_label=True,
+                 annotate=True,
+                 corner_text=None,
+                 halfopen_ticks=False,
+                 show_title=True,
+                 fig_width=None,
+                 save_ext=None):
+    """2D matrix heatmap (response / cov / A_c / correlation).
+
+    Defaults: no approval stamp; ``viridis`` colorscale.  Diverging cmaps
+    (``coolwarm``, ``bwr``, …) are fixed to ``[-1, 1]`` for correlation matrices.
+
+    Unfolding diagnostics pass ``cbar_label=False``, ``annotate=False``, a
+    ``corner_text`` (``SBND Simulation``), ``halfopen_ticks=True``,
+    ``show_title=False``, and ``fig_width=8`` so the figure is as wide as the
+    uncertainty breakdown and the heatmap panel is square. Set ``annotate=True``
+    to put bin values back in the cells.
+    """
 
     nbins = len(bins)
     assert nbins-1 == matrix.shape[0] == matrix.shape[1]
@@ -3303,16 +4645,39 @@ def plot_heatmap(matrix,
 
     x_edges, y_edges = np.array(bins), np.array(bins)
     x_tick_positions, y_tick_positions = (unif_bin[:-1] + unif_bin[1:]) / 2, (unif_bin[:-1] + unif_bin[1:]) / 2
-    x_labels, y_labels = bin_range_labels(x_edges), bin_range_labels(y_edges)
+    x_labels = bin_range_labels(x_edges, halfopen=halfopen_ticks)
+    y_labels = bin_range_labels(y_edges, halfopen=halfopen_ticks)
 
-    fig, ax = plt.subplots(figsize=(12, 12))
-    if cmap == "bwr":
-        plt.imshow(matrix, extent=extent, origin="lower", vmin=-1, vmax=1, cmap=cmap)
+    # fig_width matches the uncertainty-breakdown figure. Height is chosen so
+    # set_box_aspect(1) leaves a square heatmap beside the colorbar.
+    if fig_width is None:
+        fig, ax = plt.subplots(figsize=(12, 12))
+        tick_fs = None
+        label_fs = 20
     else:
-        plt.imshow(matrix, extent=extent, origin="lower", cmap=cmap)
+        fig, ax = plt.subplots(figsize=(float(fig_width), float(fig_width) * 0.90))
+        tick_fs = None
+        label_fs = 16
+    cmap_name = str(cmap)
+    diverging = cmap_name in _DIVERGING_CMAPS
+    imshow_kw = dict(extent=extent, origin="lower", cmap=cmap_name)
+    if diverging:
+        vmin, vmax = -1.0, 1.0
+        im = ax.imshow(matrix, vmin=vmin, vmax=vmax, **imshow_kw)
+    else:
+        flat0 = np.asarray(matrix, dtype=float)
+        flat0 = flat0[np.isfinite(flat0)]
+        if flat0.size:
+            vmin, vmax = float(np.min(flat0)), float(np.max(flat0))
+            if vmin == vmax:
+                vmax = vmin + 1e-12
+        else:
+            vmin, vmax = 0.0, 1.0
+        im = ax.imshow(matrix, **imshow_kw)
 
     # Find the power-of-10 exponent from one of the (non-NaN) values
     exponent = 0
+    cbar = None
     flat_matrix = matrix[~np.isnan(matrix)]
     if flat_matrix.size > 0 and np.any(flat_matrix != 0):
         example_value = flat_matrix[0]
@@ -3326,41 +4691,64 @@ def plot_heatmap(matrix,
         # exponent = 3 * int(np.floor(exponent / 3))
 
         formatter = mpl.ticker.FuncFormatter(lambda x, _: f"{x/10**exponent:.2f}")
-        cbar = plt.colorbar(shrink=0.7)
-        # cbar.set_label(f"{plot_labels[2]} [10$^{{{exponent}}}$]", fontsize=16)
-        if exponent != 0 and exponent != -1:
-            cbar.set_label(plot_labels[2] + f" [10$^{{{exponent}}}$]", fontsize=16)
+        if fig_width is None:
+            cbar = plt.colorbar(shrink=0.7)
         else:
-            cbar.set_label(plot_labels[2], fontsize=16)
-        cbar.ax.yaxis.set_major_formatter(formatter)
+            cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
+        # Colorbar title. Unfolding heatmaps pass cbar_label=False.
+        if cbar_label:
+            # Values in ~0.1–1 (exponent -1) keep native labels, matching cell annotations.
+            if exponent != 0 and exponent != -1:
+                cbar.set_label(plot_labels[2] + f" [10$^{{{exponent}}}$]", fontsize=16)
+                cbar.ax.yaxis.set_major_formatter(formatter)
+            else:
+                cbar.set_label(plot_labels[2], fontsize=16)
 
     # else:
     #     plt.colorbar(shrink=0.7, label=plot_labels[2])
 
-    for i in range(nbins-1):      # rows (y)
-        for j in range(nbins-1):  # columns (x)
-            value = matrix[i, j]
-            if not np.isnan(value):  # skip NaNs
-                if exponent != -1:
-                    significand = value / 10**exponent
-                else:
-                    significand = value
-                plt.text(
-                    j + 0.5, i + 0.5,
-                    f"{significand:.2f}",
-                    ha="center", va="center",
-                    color=get_text_color(value),
-                    fontsize=10
-                )
+    # In-box bin values. Unfolding heatmaps pass annotate=False so this loop
+    # does not run. Set annotate=True (the default) to restore the numbers.
+    if annotate:
+        for i in range(nbins-1):      # rows (y)
+            for j in range(nbins-1):  # columns (x)
+                value = matrix[i, j]
+                if not np.isnan(value):  # skip NaNs
+                    if exponent != -1:
+                        significand = value / 10**exponent
+                    else:
+                        significand = value
+                    plt.text(
+                        j + 0.5, i + 0.5,
+                        f"{significand:.2f}",
+                        ha="center", va="center",
+                        color=get_text_color(value, cmap_name, vmin, vmax),
+                        fontsize=10
+                    )
 
-    plt.xticks(x_tick_positions, x_labels, rotation=45, ha="right")
-    plt.yticks(y_tick_positions, y_labels)
-    plt.xlabel(plot_labels[0], fontsize=20)
-    plt.ylabel(plot_labels[1], fontsize=20)
-    if len(plot_labels) > 3:
-        plt.title(plot_labels[3], fontsize=20)
+    if fig_width is None:
+        plt.xticks(x_tick_positions, x_labels, rotation=45, ha="right")
+        plt.yticks(y_tick_positions, y_labels)
     else:
-        plt.title(plot_labels[2], fontsize=20)
+        if cbar is not None:
+            cbar_labels = cbar.ax.get_yticklabels()
+            if cbar_labels:
+                tick_fs = cbar_labels[0].get_fontproperties().get_size_in_points()
+        ax.set_xticks(x_tick_positions)
+        ax.set_xticklabels(x_labels, rotation=45, ha="right", fontsize=tick_fs)
+        ax.set_yticks(y_tick_positions)
+        ax.set_yticklabels(y_labels, fontsize=tick_fs)
+        ax.set_box_aspect(1)
+    ax.set_xlabel(plot_labels[0], fontsize=label_fs)
+    ax.set_ylabel(plot_labels[1], fontsize=label_fs)
+    if show_title:
+        if len(plot_labels) > 3:
+            ax.set_title(plot_labels[3], fontsize=20)
+        else:
+            ax.set_title(plot_labels[2], fontsize=20)
+
+    if fig_width is not None:
+        fig.tight_layout()
 
     if verbose:
         n_diag = np.sum(np.diag(matrix))
@@ -3371,10 +4759,17 @@ def plot_heatmap(matrix,
         # print
 
     # ===== plot additions =====
-    add_approval_text(approval, 0.95, 1.05, "right")
+    if corner_text:
+        # subplots_adjust would undo the square panel set up for fig_width.
+        if fig_width is None:
+            fig.subplots_adjust(top=0.90)
+        add_approval_text(approval, 0.03, 1.08, "left")
+        add_pot_text(corner_text, 0.99, 1.02, "right", fontsize=16)
+    else:
+        add_approval_text(approval, 0.95, 1.05, "right")
 
     if save_fig:
-        plt.savefig(save_name+fig_ext, bbox_inches='tight', dpi=dpi)
+        plt.savefig(save_name + (fig_ext if save_ext is None else save_ext), bbox_inches="tight", dpi=dpi)
 
     if plot:
         plt.show()
@@ -3389,8 +4784,12 @@ def plot_heatmap(matrix,
 
 # ====== flux, detector geometry, and cross-section normalization ======
 def get_integrated_flux(fluxfile, plot=False):
-    # flux file, units: /m^2/10^6 POT 
-    # 50 MeV bins
+    # Gen1 / sbnd_original_flux TH1D convention: bin *contents* are already
+    # per-bin rates in /m^2/10^6 POT (50 MeV bins), NOT dΦ/dE densities.
+    # Integrated Φ = sum(content). Do **not** use ROOT Integral("width") here —
+    # that multiplies by ΔE=0.05 and undercounts by ×20. (NUISANCE fScaleFactor
+    # uses Integral("width") on *both* event and flux hists, so the ΔE cancels
+    # in the flux-averaged σ; analysis XSEC_UNIT needs the true sum.)
     flux = uproot.open(fluxfile)
     numu_flux = flux["flux_sbnd_numu"].to_numpy()
     bin_edges = numu_flux[1]
@@ -3479,7 +4878,10 @@ def get_xsec_unit(tot_pot,
         print("using custom volume: ", volume)
         V_SBND = volume
 
-    NTARGETS = RHO * V_SBND * (N_A / M_AR) #/ 40 # divide by 40 to make this per-argon nucleus
+    # Argon *nuclei* (not nucleons). Matches flat weight ``40 × fScaleFactor``:
+    # PrepareGENIE divides event rate by totalnucl=A=40 (per-nucleon bookkeeping);
+    # the analysis 40× restores per-nucleus σ to pair with this NTARGETS.
+    NTARGETS = RHO * V_SBND * (N_A / M_AR)
     print("# of targets: ", NTARGETS)
 
     xsec_unit = 1 / (tot_flux * NTARGETS)

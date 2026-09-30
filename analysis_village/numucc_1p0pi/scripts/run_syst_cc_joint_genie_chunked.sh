@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
 #
-# Joint-bin GENIE **rate** map → aggregate into ``syst_disk_CC/JointGenie/``.
+# Joint-bin GENIE **rate** map → aggregate into PRL Product B ``JointCC/JointGenie/``.
 # -----------------------------------------------------------------------------
 # Phase 1: same (GENIE group, ``.df``) queue as ``run_syst_genie_chunked.sh``, but each job
-# runs ``syst_cc_joint_genie_chunk.py`` → ``nu__joint_cc_genie__<GROUP>__<stem>.pkl`` with stacked
-# (n_X+n_Y) GENIE universe histograms per kinematic pair (var_X bins first, then var_Y bins
-# in the on-disk tuple order from ``default_kinematic_joint_pairs``).
+# runs ``syst_cc_joint_genie_chunk.py`` → ``nu__joint_cc_genie_stack__<GROUP>__<stem>.pkl``
+# with one inclusive stacked universe vector (muon p, muon cosθ, proton p, proton cosθ;
+# ``bkgd_subtract=False``). ``JOINT_PAIRS`` switches to pairwise ``nu__joint_cc_genie__*`` shards.
 #
 # Phase 2: ``syst_cc_joint_genie_aggregate.py`` merges chunks and writes
 # ``JointGenie/joint_genie_combined.npz`` with ``JointGenie`` (sum over groups) plus
 # ``JointGenie_by_knob`` (per reweight knob matrices; used by :mod:`cc_joint_cov` with joint multisim).
-#
-# Pair coverage: by default the chunk iterates **every** preset pair, including the same-side
-# pairs (``muon_p__muon_costheta``, ``proton_p__proton_costheta``) needed for the
-# **multi-variable Y** conditional constraint. Restrict via ``JOINT_PAIRS`` CSV when only a
-# subset is required.
 #
 # This path uses GENIE **rate** reweights (``get_univ_rates(..., cov_type=rate)``), not the
 # response-matrix **xsec** tensors in marginal ``cov_mat_dict.pkl`` ``["genie"]``.
@@ -23,9 +18,15 @@
 #   JOINT_GENIE_WORK_BASE   Chunk root (default: ``default_joint_genie_cc_work_root``);
 #                           or ``NUMUCC_JOINT_GENIE_CC_WORK_BASE``.
 #   MC_DF_STAGE             ``final`` only for this pipeline.
-#   GENIE_RUN_GROUPS        Comma subset (same as marginal); CLI ``--genie-groups``.
+#   GENIE_RUN_GROUPS        Default ``FSI_compare`` (``GENIE_slim_v3`` only). Do not add
+#                           VecFF/Ar23p/CCQE/MEC — those knobs are already inside slim_v3.
+#                           After aggregate, ``align_joint_cc_genie.py`` sets combined
+#                           JointGenie to that slim_v3 joint (full off-diagonals).
+#                           Pass ``--mec-splice`` on the align script to add May−Sep interpolators.
+#   JOINT_CC_MODE           ``stack`` (default, inclusive 4-var vector) or ``pairs``.
+#   JOINT_PAIRS             If set, switches to pairwise legacy mode.
 #   MAX_FILES, WORKERS      Per-group cap and parallel pool size.
-#   SYST_DISK_CC_ROOT       Output tree (default ``default_syst_disk_cc_root``).
+#   SYST_DISK_CC_ROOT       Output tree (default: PRL Product B ``…/JointCC``).
 #   JOINT_CC_CHUNKS_SUBDIR  Optional segment under ``.../chunks/`` (default ``CC_joint``). Set to
 #                           an empty string before invoking the script to write directly under
 #                           ``chunks/`` (pickle prefix ``nu__joint_cc_genie__`` still busts
@@ -42,7 +43,13 @@
 set -euo pipefail
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$THIS_DIR/../../.." && pwd)"
+VENV="${REPO_ROOT}/envs/venv_py310_cafpyana/bin/activate"
+if [[ -f "$VENV" ]]; then
+    # shellcheck disable=SC1090
+    source "$VENV"
+fi
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
+export MPLBACKEND=Agg
 
 _CLI_MAX_FILES=""
 _CLI_GENIE_GROUPS=""
@@ -78,7 +85,7 @@ done
 MAX_FILES="${_CLI_MAX_FILES:-${MAX_FILES:-0}}"
 _DEFAULT_WORKERS=$(python3 -c "import os; print(min(os.cpu_count() or 8, 8))")
 WORKERS="${_CLI_WORKERS:-${WORKERS:-$_DEFAULT_WORKERS}}"
-GENIE_RUN_GROUPS="${_CLI_GENIE_GROUPS:-${GENIE_RUN_GROUPS:-}}"
+GENIE_RUN_GROUPS="${_CLI_GENIE_GROUPS:-${GENIE_RUN_GROUPS:-FSI_compare}}"
 
 TODAY=$(date +%Y%m%d)
 JOINT_GENIE_WORK_BASE="${JOINT_GENIE_WORK_BASE:-$(python3 -c "
@@ -95,14 +102,16 @@ if [[ -n "${JOINT_CC_CHUNKS_SUBDIR}" ]]; then
 fi
 CHUNKS_DIR="${CHUNKS_DIR:-$JOINT_GENIE_WORK_BASE/chunks${_cc_g_chunks_suffix}}"
 
-SYST_DISK_CC_ROOT="$(python3 -c "
+if [[ -z "${SYST_DISK_CC_ROOT:-}" ]]; then
+    SYST_DISK_CC_ROOT="$(python3 -c "
 import sys
 from pathlib import Path
 sys.path.insert(0, '${REPO_ROOT}')
-from analysis_village.numucc_1p0pi.dataset_locations import default_syst_disk_cc_root
-print(Path(default_syst_disk_cc_root()).resolve())
+from analysis_village.numucc_1p0pi.dataset_locations import prl_syst_disk_root
+print((prl_syst_disk_root('B') / 'JointCC').resolve())
 ")"
-export NUMUCC_SYST_DISK_CC_ROOT="${NUMUCC_SYST_DISK_CC_ROOT:-$SYST_DISK_CC_ROOT}"
+fi
+export NUMUCC_SYST_DISK_CC_ROOT="$SYST_DISK_CC_ROOT"
 
 MC_DF_STAGE="${MC_DF_STAGE:-final}"
 if [[ "$MC_DF_STAGE" != "final" ]]; then
@@ -118,8 +127,10 @@ parallel_py="$THIS_DIR/syst_cc_joint_genie_parallel.py"
 agg_py="$THIS_DIR/syst_cc_joint_genie_aggregate.py"
 
 _optional_pairs=()
+_optional_mode=(--mode "${JOINT_CC_MODE:-stack}")
 if [[ -n "${JOINT_PAIRS:-}" ]]; then
     _optional_pairs=(--pairs "${JOINT_PAIRS}")
+    _optional_mode=(--mode pairs)
 fi
 
 _optional_groups=()
@@ -147,6 +158,9 @@ fi
 if ((${#_optional_pairs[@]})); then
     parallel_args+=("${_optional_pairs[@]}")
 fi
+if ((${#_optional_mode[@]})); then
+    parallel_args+=("${_optional_mode[@]}")
+fi
 
 echo "[cc-joint-genie-run] progress map BEGIN $(date -Is)"
 set +e
@@ -173,4 +187,9 @@ agg_cmd=(
 echo "[cc-joint-genie-run] aggregate BEGIN $(date -Is) ${agg_cmd[*]}"
 "${agg_cmd[@]}"
 echo "[cc-joint-genie-run] aggregate END $(date -Is)"
+if [[ "${SKIP_ALIGN_GENIE:-0}" != "1" ]]; then
+    echo "[cc-joint-genie-run] align BEGIN $(date -Is)"
+    python3 "$THIS_DIR/align_joint_cc_genie.py" --cc-root "$SYST_DISK_CC_ROOT"
+    echo "[cc-joint-genie-run] align END $(date -Is)"
+fi
 echo "[cc-joint-genie-run] DONE → $SYST_DISK_CC_ROOT (JointGenie/joint_genie_combined.npz)"

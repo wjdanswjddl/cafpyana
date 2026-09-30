@@ -231,7 +231,10 @@ def put_syst_hists_by_var(
 
 
 def final_var_configs() -> List[VariableConfig]:
-    return with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIABLE_CONFIGS))
+    # Honor NUMUCC_FINAL_VAR_SET / vertex_multi via the shared walker helper.
+    from analysis_village.numucc_1p0pi.syst_pipeline_walker import final_stage_var_configs
+
+    return list(final_stage_var_configs())
 
 
 # ---------------------------------------------------------------------------

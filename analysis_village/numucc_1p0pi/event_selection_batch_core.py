@@ -29,11 +29,12 @@ from analysis_village.numucc_1p0pi.evt_derived_kinematics import (
     ensure_mc_level_phi_mcnu,
 )
 from analysis_village.numucc_1p0pi.selection_framework import multicol_resolve_column_key
-from analysis_village.numucc_1p0pi.beam_quality import apply_beam_quality_cuts
+from analysis_village.numucc_1p0pi.beam_quality import (
+    FOM_CUT,
+    MIN_RUN_DURATION_MIN,
+    apply_beam_quality_cuts,
+)
 
-# Match ``scripts/selected_xsec_overlay.py`` / Product B.
-FOM_CUT = 0.98
-MIN_RUN_DURATION_MIN = 20.0
 APPLY_BEAM_QUALITY_DEFAULT = True
 
 

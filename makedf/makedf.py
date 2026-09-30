@@ -174,7 +174,9 @@ def make_mcnudf(f, include_weights=False, multisim_nuniv=100, genie_multisim_nun
     # computed in-memory (Poisson); flux/G4/GENIE load from CAF globalTree.
     # ----- sbnd or icarus? -----
     det = loadbranches(f["recTree"], ["rec.hdr.det"]).rec.hdr.det
-    if (1 == det.unique()):
+    det_vals = list(det.unique())
+    # Empty hdr.det (some OffBeamLight files) is SBND for this analysis.
+    if len(det_vals) == 0 or (len(det_vals) == 1 and int(det_vals[0]) == 1):
         det = "SBND"
     else:
         det = "ICARUS"
@@ -271,7 +273,7 @@ def make_opflashdf(f):
     opflashdf = loadbranches(f["recTree"], opflashbranches).rec.opflashes
     return opflashdf
 
-def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=False, mcs=False, updatecalo=None, updateefield=False):
+def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=False, mcs=False, updatecalo=None, updateefield=False, updatesmear=None):
     trkdf = loadbranches(f["recTree"], trkbranches)
     if scoreCut:
         trkdf = trkdf.rec.slc.reco[trkdf.rec.slc.reco.pfp.trackScore > 0.5]
@@ -295,9 +297,21 @@ def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=Fal
         maxlen = (cumlen*(mcsdf.seg_scatter_angles >= 0)).groupby(level=mcsgroup).max()
         trkdf[("pfp", "trk", "mcsP", "len", "", "")] = maxlen
 
+    # ``updatesmear``: iterable of relative dE/dx Gaussian widths (e.g. (0.13, 0.26)).
+    # Writes chi2_{muon,proton}_smearNN per plane (GUMP-style resolution unisim).
+    # Requires ``updatecalo`` so CV redo (chi2_*_new) and smeared scores share calo params.
+    smear_widths = []
+    if updatesmear is not None:
+        if updatecalo is None:
+            raise ValueError("updatesmear requires updatecalo (shared calo params for CV + smear)")
+        smear_widths = [float(s) for s in updatesmear]
+        if any(s <= 0 for s in smear_widths):
+            raise ValueError(f"updatesmear widths must be > 0; got {smear_widths}")
+
     if updatecalo is not None:
         hdrdf = make_mchdrdf(f)
         ismc = hdrdf.ismc.iloc[0]
+        calo_params = chi2pid.CALO_VARIATIONS[updatecalo]
 
         for plane in range(0, 3):
             trkhitdf = make_trkhitdf(f, plane)
@@ -307,7 +321,7 @@ def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=Fal
             # chi2_*_new isolates recalculation bias vs the stored CAF χ².
             dedx_redo = chi2pid.dedx(
                 trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc,
-                new_calo_params=chi2pid.CALO_VARIATIONS[updatecalo],
+                new_calo_params=calo_params,
             )
             trkhitdf["dedx_redo"] = dedx_redo
             for par in ['muon', 'proton']:
@@ -317,13 +331,27 @@ def make_trkdf(f, det="SBND", scoreCut=False, requiret0=False, requireCosmic=Fal
                 trkdf[this_chi2_col] = this_chi2_new.fillna(0.)
                 trkdf[this_ndof_col] = this_chi2_ndof.fillna(0.)
 
+            # dE/dx resolution smear unisims (independent N(1, width) per hit).
+            for smear in smear_widths:
+                tag = "smear{:d}".format(int(round(smear * 100)))
+                dedx_s = chi2pid.dedx(
+                    trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc,
+                    new_calo_params=calo_params, smear=smear,
+                )
+                dedx_col = "dedx_{}".format(tag)
+                trkhitdf[dedx_col] = dedx_s
+                for par in ['muon', 'proton']:
+                    this_chi2_s, _ = chi2pid.chi2par(trkhitdf, dedxname=dedx_col, par=par)
+                    this_chi2_col = ('pfp', 'trk', 'chi2pid', 'I' + str(plane), 'chi2_' + par + '_' + tag, '')
+                    trkdf[this_chi2_col] = this_chi2_s.fillna(0.)
+
             # Optional second pass: apply the SCE E-field map, then redo χ² again.
             # chi2_*_new_efield is compared to chi2_*_new for the pure E-field effect.
             if updateefield:
                 _apply_sbnd_efield_map(trkhitdf)
                 dedx_redo_ef = chi2pid.dedx(
                     trkhitdf, gain=det, calibrate=det, plane=plane, isMC=ismc,
-                    new_calo_params=chi2pid.CALO_VARIATIONS[updatecalo],
+                    new_calo_params=calo_params,
                 )
                 trkhitdf["dedx_redo"] = dedx_redo_ef
                 for par in ['muon', 'proton']:

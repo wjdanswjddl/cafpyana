@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Reduce phase: merge joint multisim chunk pickles → per-category ``syst_disk_CC`` trees.
+"""Reduce phase: merge joint multisim chunk pickles → per-category PRL ``JointCC`` trees.
 
-Merges ``nu__joint_cc__*.pkl`` from :mod:`syst_cc_joint_multisim_chunk`, builds per-systematic
-covariance matrices with :func:`pyanalib.covariance.get_covariance_matrix`, combines Flux/G4
-knobs independently via :func:`syst_multisim_common.combine_indep_knob_cov_packs`, then writes
-**one NPZ per category** under ``JointMCstat/``, ``JointFlux/``, and ``JointG4/`` (parallel
-directories). :mod:`cc_joint_cov` sums fractional covariances across those files when
-building the total joint multisim block (legacy ``JointMultisim/joint_multisim_combined.npz``
-is still supported if present).
-
-Legacy map shards named ``nu__joint__*.pkl`` are **not** merged (pair coverage may be stale);
-re-run the map phase to produce ``nu__joint_cc__*`` shards.
+Merges ``nu__joint_cc_stack__*.pkl`` from :mod:`syst_cc_joint_multisim_chunk`, builds
+per-systematic covariance matrices with :func:`pyanalib.covariance.get_covariance_matrix`,
+combines Flux/G4 knobs independently via :func:`syst_multisim_common.combine_indep_knob_cov_packs`,
+then writes **one NPZ per category** under ``JointMCstat/``, ``JointFlux/``, and ``JointG4/``.
+:mod:`cc_joint_cov` sums fractional covariances across those files for the stacked
+``stacked_mu_p`` cell. Pairwise ``nu__joint_cc__*`` shards are still merged if present
+(``--mode pairs`` fallback).
 """
 
 from __future__ import annotations
@@ -33,8 +30,8 @@ from pyanalib.covariance import cov_from_fraccov, get_covariance_matrix  # noqa:
 
 from analysis_village.numucc_1p0pi.syst_cc_joint_multisim_common import (  # noqa: E402
     JOINT_CC_MULTISIM_CHUNK_GLOB,
-    default_kinematic_joint_pairs,
-    joint_meta,
+    JOINT_CC_MULTISIM_CHUNK_GLOB_PAIRS,
+    layout_meta_for_slug,
     save_joint_multisim_category_npz,
 )
 from analysis_village.numucc_1p0pi.syst_disk_cc_layout import normalized_root  # noqa: E402
@@ -48,13 +45,17 @@ from analysis_village.numucc_1p0pi.syst_multisim_common import (  # noqa: E402
 
 def collect_joint_chunks(chunks_dir: str) -> list[str]:
     root = path.abspath(path.expanduser(chunks_dir.rstrip(os.sep)))
-    paths = sorted(glob.glob(path.join(root, JOINT_CC_MULTISIM_CHUNK_GLOB)))
+    globs = (JOINT_CC_MULTISIM_CHUNK_GLOB, JOINT_CC_MULTISIM_CHUNK_GLOB_PAIRS)
+    paths: list[str] = []
+    for pattern in globs:
+        paths.extend(sorted(glob.glob(path.join(root, pattern))))
     for sub in ("Combined", "MCstat", "Flux", "G4"):
         d = path.join(root, sub)
         if path.isdir(d):
-            for p in sorted(glob.glob(path.join(d, JOINT_CC_MULTISIM_CHUNK_GLOB))):
-                if p not in paths:
-                    paths.append(p)
+            for pattern in globs:
+                for p in sorted(glob.glob(path.join(d, pattern))):
+                    if p not in paths:
+                        paths.append(p)
     return sorted(set(paths))
 
 
@@ -154,11 +155,8 @@ def _cov_for_flat_joint_block(cat_block: dict, pair_slug: str) -> dict | None:
     return get_covariance_matrix(univ, cv)
 
 
-def _pair_layout_meta(pair_slug: str) -> tuple[int, int, str, str]:
-    for slug, vx, vy in default_kinematic_joint_pairs():
-        if slug == pair_slug:
-            return len(vx.bin_centers), len(vy.bin_centers), vx.var_save_name, vy.var_save_name
-    raise ValueError("[cc-joint-agg] unknown pair_slug %r" % pair_slug)
+def _pair_layout_meta(pair_slug: str) -> tuple[int, dict]:
+    return layout_meta_for_slug(pair_slug)
 
 
 def joint_covariance_by_category_from_merged(
@@ -176,8 +174,7 @@ def joint_covariance_by_category_from_merged(
 
     out: dict[str, dict[str, dict]] = {sn: {} for sn in syst_types}
     for pair_slug in sorted(pair_slugs):
-        nx, ny, var_x_name, var_y_name = _pair_layout_meta(pair_slug)
-        ntot = nx + ny
+        ntot, slug_meta = _pair_layout_meta(pair_slug)
         for sn in syst_types:
             blk = merged["syst"].get(sn) or {}
             if not syst_acc_bucket_nonempty(sn, blk):
@@ -222,8 +219,8 @@ def joint_covariance_by_category_from_merged(
                 cv_flat = np.asarray(pack["cv_events"], dtype=np.float64).reshape(-1)
             if cv_flat.size != ntot:
                 raise ValueError(
-                    "[cc-joint-agg] %s pair %s: cv len %d != n_X+n_Y=%d+%d"
-                    % (sn, pair_slug, int(cv_flat.size), nx, ny)
+                    "[cc-joint-agg] %s pair %s: cv len %d != n_bins_total=%d"
+                    % (sn, pair_slug, int(cv_flat.size), ntot)
                 )
             cov_sum = cov_from_fraccov(np.asarray(ret["cov_frac"], dtype=np.float64), cv_flat)
             d = np.sqrt(np.maximum(np.diag(cov_sum), 0.0))
@@ -237,7 +234,7 @@ def joint_covariance_by_category_from_merged(
                 "cov_frac": np.asarray(ret["cov_frac"], dtype=np.float64),
                 "corr": corr,
                 "meta": {
-                    **joint_meta(nx, ny, var_x_name, var_y_name),
+                    **slug_meta,
                     "joint_multisim_category": sn,
                 },
             }
@@ -258,7 +255,7 @@ def run_joint_aggregate(
     st = syst_types if syst_types is not None else parse_neutrino_syst_type_csv(None)
     ck = collect_joint_chunks_many(roots)
     if not ck:
-        raise RuntimeError("[cc-joint-agg] no nu__joint_cc__*.pkl under %s" % roots)
+        raise RuntimeError("[cc-joint-agg] no nu__joint_cc_stack__*.pkl (or legacy nu__joint_cc__*) under %s" % roots)
     print("[cc-joint-agg] merging %d chunk(s) syst_types=%s" % (len(ck), ",".join(st)))
     merged = merge_joint_chunks(ck, st)
     empty = [sn for sn in st if not syst_acc_bucket_nonempty(sn, merged["syst"].get(sn))]
@@ -301,13 +298,13 @@ def parse_args():
         nargs="+",
         required=True,
         metavar="DIR",
-        help="One or more directories containing nu__joint_cc__*.pkl (flat or Combined/…).",
+        help="One or more directories containing nu__joint_cc_stack__*.pkl (flat or Combined/…).",
     )
     p.add_argument(
         "--syst-disk-cc-root",
         dest="syst_disk_cc_root",
         required=True,
-        help="Output root for syst_disk_CC (JointFlux/, JointG4/, JointMCstat/).",
+        help="Output root for JointCC (JointFlux/, JointG4/, JointMCstat/).",
     )
     p.add_argument(
         "--syst-types",

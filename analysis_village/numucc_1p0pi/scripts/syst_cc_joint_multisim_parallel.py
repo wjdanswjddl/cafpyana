@@ -138,6 +138,8 @@ def _worker(job: dict) -> dict:
             flux_mode=job["flux_mode"],
             flux_knob_groups=job["flux_knob_groups"],
             pairs=job.get("pairs"),
+            mode=job.get("mode", "stack"),
+            bkgd_subtract=bool(job.get("bkgd_subtract", False)),
         )
         out_path, status = joint_chunk_mod.run_with_args(ns, skip_existing=True)
         return {
@@ -187,8 +189,10 @@ def parse_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument(
         "--pairs",
         default=None,
-        help="Optional CSV of pair slugs for syst_cc_joint_multisim_chunk (--pairs).",
+        help="Optional CSV of pair slugs (implies pairs mode).",
     )
+    p.add_argument("--mode", choices=("stack", "pairs"), default="stack")
+    p.add_argument("--bkgd-subtract", action="store_true")
     return p.parse_args(argv)
 
 
@@ -255,6 +259,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "flux_mode": cli.flux_mode,
             "flux_knob_groups": cli.flux_knob_groups,
             "pairs": cli.pairs,
+            "mode": "pairs" if cli.pairs else cli.mode,
+            "bkgd_subtract": bool(cli.bkgd_subtract),
         }
         for (s, p, d, sn) in jobs
     ]

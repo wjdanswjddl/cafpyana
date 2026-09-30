@@ -18,6 +18,7 @@ import sys
 import warnings
 from datetime import datetime
 from os import makedirs, path
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -32,9 +33,15 @@ from pyanalib.split_df_helpers_new import (  # noqa: E402
     get_n_split,
     load_dfs,
 )
-from analysis_village.numucc_1p0pi.beam_quality import apply_beam_quality_cuts  # noqa: E402
+from analysis_village.numucc_1p0pi.beam_quality import (  # noqa: E402
+    FOM_CUT,
+    MIN_RUN_DURATION_MIN,
+    apply_beam_quality_cuts,
+)
+from analysis_village.numucc_1p0pi.constants import MC_POT_FIX  # noqa: E402
 from analysis_village.numucc_1p0pi.final_selected_evt_vars import (  # noqa: E402
     CORE_SELECTED_EVT_VARIABLE_CONFIGS,
+    with_final_selected_evt_variables,
 )
 from analysis_village.numucc_1p0pi import utils as numucc_utils  # noqa: E402
 from analysis_village.numucc_1p0pi.utils import get_pot_str  # noqa: E402
@@ -45,6 +52,9 @@ from analysis_village.numucc_1p0pi.utils import (  # noqa: E402
     format_pot_corner_text,
 )
 from analysis_village.numucc_1p0pi.syst_disk_layout import SYST_DISK_ENV  # noqa: E402
+from analysis_village.numucc_1p0pi.evt_derived_kinematics import (  # noqa: E402
+    ensure_derived_trk_kinematics_cols,
+)
 from analysis_village.numucc_1p0pi.selected_xsec_overlay_hist import (  # noqa: E402
     build_overlay_histdata_map,
     histdata_pkl_path,
@@ -70,11 +80,15 @@ KEYS2LOAD = ("hdr", "evt")
 DATA_KEYS2LOAD = ("hdr", "evt", "bnbpot", "trigger")
 N_MAX_CONCAT = 999
 MEMORY_LIMIT_FRAC = 0.60  # stop MC load and retry with half the files if exceeded
+# Stream .df files in batches: fill OverlayHistData, discard frames, next batch.
+# Keeps peak RSS low when many sel_mup shards are present.
+BATCH_FILES = int(os.environ.get("OVERLAY_BATCH_FILES", "20"))
+USE_BATCHED_FILL = os.environ.get("OVERLAY_BATCHED", "1") != "0"
 
-# Beam-quality selection (``notebooks/beam_quality.ipynb``)
+# Beam-quality selection (``beam_quality.apply_beam_quality_cuts``).
+# FOM_CUT / MIN_RUN_DURATION_MIN are imported from ``beam_quality`` — do not
+# approximate them by scaling POT.
 APPLY_BEAM_QUALITY = True
-FOM_CUT = 0.98
-MIN_RUN_DURATION_MIN = 20.0
 # When beam quality is off, optional scalar on full hdr POT (legacy approximation)
 DATA_POT_SCALE = 1.0
 
@@ -132,27 +146,31 @@ PLOT_SETS = [
         ),
         "data_filename_str": "sel_mup-data-1e20",
     },
-    # fv_z_lt_200: Gen-1 FV z < 200 (vertex + μ/p containment).
-    # After jobs land under dfs/fv_z_lt_200/, fill the timestamped mc_dir/data_dir
-    # paths below (same pattern as the tags above) and uncomment.
-    # {
-    #     "tag": "fv_z_lt_200",
-    #     "output_dir": path.join(OUTPUT_BASE, "fv_z_lt_200"),
-    #     "mc_dir": path.join(DFS_ROOT, "fv_z_lt_200/<TS>__sel_mup-mc-BNB_cosmics"),
-    #     "mc_filename_str": "sel_mup-mc-BNB_cosmics",
-    #     "data_dir": path.join(DFS_ROOT, "fv_z_lt_200/<TS>__sel_mup-data-1e20"),
-    #     "data_filename_str": "sel_mup-data-1e20",
-    # },
+    {
+        "tag": "fv_z_lt_200",
+        "output_dir": path.join(OUTPUT_BASE, "fv_z_lt_200"),
+        "mc_dir": path.join(
+            DFS_ROOT, "fv_z_lt_200/2026_09_23_170913__sel_mup-mc-BNB_cosmics"
+        ),
+        "mc_filename_str": "sel_mup-mc-BNB_cosmics",
+        "data_dir": path.join(
+            DFS_ROOT, "fv_z_lt_200/2026_09_23_190905__sel_mup-data-1e20"
+        ),
+        "data_filename_str": "sel_mup-data-1e20",
+    },
 ]
 
-# Cross-section measurement variables (same list as unfolding.ipynb)
+# Cross-section + auxiliary selected vars that have Product B CategorySummary systs
+# (CORE kinematics/TKI + FINAL vertex / dir components / muon-end).
+# φ is derived at fill from dir.x/y via ensure_derived_trk_kinematics_cols.
+_SKIP_VAR_SAVE = frozenset({"integrated"})
 VAR_CONFIGS = [
     vc
-    for vc in CORE_SELECTED_EVT_VARIABLE_CONFIGS
-    if vc.var_save_name != "integrated"
+    for vc in with_final_selected_evt_variables(CORE_SELECTED_EVT_VARIABLE_CONFIGS)
+    if vc.var_save_name not in _SKIP_VAR_SAVE
 ]
 
-BREAKDOWN_TYPES = ("topology", "genie_sb")
+BREAKDOWN_TYPES = ("topology", "genie", "genie_sb")
 
 # Plot style (event_selection.ipynb / selected_events.py)
 RATIO = True
@@ -253,6 +271,7 @@ def _finalize_evt_hdr(dfs: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     hdr = dfs["hdr"]
     if "mc" in evt.columns.get_level_values(0):
         evt.loc[evt.mc.iscc.isna(), ("mc", "iscc")] = 999
+    evt = ensure_derived_trk_kinematics_cols(evt)
     return evt, hdr
 
 
@@ -356,6 +375,7 @@ def load_data_sample(
             flush=True,
         )
     data_evt[("mc", "iscc")] = 999
+    data_evt = ensure_derived_trk_kinematics_cols(data_evt)
     return data_evt, data_hdr
 
 
@@ -373,17 +393,195 @@ def setup_pot_weights(
     data_evt["pot_weight"] = np.ones(len(data_evt))
 
     mc_tot_pot = mc_hdr["pot"].sum()
-    mc_scale = data_tot_pot / mc_tot_pot
+    # Recorded MC POT is high by MC_POT_FIX; scale neutrino MC up.
+    mc_scale = (data_tot_pot / mc_tot_pot) * MC_POT_FIX
     mc_evt["pot_weight"] = mc_scale * np.ones(len(mc_evt))
     print(
-        f"  data POT={data_tot_pot:.3e}  MC POT={mc_tot_pot:.3e}  scale={mc_scale:.3e}"
+        f"  data POT={data_tot_pot:.3e}  MC POT={mc_tot_pot:.3e}  "
+        f"scale={mc_scale:.3e} (includes MC_POT_FIX={MC_POT_FIX})"
     )
     print(f"  evt rows: data={len(data_evt):,}  mc={len(mc_evt):,}")
     # Keep POT in the returned label for corner text / pickle; ylabel strips it.
     return f"Events / Bin (POT={pot_str})"
 
 
-def run_plot_set(plot_set: dict) -> None:
+def list_sample_files(sample_dir: str, filename_str: str) -> list[str]:
+    pattern = path.join(sample_dir, f"*{filename_str}*.df")
+    files = sorted(glob.glob(pattern))
+    if not files:
+        raise FileNotFoundError(f"No files matching {pattern!r}")
+    return files
+
+
+def _file_batches(files: list[str], batch_size: int):
+    bs = max(1, int(batch_size))
+    for i in range(0, len(files), bs):
+        yield files[i : i + bs]
+
+
+def load_file_batch(files: Sequence[str], keys: Sequence[str], *, label: str) -> dict:
+    """Load a small batch of ``.df`` files and concat (with ``__ntuple`` remap)."""
+    from tqdm import tqdm
+
+    df_lists = {k: [] for k in keys}
+    ntuple_offset = np.int64(0)
+    print(f"  [{label}] loading {len(files)} file(s)", flush=True)
+    for fpath in tqdm(files, desc=label, leave=False):
+        try:
+            n_split = get_n_split(fpath)
+        except Exception as e:
+            print(f"  [{label}] skip {path.basename(fpath)}: {e}", flush=True)
+            continue
+        dfs = load_dfs(fpath, list(keys), n_max_concat=int(n_split))
+        unique_ntuples = _unique_ntuple_values_across_keys(dfs, keys)
+        ntuple_remap = {
+            old: np.int64(ntuple_offset + i) for i, old in enumerate(unique_ntuples)
+        }
+        for df_key in keys:
+            df = dfs[df_key]
+            _remap_ntuple_index(df, ntuple_remap)
+            df_lists[df_key].append(df)
+        ntuple_offset += np.int64(len(ntuple_remap))
+        del dfs
+    if not any(df_lists[k] for k in keys):
+        raise RuntimeError(f"[{label}] no HDF files loaded")
+    return {
+        k: _concat_hdf_frames(df_lists[k], label=k) for k in keys if df_lists[k]
+    }
+
+
+def empty_histdata_map(var_configs, breakdown_types) -> dict:
+    from analysis_village.numucc_1p0pi.selection_framework import OverlayHistData
+
+    out = {}
+    for vc in var_configs:
+        for bt in breakdown_types:
+            out[(vc.var_save_name, bt)] = OverlayHistData(
+                var_save_name=vc.var_save_name,
+                breakdown_type=bt,
+                bins=vc.bins,
+            )
+    return out
+
+
+def _merge_histdata_maps(acc: dict, chunk: dict) -> None:
+    for key, hd in chunk.items():
+        acc[key] += hd
+
+
+def fill_overlay_counts_batched(
+    plot_set: dict,
+    var_configs,
+    breakdown_types,
+    *,
+    batch_files: int | None = None,
+) -> tuple[dict, str]:
+    """Fill overlay counts by streaming ``.df`` shards in batches (low peak RSS)."""
+    bs = BATCH_FILES if batch_files is None else int(batch_files)
+    mc_files = list_sample_files(plot_set["mc_dir"], plot_set["mc_filename_str"])
+    data_files = list_sample_files(plot_set["data_dir"], plot_set["data_filename_str"])
+    print(
+        f"  batched fill: MC={len(mc_files)} data={len(data_files)} "
+        f"batch_files={bs}",
+        flush=True,
+    )
+
+    acc = empty_histdata_map(var_configs, breakdown_types)
+    data_pot = 0.0
+    n_data_evt = 0
+    data_keys = list(DATA_KEYS2LOAD if APPLY_BEAM_QUALITY else KEYS2LOAD)
+    n_data_batches = (len(data_files) + bs - 1) // bs
+    for ib, batch in enumerate(_file_batches(data_files, bs), start=1):
+        print(f"  data batch {ib}/{n_data_batches}", flush=True)
+        dfs = load_file_batch(batch, data_keys, label=f"data-b{ib}")
+        evt = dfs["evt"]
+        hdr = dfs["hdr"]
+        if APPLY_BEAM_QUALITY:
+            hdr = hdr.join(dfs["trigger"])
+            evt, hdr, summary = apply_beam_quality_cuts(
+                evt,
+                hdr,
+                dfs["bnbpot"],
+                fom_cut=FOM_CUT,
+                min_run_duration_min=MIN_RUN_DURATION_MIN,
+            )
+            data_pot += float(summary.pot_good)
+            print(
+                f"    beam quality: evt {summary.n_evt_good:,}/{summary.n_evt_prefilter:,}  "
+                f"POT+={summary.pot_good:.3e}",
+                flush=True,
+            )
+        else:
+            data_pot += float(hdr["pot"].sum()) * DATA_POT_SCALE
+        if "mc" in evt.columns.get_level_values(0):
+            evt.loc[evt.mc.iscc.isna(), ("mc", "iscc")] = 999
+        else:
+            evt[("mc", "iscc")] = 999
+        evt["pot_weight"] = np.ones(len(evt))
+        n_data_evt += len(evt)
+        chunk = build_overlay_histdata_map(
+            var_configs,
+            breakdown_types,
+            data_df=evt,
+            verbose=False,
+        )
+        _merge_histdata_maps(acc, chunk)
+        del dfs, evt, hdr, chunk
+        gc.collect()
+
+    print(f"  summing MC hdr POT ({len(mc_files)} files)...", flush=True)
+    mc_pot = 0.0
+    for ib, batch in enumerate(_file_batches(mc_files, bs), start=1):
+        for fpath in batch:
+            try:
+                n_split = get_n_split(fpath)
+                hdr_dfs = load_dfs(fpath, ["hdr"], n_max_concat=int(n_split))
+                mc_pot += float(hdr_dfs["hdr"]["pot"].sum())
+                del hdr_dfs
+            except Exception as e:
+                print(f"  skip hdr {path.basename(fpath)}: {e}", flush=True)
+        if ib % 5 == 0:
+            gc.collect()
+    if mc_pot <= 0:
+        raise RuntimeError("MC POT sum is zero")
+    mc_scale = (data_pot / mc_pot) * MC_POT_FIX
+    print(
+        f"  data POT={data_pot:.3e}  MC POT={mc_pot:.3e}  scale={mc_scale:.3e}  "
+        f"(includes MC_POT_FIX={MC_POT_FIX})  data evt={n_data_evt:,}",
+        flush=True,
+    )
+
+    n_mc_evt = 0
+    n_mc_batches = (len(mc_files) + bs - 1) // bs
+    for ib, batch in enumerate(_file_batches(mc_files, bs), start=1):
+        print(f"  MC batch {ib}/{n_mc_batches}", flush=True)
+        dfs = load_file_batch(batch, KEYS2LOAD, label=f"mc-b{ib}")
+        evt, hdr = _finalize_evt_hdr(dfs)
+        evt["pot_weight"] = mc_scale * np.ones(len(evt))
+        n_mc_evt += len(evt)
+        chunk = build_overlay_histdata_map(
+            var_configs,
+            breakdown_types,
+            mc_df=evt,
+            verbose=False,
+        )
+        _merge_histdata_maps(acc, chunk)
+        del dfs, evt, hdr, chunk
+        gc.collect()
+        print(
+            f"    mem={get_memory_used_frac() * 100:.1f}%  mc_evt_so_far={n_mc_evt:,}",
+            flush=True,
+        )
+
+    pot_str = get_pot_str(data_pot)
+    pot_label = f"Events / Bin (POT={pot_str})"
+    print(f"  batched fill done  mc_evt={n_mc_evt:,}  data_evt={n_data_evt:,}", flush=True)
+    return acc, pot_label
+
+
+def run_plot_set(plot_set: dict, var_configs=None) -> None:
+    if var_configs is None:
+        var_configs = VAR_CONFIGS
     tag = plot_set["tag"]
     out_dir = plot_set["output_dir"]
     print(f"\n{'=' * 72}\nPlot set: {tag}\n  MC:   {plot_set['mc_dir']}\n  data: {plot_set['data_dir']}")
@@ -396,40 +594,50 @@ def run_plot_set(plot_set: dict) -> None:
         print(f"  replot from counts: {histdata_pkl_path(out_dir)}", flush=True)
         pot_label_raw = payload["pot_label"]
         histdata_map = payload["histdata"]
+        # Drop vars not requested this run (e.g. OVERLAY_ONLY_VARS).
+        want = {vc.var_save_name for vc in var_configs}
+        histdata_map = {k: v for k, v in histdata_map.items() if k[0] in want}
     else:
         print("  filling counts from dataframes...", flush=True)
-        mc_evt, mc_hdr, n_mc_loaded, n_mc_total = load_mc_sample(
-            plot_set["mc_dir"], plot_set["mc_filename_str"]
-        )
-        if n_mc_loaded < n_mc_total:
-            print(
-                f"  MC subsample: {n_mc_loaded}/{n_mc_total} files "
-                f"(pot_weight scaled in setup_pot_weights)",
-                flush=True,
+        if USE_BATCHED_FILL:
+            histdata_map, pot_label_raw = fill_overlay_counts_batched(
+                plot_set, var_configs, BREAKDOWN_TYPES
             )
-        data_evt, data_hdr = load_data_sample(
-            plot_set["data_dir"], plot_set["data_filename_str"]
-        )
-        pot_label_raw = setup_pot_weights(mc_evt, mc_hdr, data_evt, data_hdr)
-        histdata_map = build_overlay_histdata_map(
-            VAR_CONFIGS,
-            BREAKDOWN_TYPES,
-            mc_df=mc_evt,
-            data_df=data_evt,
-        )
+        else:
+            mc_evt, mc_hdr, n_mc_loaded, n_mc_total = load_mc_sample(
+                plot_set["mc_dir"], plot_set["mc_filename_str"]
+            )
+            if n_mc_loaded < n_mc_total:
+                print(
+                    f"  MC subsample: {n_mc_loaded}/{n_mc_total} files "
+                    f"(pot_weight scaled in setup_pot_weights)",
+                    flush=True,
+                )
+            data_evt, data_hdr = load_data_sample(
+                plot_set["data_dir"], plot_set["data_filename_str"]
+            )
+            pot_label_raw = setup_pot_weights(mc_evt, mc_hdr, data_evt, data_hdr)
+            histdata_map = build_overlay_histdata_map(
+                var_configs,
+                BREAKDOWN_TYPES,
+                mc_df=mc_evt,
+                data_df=data_evt,
+            )
+            del mc_evt, mc_hdr, data_evt, data_hdr
+            gc.collect()
         pkl = save_overlay_counts(
             out_dir,
             histdata_map,
             pot_label=pot_label_raw,
             plot_set=plot_set,
-            var_save_names=[vc.var_save_name for vc in VAR_CONFIGS],
+            var_save_names=[vc.var_save_name for vc in var_configs],
             breakdown_types=BREAKDOWN_TYPES,
         )
         print(f"  wrote counts -> {pkl}", flush=True)
 
     plot_overlay_counts_map(
         histdata_map,
-        VAR_CONFIGS,
+        var_configs,
         BREAKDOWN_TYPES,
         pot_label=strip_pot_from_ylabel(pot_label_raw) or "Events / Bin",
         out_dir=out_dir,
@@ -455,8 +663,22 @@ def main():
         f"mem_now={get_memory_used_frac() * 100:.1f}%",
         flush=True,
     )
+    var_configs = list(VAR_CONFIGS)
+    only_vars = {
+        v.strip()
+        for v in os.environ.get("OVERLAY_ONLY_VARS", "").split(",")
+        if v.strip()
+    }
+    if only_vars:
+        var_configs = [vc for vc in var_configs if vc.var_save_name in only_vars]
+        if not var_configs:
+            raise SystemExit(f"OVERLAY_ONLY_VARS={only_vars!r} matched nothing")
+        print(f"OVERLAY_ONLY_VARS -> {[vc.var_save_name for vc in var_configs]}", flush=True)
+    only = os.environ.get("OVERLAY_ONLY_TAG", "").strip()
     for plot_set in PLOT_SETS:
-        run_plot_set(plot_set)
+        if only and plot_set["tag"] != only:
+            continue
+        run_plot_set(plot_set, var_configs)
     print(f"\nDone in {datetime.now() - t0}")
 
 

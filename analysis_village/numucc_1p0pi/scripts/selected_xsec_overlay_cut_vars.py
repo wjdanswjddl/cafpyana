@@ -30,7 +30,7 @@ import selected_xsec_overlay as sxo  # noqa: E402
 
 CUTVAR_PKL_NAME = "cutvar_overlay_histdata.pkl"
 FORCE_REBUILD_COUNTS = False
-BREAKDOWN_TYPES = ("topology", "genie_sb")
+BREAKDOWN_TYPES = ("topology", "genie", "genie_sb")
 
 # Per-campaign applied thresholds (nominal elsewhere).
 # nu_score: keep > th; chi2_avg_mu: keep < th; |mcs_range_diff|: keep < th;
@@ -240,6 +240,8 @@ def plot_cutvar_map(
                 save_name=save_name,
                 vline=vline,
                 syst=None,
+                # Cut-var binning ≠ Product B xsec syst bins (e.g. vertex_z 50 vs 25).
+                load_syst_from_summary=False,
             )
 
 
@@ -265,24 +267,29 @@ def run_plot_set(plot_set: dict, var_configs: Sequence[VariableConfig]) -> None:
         histdata_map = payload["histdata"]
     else:
         print("  filling cut-var counts from dataframes...", flush=True)
-        mc_evt, mc_hdr, n_mc_loaded, n_mc_total = sxo.load_mc_sample(
-            plot_set["mc_dir"], plot_set["mc_filename_str"]
-        )
-        if n_mc_loaded < n_mc_total:
-            print(
-                f"  MC subsample: {n_mc_loaded}/{n_mc_total} files",
-                flush=True,
+        if sxo.USE_BATCHED_FILL:
+            histdata_map, pot_label = sxo.fill_overlay_counts_batched(
+                plot_set, var_configs, BREAKDOWN_TYPES
             )
-        data_evt, data_hdr = sxo.load_data_sample(
-            plot_set["data_dir"], plot_set["data_filename_str"]
-        )
-        pot_label = sxo.setup_pot_weights(mc_evt, mc_hdr, data_evt, data_hdr)
-        histdata_map = build_overlay_histdata_map(
-            var_configs,
-            BREAKDOWN_TYPES,
-            mc_df=mc_evt,
-            data_df=data_evt,
-        )
+        else:
+            mc_evt, mc_hdr, n_mc_loaded, n_mc_total = sxo.load_mc_sample(
+                plot_set["mc_dir"], plot_set["mc_filename_str"]
+            )
+            if n_mc_loaded < n_mc_total:
+                print(
+                    f"  MC subsample: {n_mc_loaded}/{n_mc_total} files",
+                    flush=True,
+                )
+            data_evt, data_hdr = sxo.load_data_sample(
+                plot_set["data_dir"], plot_set["data_filename_str"]
+            )
+            pot_label = sxo.setup_pot_weights(mc_evt, mc_hdr, data_evt, data_hdr)
+            histdata_map = build_overlay_histdata_map(
+                var_configs,
+                BREAKDOWN_TYPES,
+                mc_df=mc_evt,
+                data_df=data_evt,
+            )
         pkl = save_cutvar_counts(
             out_dir,
             histdata_map,
@@ -304,13 +311,25 @@ def run_plot_set(plot_set: dict, var_configs: Sequence[VariableConfig]) -> None:
 def main() -> None:
     t0 = datetime.now()
     var_configs = _cut_var_configs()
+    only_vars = {
+        v.strip()
+        for v in __import__("os").environ.get("OVERLAY_ONLY_VARS", "").split(",")
+        if v.strip()
+    }
+    if only_vars:
+        var_configs = [vc for vc in var_configs if vc.var_save_name in only_vars]
+        if not var_configs:
+            raise SystemExit(f"OVERLAY_ONLY_VARS={only_vars!r} matched nothing")
     print(f"selected_xsec_overlay_cut_vars start {t0.isoformat()}", flush=True)
     print(
         f"vars={[vc.var_save_name for vc in var_configs]}  "
         f"mem_now={sxo.get_memory_used_frac() * 100:.1f}%",
         flush=True,
     )
+    only = __import__("os").environ.get("OVERLAY_ONLY_TAG", "").strip()
     for plot_set in sxo.PLOT_SETS:
+        if only and plot_set["tag"] != only:
+            continue
         run_plot_set(plot_set, var_configs)
     print(f"\nDone in {datetime.now() - t0}", flush=True)
 

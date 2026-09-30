@@ -312,7 +312,9 @@ def run_grid(inputfiles):
     CAFPYANA_GRID_OUT_DIR = os.environ['CAFPYANA_GRID_OUT_DIR']
     grid_subdir = _resolve_grid_subdir()
     dfs_root = os.path.join(CAFPYANA_GRID_OUT_DIR, "dfs")
-    logs_root = os.path.join(CAFPYANA_GRID_OUT_DIR, "logs")
+    logs_root = os.path.join(
+        os.environ.get("CAFPYANA_GRID_LOG_DIR", "").strip() or CAFPYANA_GRID_OUT_DIR, "logs"
+    )
     if grid_subdir:
         dfs_root = os.path.join(dfs_root, grid_subdir)
         logs_root = os.path.join(logs_root, grid_subdir)
@@ -392,6 +394,15 @@ def run_grid(inputfiles):
             'fi\n'
             % i_flist
         )
+        # Inject root makedf/makedf.py (dE/dx smear χ² columns: updatesmear=...).
+        out.write(
+            'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_root_makedf.py" ]; then\n'
+            '  mkdir -p makedf\n'
+            '  cp -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_root_makedf.py" makedf/makedf.py\n'
+            '  echo "[run_%s.sh] injected makedf/makedf.py from submit host"\n'
+            'fi\n'
+            % i_flist
+        )
         # FSI_compare / slim-throw packs: ship local geniesyst + syst_histcounts (not yet on GitHub).
         out.write(
             'if [ -f "${CONDOR_DIR_INPUT}/bin_dir/numucc_geniesyst.py" ]; then\n'
@@ -448,6 +459,12 @@ def run_grid(inputfiles):
         if os.path.isfile(_util_local):
             shutil.copy2(_util_local, os.path.join(MasterJobDir, "numucc_makedf_util.py"))
             print("[run_df_maker] bundled makedf/util.py into job tarball")
+        _root_makedf_local = os.path.join(_wd, "makedf/makedf.py")
+        if os.path.isfile(_root_makedf_local):
+            shutil.copy2(
+                _root_makedf_local, os.path.join(MasterJobDir, "numucc_root_makedf.py")
+            )
+            print("[run_df_maker] bundled makedf/makedf.py into job tarball")
         _geniesyst_local = os.path.join(_wd, "makedf/geniesyst.py")
         if os.path.isfile(_geniesyst_local):
             shutil.copy2(_geniesyst_local, os.path.join(MasterJobDir, "numucc_geniesyst.py"))

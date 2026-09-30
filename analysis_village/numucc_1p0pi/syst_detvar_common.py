@@ -70,6 +70,23 @@ def wiremod_component_shifted_univs() -> Dict[str, Tuple[str, ...]]:
     out[WIREMOD_EFIELD_UNIV] = (WIREMOD_EFIELD_UNIV,)
     return out
 
+
+def wiremod_component_geometry_knob_tag(lab: str, component: str) -> str:
+    """Knob tag for one geometry × component unisim (e.g. ``wiremod_yz_ccal``)."""
+    base = WIREMOD_KNOB_TAGS.get(lab, f"wiremod_{str(lab).lower()}")
+    return f"{base}_{component}"
+
+
+def wiremod_component_geometry_knob_tags(
+    wiremod_labels: Sequence[str] = ("YZ", "XTXW"),
+) -> Dict[str, Tuple[str, str]]:
+    """``{knob_tag: (geometry_label, component)}`` for the 10-knob WireMod recipe."""
+    out: Dict[str, Tuple[str, str]] = {}
+    for lab in wiremod_labels:
+        for comp in wiremod_component_shifted_univs():
+            out[wiremod_component_geometry_knob_tag(lab, comp)] = (lab, comp)
+    return out
+
 SOURCE_COLORS = {
     "wiremod_yz": "#1f77b4",
     "wiremod_xtxw": "#ff7f0e",
@@ -1110,6 +1127,194 @@ def build_wiremod_detector_dict(
     if detector_by_wiremod:
         detector_dict["detector_by_wiremod"] = detector_by_wiremod
     return detector_dict
+
+
+def build_wiremod_component_geometry_detector_dict(
+    all_hists: Mapping[str, Mapping[str, Mapping[str, np.ndarray]]],
+    var_names: Sequence[str],
+    *,
+    wiremod_labels: Sequence[str] = ("YZ", "XTXW"),
+    cv_hists: Optional[Mapping[str, np.ndarray]] = None,
+) -> dict:
+    """WireMod detector dict with **10** geometry×component unisim knobs.
+
+    For each geometry in *wiremod_labels* and each component from
+    :func:`wiremod_component_shifted_univs` (``ccal``, ``alpha``, ``beta``,
+    ``R``, ``efield``), build one max-|Δ| unisim vs *cv_hists* (matched CV).
+    Combined ``detector`` = independent sum of all 10 knobs.
+
+    Knob tags look like ``wiremod_yz_ccal``, ``wiremod_xtxw_efield``, …
+    """
+    components = wiremod_component_shifted_univs()
+    knob_specs: list[tuple[str, str, str, Tuple[str, ...]]] = []
+    for lab in wiremod_labels:
+        for comp, shifted in components.items():
+            tag = wiremod_component_geometry_knob_tag(lab, comp)
+            knob_specs.append((lab, comp, tag, tuple(shifted)))
+
+    detector_dict: Dict[str, Any] = {"detector": {}}
+    for _lab, _comp, tag, _shifted in knob_specs:
+        detector_dict[f"detector-{tag}"] = {}
+    detector_by_wiremod: Dict[str, dict] = {}
+
+    for var_name in var_names:
+        per_tag: Dict[str, Any] = {}
+        packs = []
+        n_cv_ext = None
+        if cv_hists is not None and var_name in cv_hists:
+            n_cv_ext = np.asarray(cv_hists[var_name], dtype=float)
+            if float(n_cv_ext.sum()) <= 0:
+                n_cv_ext = None
+
+        for lab, _comp, tag, shifted in knob_specs:
+            if lab not in all_hists:
+                continue
+            hists = all_hists[lab]
+            if n_cv_ext is not None:
+                n_cv = n_cv_ext
+            else:
+                if "cv" not in hists or var_name not in hists["cv"]:
+                    continue
+                n_cv = np.asarray(hists["cv"][var_name], dtype=float)
+                if float(n_cv.sum()) <= 0:
+                    continue
+            if not any(u in hists and var_name in hists[u] for u in shifted):
+                continue
+            n_var = max_envelope_univ_counts(n_cv, hists, var_name, shifted)
+            pack = cov_pack_two_universe(n_cv, n_var)
+            per_tag[tag] = pack
+            detector_dict[f"detector-{tag}"][var_name] = pack
+            packs.append(pack)
+
+        if not packs:
+            continue
+        if n_cv_ext is not None:
+            n_cv_ref = n_cv_ext
+        else:
+            lab0 = next(
+                lab
+                for lab in wiremod_labels
+                if lab in all_hists and "cv" in all_hists[lab]
+            )
+            n_cv_ref = np.asarray(all_hists[lab0]["cv"][var_name], dtype=float)
+        combined = combine_indep_knob_cov_packs(packs, n_cv_ref)
+        detector_dict["detector"][var_name] = sanitize_matrix_pack(combined)
+        detector_by_wiremod[var_name] = per_tag
+
+    if detector_by_wiremod:
+        detector_dict["detector_by_wiremod"] = detector_by_wiremod
+    return detector_dict
+
+
+def build_wiremod_nested_detector_dict(
+    all_hists: Mapping[str, Mapping[str, Mapping[str, np.ndarray]]],
+    var_names: Sequence[str],
+    *,
+    wiremod_labels: Sequence[str] = ("YZ", "XTXW"),
+    cv_hists: Optional[Mapping[str, np.ndarray]] = None,
+    geometries_as_distinct_dofs: bool = True,
+) -> dict:
+    """WireMod nested unisims: geometry vs matched CV, calo/efield on top of WM cv.
+
+    For each geometry \(G\):
+
+    * **Geometry knob** ``wiremod_{g}``:
+      \(\delta = |n^{G}_{\mathrm{cv}} - n_{\mathrm{matched\,CV}}|\) (unisim).
+    * **Component knobs** ``wiremod_{g}_{ccal|alpha|beta|R|efield}``:
+      \(\delta = \max_u |n^{G}_{u} - n^{G}_{\mathrm{cv}}|\) with \(u\) the
+      component's shifted univs — measured **on top of** WireMod, not vs
+      matched CV (avoids double-counting the geometry shift).
+
+    With *geometries_as_distinct_dofs* (default), YZ and XTXW are independent
+    DoFs → 2 geometry + 10 component = 12 WireMod knobs. Combined ``detector``
+    is the independent sum of all knobs.
+
+    *cv_hists* must be the external matched CV ``{var: counts}``.
+    """
+    if cv_hists is None:
+        raise ValueError(
+            "build_wiremod_nested_detector_dict requires cv_hists (matched CV)"
+        )
+    if not geometries_as_distinct_dofs:
+        raise NotImplementedError(
+            "geom-enveloped nesting (max across YZ/XTXW) not implemented; "
+            "use geometries_as_distinct_dofs=True"
+        )
+
+    components = wiremod_component_shifted_univs()
+    # (lab, tag, baseline_mode, shifted_or_None)
+    # baseline_mode: "matched" → vs cv_hists; "wm_cv" → vs in-file cv
+    knob_specs: list[tuple[str, str, str, Optional[Tuple[str, ...]]]] = []
+    for lab in wiremod_labels:
+        geom_tag = WIREMOD_KNOB_TAGS.get(lab, f"wiremod_{str(lab).lower()}")
+        knob_specs.append((lab, geom_tag, "matched", ("cv",)))
+        for comp, shifted in components.items():
+            tag = wiremod_component_geometry_knob_tag(lab, comp)
+            knob_specs.append((lab, tag, "wm_cv", tuple(shifted)))
+
+    detector_dict: Dict[str, Any] = {"detector": {}}
+    for _lab, tag, _mode, _sh in knob_specs:
+        detector_dict[f"detector-{tag}"] = {}
+    detector_by_wiremod: Dict[str, dict] = {}
+
+    for var_name in var_names:
+        if var_name not in cv_hists:
+            continue
+        n_matched = np.asarray(cv_hists[var_name], dtype=float)
+        if float(n_matched.sum()) <= 0:
+            continue
+
+        per_tag: Dict[str, Any] = {}
+        packs = []
+        for lab, tag, baseline_mode, shifted in knob_specs:
+            if lab not in all_hists:
+                continue
+            hists = all_hists[lab]
+            if "cv" not in hists or var_name not in hists["cv"]:
+                continue
+            n_wm_cv = np.asarray(hists["cv"][var_name], dtype=float)
+            if float(n_wm_cv.sum()) <= 0:
+                continue
+
+            if baseline_mode == "matched":
+                # Geometry unisim: WireMod in-file cv vs matched Sep-4 CV.
+                n_base = n_matched
+                n_var = n_wm_cv
+                pack = cov_pack_two_universe(n_base, n_var)
+            else:
+                assert shifted is not None
+                if not any(u in hists and var_name in hists[u] for u in shifted):
+                    continue
+                # Component on top of WireMod: envelope vs WireMod cv.
+                n_base = n_wm_cv
+                n_var = max_envelope_univ_counts(n_base, hists, var_name, shifted)
+                pack = cov_pack_two_universe(n_base, n_var)
+
+            per_tag[tag] = pack
+            detector_dict[f"detector-{tag}"][var_name] = pack
+            packs.append(pack)
+
+        if not packs:
+            continue
+        combined = combine_indep_knob_cov_packs(packs, n_matched)
+        detector_dict["detector"][var_name] = sanitize_matrix_pack(combined)
+        detector_by_wiremod[var_name] = per_tag
+
+    if detector_by_wiremod:
+        detector_dict["detector_by_wiremod"] = detector_by_wiremod
+    return detector_dict
+
+
+def wiremod_nested_knob_tags(
+    wiremod_labels: Sequence[str] = ("YZ", "XTXW"),
+) -> list[str]:
+    """Ordered knob tags for the nested WireMod recipe (12 tags for YZ+XTXW)."""
+    tags: list[str] = []
+    for lab in wiremod_labels:
+        tags.append(WIREMOD_KNOB_TAGS.get(lab, f"wiremod_{str(lab).lower()}"))
+        for comp in wiremod_component_shifted_univs():
+            tags.append(wiremod_component_geometry_knob_tag(lab, comp))
+    return tags
 
 
 def build_dent_detector_dict(

@@ -112,6 +112,27 @@ def InFV(df, inzback=10, inx=10, iny=10, inzfront=10, incathode=5, det="ICARUS")
     else:
         raise NameError("DETECTOR not valid, should be SBND or ICARUS")
 
+
+def points_in_gen1_same_tpc(points, incathode=10):
+    """True when every point is in ``SBND_Gen1`` and all lie in the same TPC.
+
+    Matches reco ``event_contained_per_tpc``: full Gen-1 box (x, y, z, including
+    the high-YZ truncation) AND all x < -incathode or all x > +incathode.
+    ``points`` is a sequence of position frames with ``.x``, ``.y``, ``.z``.
+    """
+    all_in_fv = None
+    all_in_tpc1 = None
+    all_in_tpc2 = None
+    for pt in points:
+        m = InFV(pt, det="SBND_Gen1")
+        all_in_fv = m if all_in_fv is None else (all_in_fv & m)
+        m1 = pt.x < (-1 * incathode)
+        m2 = pt.x > incathode
+        all_in_tpc1 = m1 if all_in_tpc1 is None else (all_in_tpc1 & m1)
+        all_in_tpc2 = m2 if all_in_tpc2 is None else (all_in_tpc2 & m2)
+    return all_in_fv & (all_in_tpc1 | all_in_tpc2)
+
+
 def TrkInFV(df):
     return InFV(df, 15.)
 

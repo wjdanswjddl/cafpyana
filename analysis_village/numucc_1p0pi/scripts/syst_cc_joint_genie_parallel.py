@@ -2,7 +2,7 @@
 """Parallel dispatcher for :mod:`syst_cc_joint_genie_chunk` (joint-bin GENIE rate map).
 
 Same (GENIE group, ``.df``) queue as :mod:`syst_genie_parallel` chunk-map; workers call
-:func:`syst_cc_joint_genie_chunk.run_with_args` so outputs are ``nu__joint_cc_genie__*.pkl``.
+:func:`syst_cc_joint_genie_chunk.run_with_args` so outputs are ``nu__joint_cc_genie_stack__*.pkl``.
 """
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ sys.path.append(
 )
 
 from analysis_village.numucc_1p0pi.dataset_locations import (  # noqa: E402
+    DEFAULT_JOINT_CC_GENIE_GROUPS,
     GENIE_GROUP_ORDER,
     _genie_glob_map,
     iter_genie_chunk_map_tasks,
@@ -115,8 +116,10 @@ def _worker(job: dict) -> dict:
             input_stage=job["input_stage"],
             max_splits=int(job["max_splits"]),
             pairs=job.get("pairs"),
+            mode=job.get("mode", "stack"),
+            bkgd_subtract=bool(job.get("bkgd_subtract", False)),
         )
-        out_path, status = joint_genie_chunk_mod.run_with_args(ns, skip_existing=False)
+        out_path, status = joint_genie_chunk_mod.run_with_args(ns, skip_existing=True)
         return {
             "ok": True,
             "status": status,
@@ -148,13 +151,19 @@ def _worker(job: dict) -> dict:
 def parse_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--mc-df-stage", choices=("final", "sel_all"), default="final")
-    p.add_argument("--chunks-dir", required=True, help="Output directory for nu__joint_cc_genie__*.pkl")
+    p.add_argument("--chunks-dir", required=True, help="Output directory for nu__joint_cc_genie_stack__*.pkl")
     p.add_argument("--failed-log", required=True)
-    p.add_argument("--genie-groups", default="", help="Comma-separated subset (empty = all in active map).")
+    p.add_argument(
+        "--genie-groups",
+        default="",
+        help="Comma-separated subset (empty = DEFAULT_JOINT_CC_GENIE_GROUPS: FSI_compare).",
+    )
     p.add_argument("--max-files", type=int, default=0, help="Per-group cap on map jobs (0 = all).")
     p.add_argument("--max-splits", type=int, default=0)
     p.add_argument("--workers", type=int, default=8)
-    p.add_argument("--pairs", default=None, help="Optional CSV of preset pair slugs for chunk --pairs.")
+    p.add_argument("--pairs", default=None, help="Optional CSV of preset pair slugs (implies pairs mode).")
+    p.add_argument("--mode", choices=("stack", "pairs"), default="stack")
+    p.add_argument("--bkgd-subtract", action="store_true")
     return p.parse_args(argv)
 
 
@@ -174,7 +183,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             file=sys.stderr,
         )
         return 2
-    allowed = [s.strip() for s in cli.genie_groups.split(",") if s.strip()] or None
+    allowed = [s.strip() for s in cli.genie_groups.split(",") if s.strip()]
+    if not allowed:
+        allowed = list(DEFAULT_JOINT_CC_GENIE_GROUPS)
     jobs, stats = _build_jobs(
         mc_df_stage=cli.mc_df_stage,
         allowed=allowed,
@@ -200,6 +211,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "input_stage": cli.mc_df_stage,
             "max_splits": int(cli.max_splits),
             "pairs": cli.pairs,
+            "mode": "pairs" if cli.pairs else cli.mode,
+            "bkgd_subtract": bool(cli.bkgd_subtract),
         }
         for (g, p) in jobs
     ]

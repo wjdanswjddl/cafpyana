@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
-"""Map phase: one MC ``.df`` → pickle with **joint-bin** GENIE **rate** histograms per kinematic pair.
+"""Map phase: one MC ``.df`` → pickle with **joint-bin** GENIE **rate** histograms.
 
-For each GENIE knob in the active group, stacks per-universe **event-rate** histograms
-(``get_univ_rates(..., cov_type=\"rate\")``) for variable **X** (proton) then **Y** (muon),
-matching :mod:`syst_cc_joint_multisim_chunk` bin ordering. Output files are named
-``nu__joint_cc_genie__<GROUP>__<stem>.pkl`` (see :mod:`syst_cc_joint_multisim_common`).
-
-Reuses accumulator layout key ``rate_univ_cv`` from :mod:`get_systematics_genie` so
-:func:`get_systematics_genie.merge_genie_chunk_pickles` can merge chunk files across ``.df``
-stems within a group.
-
-* ``input_stage=final`` only (same HDF keys as marginal GENIE chunk-map).
-* ``sel_all`` is not implemented here — use the marginal GENIE pipeline for cut-stage tensors.
-* Optional: ``NUMUCC_JOINT_GENIE_SHAPES`` — ``1`` (default): print stacked ``u_j`` / ``cv_j`` shapes
-  once per (knob, kinematic pair) per worker; ``all``: every HDF split; ``0``: off.
+Default (``--mode stack``): inclusive selected-rate stack
+(``get_univ_rates(..., cov_type=rate, bkgd_subtract=False)``) matching
+:mod:`syst_cc_joint_multisim_chunk`. GENIE knobs come from
+:func:`dataset_locations.joint_cc_genie_knobs_for_group` (FSI_compare →
+``GENIE_slim_v3`` only). Pickle prefix ``nu__joint_cc_genie_stack__``.
 
 Aggregate with :mod:`analysis_village.numucc_1p0pi.scripts.syst_cc_joint_genie_aggregate`.
 """
@@ -44,7 +36,7 @@ sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath
 
 from pyanalib.split_df_helpers import get_n_split  # noqa: E402
 
-from analysis_village.numucc_1p0pi.dataset_locations import GENIE_GROUP_KNOBS  # noqa: E402
+from analysis_village.numucc_1p0pi.dataset_locations import joint_cc_genie_knobs_for_group  # noqa: E402
 from analysis_village.numucc_1p0pi.scripts.get_systematics_genie import (  # noqa: E402
     RATE_ACC_KEY,
     SystName,
@@ -60,75 +52,77 @@ from analysis_village.numucc_1p0pi.scripts.get_systematics_genie import (  # noq
 )
 from analysis_village.numucc_1p0pi.evt_derived_kinematics import ensure_derived_trk_kinematics_cols  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_cc_joint_multisim_common import (  # noqa: E402
-    default_kinematic_joint_pairs,
     joint_cc_genie_chunk_basename,
     parse_pair_slugs_csv,
-    select_joint_pairs,
+    stack_jobs,
 )
 from analysis_village.numucc_1p0pi.utils import get_univ_rates  # noqa: E402
 
 # Log stacked (X|Y) universe matrix shapes once per (knob, pair) per process unless
 # ``NUMUCC_JOINT_GENIE_SHAPES=all`` (every HDF split) or ``NUMUCC_JOINT_GENIE_SHAPES=0`` (off).
 _LOGGED_JOINT_GENIE_SHAPES: set[tuple[str, str]] = set()
+_LOGGED_JOINT_GENIE_SKIPPED_KNOBS: set[str] = set()
 
 
 def accumulate_joint_genie_rate_split(
     mc_evt_df: pd.DataFrame,
     mc_nu_df: pd.DataFrame,
     blob_root: dict[str, Any],
-    joint_pairs: tuple[tuple[str, object, object], ...],
+    jobs: tuple[tuple[str, tuple], ...],
     syst_names: Sequence[SystName],
     *,
-    bkgd_subtract: bool = True,
+    bkgd_subtract: bool = False,
 ) -> None:
     validate_split_pair(mc_evt_df, mc_nu_df, -1)
     rate_blk = blob_root.setdefault(RATE_ACC_KEY, {})
 
     for syst_name in syst_names:
         knob = syst_name[1]
-        n_univ = normalize_and_infer_n_univ(mc_evt_df, mc_nu_df, syst_name)
+        n_univ = normalize_and_infer_n_univ(
+            mc_evt_df, mc_nu_df, syst_name, raise_if_missing=False
+        )
+        if n_univ <= 0:
+            if knob not in _LOGGED_JOINT_GENIE_SKIPPED_KNOBS:
+                _LOGGED_JOINT_GENIE_SKIPPED_KNOBS.add(knob)
+                print(
+                    "[cc-joint-genie-chunk] skip missing knob %r (not on this DF)" % knob,
+                    flush=True,
+                )
+            continue
 
-        for _pair_slug, vx, vy in joint_pairs:
-            u_x, c_x = get_univ_rates(
-                cov_type="rate",
-                syst_type="GENIE",
-                evtdf=mc_evt_df,
-                nudf=mc_nu_df,
-                var_config=vx,
-                syst_name=syst_name,
-                n_univ=n_univ,
-                bkgd_subtract=bkgd_subtract,
-                plot=False,
-            )
-            u_y, c_y = get_univ_rates(
-                cov_type="rate",
-                syst_type="GENIE",
-                evtdf=mc_evt_df,
-                nudf=mc_nu_df,
-                var_config=vy,
-                syst_name=syst_name,
-                n_univ=n_univ,
-                bkgd_subtract=bkgd_subtract,
-                plot=False,
-            )
-            u_x = np.asarray(u_x, dtype=np.float64)
-            u_y = np.asarray(u_y, dtype=np.float64)
-            c_x = np.asarray(c_x, dtype=np.float64).reshape(-1)
-            c_y = np.asarray(c_y, dtype=np.float64).reshape(-1)
-            if u_x.ndim != 2 or u_y.ndim != 2:
-                raise ValueError("joint GENIE univ arrays must be 2-D, got %s and %s" % (u_x.shape, u_y.shape))
-            if u_x.shape[0] != u_y.shape[0]:
-                raise ValueError(
-                    "joint GENIE n_univ mismatch X vs Y: %d vs %d (shapes %s vs %s)"
-                    % (u_x.shape[0], u_y.shape[0], u_x.shape, u_y.shape)
+        for _pair_slug, vars_ in jobs:
+            us = []
+            cs = []
+            names = []
+            for var in vars_:
+                u, c = get_univ_rates(
+                    cov_type="rate",
+                    syst_type="GENIE",
+                    evtdf=mc_evt_df,
+                    nudf=mc_nu_df,
+                    var_config=var,
+                    syst_name=syst_name,
+                    n_univ=n_univ,
+                    bkgd_subtract=bkgd_subtract,
+                    plot=False,
                 )
-            if c_x.size != u_x.shape[1] or c_y.size != u_y.shape[1]:
-                raise ValueError(
-                    "joint GENIE cv length vs univ width: len(cv_X)=%d vs n_bins_X=%d; len(cv_Y)=%d vs n_bins_Y=%d"
-                    % (c_x.size, u_x.shape[1], c_y.size, u_y.shape[1])
-                )
-            u_j = np.hstack([u_x, u_y])
-            c_j = np.concatenate([c_x, c_y])
+                u = np.asarray(u, dtype=np.float64)
+                c = np.asarray(c, dtype=np.float64).reshape(-1)
+                if u.ndim != 2:
+                    raise ValueError("joint GENIE univ must be 2-D, got %s" % (u.shape,))
+                if c.size != u.shape[1]:
+                    raise ValueError(
+                        "joint GENIE cv vs univ width for %s: %d vs %d"
+                        % (var.var_save_name, c.size, u.shape[1])
+                    )
+                us.append(u)
+                cs.append(c)
+                names.append(var.var_save_name)
+            n_univ_set = {u.shape[0] for u in us}
+            if len(n_univ_set) != 1:
+                raise ValueError("joint GENIE n_univ mismatch: %s" % [u.shape for u in us])
+            u_j = np.hstack(us)
+            c_j = np.concatenate(cs)
             _shape_log = os.environ.get("NUMUCC_JOINT_GENIE_SHAPES", "1").strip().lower()
             _sk = (knob, _pair_slug)
             if _shape_log != "0":
@@ -136,9 +130,8 @@ def accumulate_joint_genie_rate_split(
                     if _shape_log != "all":
                         _LOGGED_JOINT_GENIE_SHAPES.add(_sk)
                     print(
-                        "[cc-joint-genie-chunk] joint stacked shapes knob=%r pair=%r: "
-                        "u_x=%s u_y=%s -> u_j=%s, cv_j=%s"
-                        % (_sk[0], _sk[1], u_x.shape, u_y.shape, u_j.shape, c_j.shape),
+                        "[cc-joint-genie-chunk] stacked shapes knob=%r slug=%r vars=%s: u_j=%s cv_j=%s"
+                        % (_sk[0], _sk[1], names, u_j.shape, c_j.shape),
                         flush=True,
                     )
             slot = rate_blk.setdefault(knob, {}).setdefault(
@@ -153,15 +146,16 @@ def run_joint_genie_chunk_map(
     df_file: str,
     out_dir: str,
     genie_group: str,
-    joint_pairs: tuple[tuple[str, object, object], ...],
+    jobs: tuple[tuple[str, tuple], ...],
     *,
     max_splits: int = 0,
     input_stage: str = "final",
-    bkgd_subtract: bool = True,
+    bkgd_subtract: bool = False,
+    mode: str = "stack",
 ) -> str:
     if input_stage != "final":
         raise SystemExit("[cc-joint-genie-chunk] only --input-stage final is implemented")
-    knobs = list(GENIE_GROUP_KNOBS.get(genie_group) or [])
+    knobs = joint_cc_genie_knobs_for_group(genie_group)
     if not knobs:
         raise SystemExit("[cc-joint-genie-chunk] no knobs for GENIE group %r" % genie_group)
     syst_names: list[SystName] = [("mc", k) for k in knobs]
@@ -173,14 +167,19 @@ def run_joint_genie_chunk_map(
         raise SystemExit("[cc-joint-genie-chunk] no HDF splits")
 
     blob_root: dict[str, Any] = {
-        "kind": "joint_genie_cc_chunk",
+        "kind": "joint_genie_cc_stack_chunk" if mode == "stack" else "joint_genie_cc_chunk",
         "input_stage": input_stage,
+        "mode": mode,
+        "bkgd_subtract": bool(bkgd_subtract),
         "meta": {
             "df_file": df_file,
             "splits_processed": n_use,
             "genie_group": genie_group,
+            "genie_knobs": knobs,
             "input_stage": input_stage,
-            "pairs": [p[0] for p in joint_pairs],
+            "pairs": [p[0] for p in jobs],
+            "mode": mode,
+            "bkgd_subtract": bool(bkgd_subtract),
         },
         RATE_ACC_KEY: {},
     }
@@ -191,8 +190,7 @@ def run_joint_genie_chunk_map(
         validate_genie_dataframes({"evt": mc_evt_df, "mcnu": mc_nu_df}, context=f"split {i}:")
         mc_evt_df = mc_evt_df.copy()
         mc_nu_df = mc_nu_df.copy()
-        # _prefix_mcnu_columns(mc_nu_df)
-        # mc_nu_df = ensure_mc_level_phi_mcnu(mc_nu_df)
+        _prefix_mcnu_columns(mc_nu_df)
         mc_evt_df = ensure_derived_trk_kinematics_cols(mc_evt_df)
         mc_evt_df = add_reco_cc1p0pi_tki_evtdf(mc_evt_df)
         mc_evt_df = add_truth_cc1p0pi_tki_evtdf(mc_evt_df)
@@ -202,7 +200,7 @@ def run_joint_genie_chunk_map(
             mc_evt_df,
             mc_nu_df,
             blob_root,
-            joint_pairs,
+            jobs,
             syst_names,
             bkgd_subtract=bkgd_subtract,
         )
@@ -210,7 +208,7 @@ def run_joint_genie_chunk_map(
         gc.collect()
 
     stem = path.splitext(path.basename(df_file))[0]
-    out_path = path.join(out_dir, joint_cc_genie_chunk_basename(genie_group, stem))
+    out_path = path.join(out_dir, joint_cc_genie_chunk_basename(genie_group, stem, mode=mode))
     tmp_path = out_path + ".tmp"
     with open(tmp_path, "wb") as f:
         pickle.dump(blob_root, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -227,22 +225,40 @@ def parse_args():
     p.add_argument("--input-stage", choices=("final", "sel_all"), default="final")
     p.add_argument("--max-splits", type=int, default=0)
     p.add_argument(
+        "--mode",
+        choices=("stack", "pairs"),
+        default="stack",
+        help="``stack`` (default): inclusive 4-var vector. ``pairs``: legacy pairwise shards.",
+    )
+    p.add_argument(
         "--pairs",
         default=None,
-        help="Comma-separated preset pair slugs (default: all from default_kinematic_joint_pairs).",
+        help="Comma-separated preset pair slugs (implies --mode pairs).",
+    )
+    p.add_argument(
+        "--bkgd-subtract",
+        action="store_true",
+        help="Legacy signal-subtracted universes. Default is inclusive selected rate.",
     )
     return p.parse_args()
 
 
+def _resolve_mode(args) -> str:
+    if getattr(args, "pairs", None):
+        return "pairs"
+    return str(getattr(args, "mode", "stack") or "stack")
+
+
 def compute_out_path(args) -> str:
     stem = path.splitext(path.basename(args.df_file))[0]
-    return path.join(args.out_dir, joint_cc_genie_chunk_basename(args.genie_group, stem))
+    return path.join(args.out_dir, joint_cc_genie_chunk_basename(args.genie_group, stem, mode=_resolve_mode(args)))
 
 
 def run_with_args(args, *, skip_existing: bool = False) -> Tuple[str, str]:
     os.makedirs(args.out_dir, exist_ok=True)
-    pair_slugs = parse_pair_slugs_csv(args.pairs)
-    joint_pairs = select_joint_pairs(pair_slugs)
+    mode = _resolve_mode(args)
+    pair_slugs = parse_pair_slugs_csv(args.pairs) if mode == "pairs" else None
+    jobs = stack_jobs(mode=mode, pair_slugs=pair_slugs)
     out_path = compute_out_path(args)
     if skip_existing and path.exists(out_path):
         return out_path, "skipped"
@@ -250,9 +266,11 @@ def run_with_args(args, *, skip_existing: bool = False) -> Tuple[str, str]:
         args.df_file,
         args.out_dir,
         args.genie_group,
-        joint_pairs,
+        jobs,
         max_splits=int(args.max_splits),
         input_stage=args.input_stage,
+        bkgd_subtract=bool(getattr(args, "bkgd_subtract", False)),
+        mode=mode,
     )
     return out_path, "ok"
 

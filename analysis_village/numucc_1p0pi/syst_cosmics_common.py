@@ -160,6 +160,174 @@ def apply_flat_cosmic_uncertainty(
 
 
 # ---------------------------------------------------------------------------
+# Product A cosmic template: |offbeam − intime| (+ NN fill + smooth)
+# ---------------------------------------------------------------------------
+
+
+def _moving_average_odd(x: np.ndarray, window: int) -> np.ndarray:
+    """Odd-length moving average with edge padding (shape-preserving smoother)."""
+    y = np.asarray(x, dtype=float).copy()
+    n = y.size
+    if n == 0:
+        return y
+    w = int(window)
+    if w < 1:
+        return y
+    if w % 2 == 0:
+        w += 1
+    if w == 1 or w > n:
+        return y
+    pad = w // 2
+    yp = np.pad(y, pad, mode="edge")
+    kernel = np.ones(w, dtype=float) / float(w)
+    return np.convolve(yp, kernel, mode="valid")
+
+
+def _fill_zero_denominator_frac_unc(
+    frac_unc: np.ndarray,
+    *,
+    denom: np.ndarray,
+    numer_abs: np.ndarray,
+) -> np.ndarray:
+    """Where denom==0 but |difference|>0, copy frac unc from the nearest valid bin."""
+    u = np.asarray(frac_unc, dtype=float).copy()
+    d = np.asarray(denom, dtype=float)
+    num = np.asarray(numer_abs, dtype=float)
+    valid = np.isfinite(d) & (d > 0.0) & np.isfinite(u)
+    need = (
+        np.isfinite(d)
+        & (d <= 0.0)
+        & np.isfinite(num)
+        & (num > 0.0)
+    )
+    valid_idx = np.flatnonzero(valid)
+    if valid_idx.size == 0:
+        return u
+    for i in np.flatnonzero(need):
+        j = valid_idx[np.argmin(np.abs(valid_idx - i))]
+        u[i] = u[j]
+    return u
+
+
+def product_a_cosmic_template_frac_unc_components(
+    h_offbeam: np.ndarray,
+    h_intime: np.ndarray,
+    *,
+    smooth_window: int = 5,
+) -> Dict[str, np.ndarray]:
+    """Return raw / intermediate / final pieces of the Product A cosmic template unc.
+
+    Keys
+    ----
+    h_offbeam, h_intime
+        Input histograms (1-D).
+    delta
+        ``|intime − offbeam|`` (unsmoothed).
+    delta_smooth
+        Moving-average of ``delta``.
+    u_raw
+        ``delta / offbeam`` (no smooth, no NN fill); 0 where offbeam==0.
+    u_from_delta_smooth
+        ``delta_smooth / offbeam`` before NN fill / final smooth.
+    u
+        Final fractional uncertainty (NN fill + smooth), same as
+        :func:`product_a_cosmic_template_frac_unc`.
+    """
+    h_off = np.asarray(h_offbeam, dtype=float).ravel()
+    h_in = np.asarray(h_intime, dtype=float).ravel()
+    if h_off.shape != h_in.shape:
+        raise ValueError(
+            "offbeam/intime histogram shape mismatch: %s vs %s"
+            % (h_off.shape, h_in.shape)
+        )
+    delta = np.abs(h_in - h_off)
+    delta_s = _moving_average_odd(delta, smooth_window)
+
+    u_raw = np.zeros_like(h_off, dtype=float)
+    u_mid = np.zeros_like(h_off, dtype=float)
+    valid = h_off > 0.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        u_raw[valid] = delta[valid] / h_off[valid]
+        u_mid[valid] = delta_s[valid] / h_off[valid]
+    u_raw = np.nan_to_num(u_raw, nan=0.0, posinf=0.0, neginf=0.0)
+    u_mid = np.nan_to_num(u_mid, nan=0.0, posinf=0.0, neginf=0.0)
+    u = _fill_zero_denominator_frac_unc(u_mid, denom=h_off, numer_abs=delta)
+    u = _moving_average_odd(u, smooth_window)
+    u = np.maximum(u, 0.0)
+    return {
+        "h_offbeam": h_off,
+        "h_intime": h_in,
+        "delta": delta,
+        "delta_smooth": delta_s,
+        "u_raw": u_raw,
+        "u_from_delta_smooth": u_mid,
+        "u": u,
+    }
+
+
+def product_a_cosmic_template_frac_unc(
+    h_offbeam: np.ndarray,
+    h_intime: np.ndarray,
+    *,
+    smooth_window: int = 5,
+) -> np.ndarray:
+    """Per-bin cosmic *template* fractional uncertainty for Product A.
+
+    Recipe (not a unisim / not flatten):
+      1. ``delta = |intime − offbeam|`` (gate-scaled intime vs offbeam CV)
+      2. Smooth ``delta`` with an odd moving average (damp low-stat spikes, keep shape)
+      3. ``u = delta_smooth / offbeam`` where offbeam > 0
+      4. If offbeam == 0 but delta > 0, copy ``u`` from the nearest valid bin
+      5. Light smooth on ``u`` with the same window
+
+    Returns 1-D ``u`` (fractional). Product A builds an uncorrelated envelope
+    ``cov_frac = diag(u**2)``.
+    """
+    return product_a_cosmic_template_frac_unc_components(
+        h_offbeam, h_intime, smooth_window=smooth_window
+    )["u"]
+
+
+def product_a_cosmic_template_cov_frac(
+    h_offbeam: np.ndarray,
+    h_intime: np.ndarray,
+    *,
+    smooth_window: int = 5,
+) -> np.ndarray:
+    """Uncorrelated fractional cov from :func:`product_a_cosmic_template_frac_unc`.
+
+    Per-bin envelope ``|intime − offbeam| / offbeam`` with no bin–bin correlation:
+    ``cov_frac = diag(u**2)``.
+    """
+    u = product_a_cosmic_template_frac_unc(
+        h_offbeam, h_intime, smooth_window=smooth_window
+    )
+    return np.diag(np.square(u))
+
+
+def product_a_cosmic_unisim_cov_frac(
+    h_offbeam: np.ndarray,
+    h_intime: np.ndarray,
+) -> np.ndarray:
+    """Rank-1 fractional cov: CV = offbeam, single universe = intime.
+
+    ``cov_frac_ij = f_i f_j`` with ``f = (intime − offbeam) / max(offbeam, eps)``.
+    Preserves coherent shape shifts (bin–bin correlations).
+    """
+    from pyanalib.covariance import get_covariance_matrix
+
+    h_off = np.asarray(h_offbeam, dtype=float).ravel()
+    h_in = np.asarray(h_intime, dtype=float).ravel()
+    if h_off.shape != h_in.shape:
+        raise ValueError(
+            "offbeam/intime histogram shape mismatch: %s vs %s"
+            % (h_off.shape, h_in.shape)
+        )
+    ret = get_covariance_matrix(np.stack([h_in], axis=0), h_off.copy())
+    return np.asarray(ret["cov_frac"], dtype=float)
+
+
+# ---------------------------------------------------------------------------
 # Selected-rate (contamination-scaled) cosmic uncertainty
 # ---------------------------------------------------------------------------
 

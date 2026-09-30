@@ -37,8 +37,13 @@ def parse_cli(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "--input-glob",
-        required=True,
+        default="",
         help="Glob of sel_all weight .df files (quote the glob)",
+    )
+    p.add_argument(
+        "--input-list",
+        default="",
+        help="Text file with one .df path per line (avoids slow/hung pnfs globs)",
     )
     p.add_argument("--out-dir", required=True, help="Output directory for histcounts .df")
     p.add_argument("--family", required=True, choices=("Flux", "G4", "flux", "g4"))
@@ -109,9 +114,21 @@ def _worker(job: dict) -> dict:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_cli(argv)
-    files = sorted(glob.glob(args.input_glob))
+    files: List[str] = []
+    if str(args.input_list or "").strip():
+        with open(args.input_list, "r", encoding="utf-8") as fh:
+            files = sorted(
+                ln.strip() for ln in fh if ln.strip() and not ln.strip().startswith("#")
+            )
+    elif str(args.input_glob or "").strip():
+        files = sorted(glob.glob(args.input_glob))
+    else:
+        raise SystemExit("[histcounts-from-df-parallel] need --input-glob or --input-list")
     if not files:
-        raise SystemExit("[histcounts-from-df-parallel] no files match %r" % args.input_glob)
+        raise SystemExit(
+            "[histcounts-from-df-parallel] no files from glob=%r list=%r"
+            % (args.input_glob, args.input_list)
+        )
     if args.max_files > 0:
         files = files[: int(args.max_files)]
 

@@ -86,6 +86,16 @@ def make_pandora_evtdf_mup(f, sel_level="mup", include_weights=False, multisim_n
                             trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic, **trkArgs)
     return df
 
+def make_pandora_evtdf_mup_dedxsmear(f, sel_level="mup", slim=True,
+                       trkScoreCut=False, trkDistCut=100., cutClearCosmic=True,
+                       updatecalo="ccal_cv-alpha_cv-beta_cv-R_cv", updatesmear=(0.13, 0.26),
+                       dedx_score_tags=None, **trkArgs):
+    if dedx_score_tags is None:
+        dedx_score_tags = {0: "_new", 13: "_smear13", 26: "_smear26"}
+    return make_pandora_evtdf(f, sel_level=sel_level, include_weights=False, multisim_nuniv=0, wgt_types=[], slim=slim,
+                              trkScoreCut=trkScoreCut, trkDistCut=trkDistCut, cutClearCosmic=cutClearCosmic,
+                              updatecalo=updatecalo, updatesmear=updatesmear, dedx_score_tags=dedx_score_tags, **trkArgs)
+
 # ===== syst weights =====
 
 def make_pandora_evtdf_wgts(f, include_weights=True, multisim_nuniv=1000, wgt_types=["bnb","g4"], slim=True, 
@@ -741,6 +751,7 @@ def make_metadf(f):
 def make_pandora_evtdf(f, sel_level="all", 
                        include_weights=True, multisim_nuniv=1000, genie_multisim_nuniv=100, wgt_types=[], slim=True, genie_systematics=None, flux_systematics=None,
                        trkScoreCut=False, trkDistCut=100., updatecalo=None, updateefield=False,
+                       updatesmear=None, dedx_score_tags=None,
                        cutClearCosmic=True, **trkArgs):
 
     """Build a pandora event dataframe at the requested selection depth.
@@ -758,6 +769,11 @@ def make_pandora_evtdf(f, sel_level="all",
         "2prong_wcandidates": after vtxdist + μ/p candidate columns (no has_μ/p cuts)
         "muX": muon candidate + muon kinematics
         "mup": final μ+p selection (+ reco TKI)
+
+    ``dedx_score_tags``: ``{code: score_tag}``; runs the selection once per tag
+    on the same trkdf (same smear draws) and returns the concatenation with an
+    int column ``dedx_var`` = code. Requires ``updatecalo`` (and ``updatesmear``
+    for ``_smearNN`` tags).
     """
 
     if sel_level not in CAF_SEL_LEVEL_TO_STAGE:
@@ -805,8 +821,23 @@ def make_pandora_evtdf(f, sel_level="all",
 
     trkdf = None
     if sel_level in CAF_SEL_LEVELS_NEED_TRACKS:
-        trkdf = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, updateefield=updateefield, **trkArgs)
+        trkdf = make_trkdf(f, det=TRK_CALO_DET, scoreCut=trkScoreCut, updatecalo=updatecalo, updateefield=updateefield,
+                           updatesmear=updatesmear, **trkArgs)
         trkdf = get_valid_trks(trkdf)
+
+    if dedx_score_tags:
+        outs = []
+        for code, tag in dedx_score_tags.items():
+            st = apply_selection_pipeline(
+                {"evt": slcdf.copy(), "trk": trkdf.copy(), "hdr": None},
+                stop_at=stop_at,
+                sample="mc",
+                mu_p_candidate_kwargs={"score_tag": tag},
+            )
+            ev = truth_match(st["evt"], mcdf.copy())
+            ev[pad_column_name(("dedx_var",), ev)] = int(code)
+            outs.append(ev)
+        return pd.concat(outs, ignore_index=False)
 
     # Calorimetry variations write chi2 columns with a "_new" suffix; thresholds
     # still come from selections.get_mu_p_candidate defaults.

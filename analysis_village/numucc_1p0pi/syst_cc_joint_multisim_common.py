@@ -2,6 +2,11 @@
 
 See :mod:`analysis_village.numucc_1p0pi.syst_disk_cc_layout` for directory names
 (``JointMCstat/``, ``JointFlux/``, ``JointG4/``, legacy ``JointMultisim/``, ``JointGenie/``).
+
+Default production writes **one inclusive stacked vector** per universe
+(``stacked_mu_p``: muon *p*, muon cosθ, proton *p*, proton cosθ) with
+``get_univ_rates(..., bkgd_subtract=False)``. Pairwise shards remain available
+behind ``--mode pairs``.
 """
 
 from __future__ import annotations
@@ -14,24 +19,35 @@ import numpy as np
 # -----------------------------------------------------------------------------
 # Chunk pickle names (map phase under Flux/G4/MCstat work trees)
 # -----------------------------------------------------------------------------
-# Use ``nu__joint_cc__`` / ``nu__joint_cc_genie__`` so ``skip_existing`` in the parallel
-# drivers does not reuse older ``nu__joint__*`` shards built before the kinematic-pair list
-# grew (e.g. same-side pairs for multi-Y). Aggregate globs match these prefixes only.
-JOINT_CC_MULTISIM_CHUNK_PREFIX = "nu__joint_cc__"
+# Stacked inclusive production uses ``*_stack__`` prefixes so ``skip_existing``
+# never reuses pairwise ``nu__joint_cc__*`` shards (bkgd-subtracted, pair-stitched).
+JOINT_CC_MULTISIM_CHUNK_PREFIX = "nu__joint_cc_stack__"
 JOINT_CC_MULTISIM_CHUNK_GLOB = JOINT_CC_MULTISIM_CHUNK_PREFIX + "*.pkl"
+JOINT_CC_MULTISIM_CHUNK_PREFIX_PAIRS = "nu__joint_cc__"
+JOINT_CC_MULTISIM_CHUNK_GLOB_PAIRS = JOINT_CC_MULTISIM_CHUNK_PREFIX_PAIRS + "*.pkl"
 
-JOINT_CC_GENIE_CHUNK_PREFIX = "nu__joint_cc_genie__"
+JOINT_CC_GENIE_CHUNK_PREFIX = "nu__joint_cc_genie_stack__"
 JOINT_CC_GENIE_CHUNK_GLOB = JOINT_CC_GENIE_CHUNK_PREFIX + "*.pkl"
+JOINT_CC_GENIE_CHUNK_PREFIX_PAIRS = "nu__joint_cc_genie__"
+JOINT_CC_GENIE_CHUNK_GLOB_PAIRS = JOINT_CC_GENIE_CHUNK_PREFIX_PAIRS + "*.pkl"
+
+# NPZ cell key for the inclusive stacked histogram.
+STACK_SLUG = "stacked_mu_p"
+
+# CategorySummary extras applied block-diagonally after the joint (neutrino) term.
+JOINT_CC_EXTRAS_CATEGORIES: tuple[str, ...] = ("detector", "cosmics", "pot", "ntargets")
 
 
-def joint_cc_multisim_chunk_basename(syst_tag: str, df_stem: str) -> str:
-    """Basename for one joint multisim map shard, e.g. ``nu__joint_cc__Flux__merged_0001.pkl``."""
-    return "%s%s__%s.pkl" % (JOINT_CC_MULTISIM_CHUNK_PREFIX, syst_tag, df_stem)
+def joint_cc_multisim_chunk_basename(syst_tag: str, df_stem: str, *, mode: str = "stack") -> str:
+    """Basename for one joint multisim map shard."""
+    prefix = JOINT_CC_MULTISIM_CHUNK_PREFIX if mode != "pairs" else JOINT_CC_MULTISIM_CHUNK_PREFIX_PAIRS
+    return "%s%s__%s.pkl" % (prefix, syst_tag, df_stem)
 
 
-def joint_cc_genie_chunk_basename(genie_group: str, df_stem: str) -> str:
-    """Basename for one joint GENIE map shard, e.g. ``nu__joint_cc_genie__MaCCQE__merged_0001.pkl``."""
-    return "%s%s__%s.pkl" % (JOINT_CC_GENIE_CHUNK_PREFIX, genie_group, df_stem)
+def joint_cc_genie_chunk_basename(genie_group: str, df_stem: str, *, mode: str = "stack") -> str:
+    """Basename for one joint GENIE map shard."""
+    prefix = JOINT_CC_GENIE_CHUNK_PREFIX if mode != "pairs" else JOINT_CC_GENIE_CHUNK_PREFIX_PAIRS
+    return "%s%s__%s.pkl" % (prefix, genie_group, df_stem)
 
 from analysis_village.numucc_1p0pi.syst_disk_cc_layout import (
     FILE_JOINT_GENIE_COMBINED,
@@ -238,3 +254,101 @@ def joint_meta(nx: int, ny: int, var_x: str, var_y: str) -> dict:
         "var_X": var_x,
         "var_Y": var_y,
     }
+
+
+def default_constraint_stack_variables() -> tuple:
+    """Canonical inclusive stack: muon *p*, muon cosθ, proton *p*, proton cosθ.
+
+    Consumers permute this on-disk order to ``[X; Y_1; Y_2; …]``.
+    """
+    return (
+        VariableConfig.muon_momentum(),
+        VariableConfig.muon_direction(),
+        VariableConfig.proton_momentum(),
+        VariableConfig.proton_direction(),
+    )
+
+
+def joint_stack_meta(vars: Sequence, *, bkgd_subtract: bool = False) -> dict:
+    names = [v.var_save_name for v in vars]
+    sizes = [int(len(v.bin_centers)) for v in vars]
+    offsets: list[int] = []
+    o = 0
+    for s in sizes:
+        offsets.append(int(o))
+        o += s
+    return {
+        "layout": "stacked_inclusive",
+        "index_order": "concatenated_in_var_save_names_order",
+        "var_save_names": names,
+        "n_bins_per_var": sizes,
+        "n_bins_offsets": offsets,
+        "n_bins_total": int(sum(sizes)),
+        "bkgd_subtract": bool(bkgd_subtract),
+        "stack_slug": STACK_SLUG,
+    }
+
+
+def stack_jobs(
+    *,
+    mode: str = "stack",
+    pair_slugs: Sequence[str] | None = None,
+) -> tuple[tuple[str, tuple], ...]:
+    """Yield ``(slug, var_tuple)`` histogram jobs for chunk accumulation."""
+    if mode == "pairs":
+        return tuple((slug, (vx, vy)) for slug, vx, vy in select_joint_pairs(pair_slugs))
+    vars_ = default_constraint_stack_variables()
+    return ((STACK_SLUG, vars_),)
+
+
+def perm_stack_to_constraint(
+    frac: "np.ndarray",
+    stack_names: Sequence[str],
+    stack_sizes: Sequence[int],
+    var_X,
+    var_Ys: Sequence,
+) -> "np.ndarray":
+    """Permute a stacked fractional cov from on-disk var order to ``[X; Ys]``."""
+    arr = np.asarray(frac, dtype=float)
+    ntot = int(sum(int(s) for s in stack_sizes))
+    if arr.shape != (ntot, ntot):
+        raise ValueError(
+            "stacked frac shape %s != (%d, %d) from n_bins_per_var=%s"
+            % (arr.shape, ntot, ntot, list(stack_sizes))
+        )
+    name_to_slice: dict[str, slice] = {}
+    o = 0
+    for name, sz in zip(stack_names, stack_sizes):
+        sz_i = int(sz)
+        name_to_slice[str(name)] = slice(o, o + sz_i)
+        o += sz_i
+    want = [var_X] + list(var_Ys)
+    idx: list[int] = []
+    for v in want:
+        key = v.var_save_name
+        if key not in name_to_slice:
+            raise KeyError(
+                "variable %r not in stacked NPZ (have: %s)" % (key, list(stack_names))
+            )
+        sl = name_to_slice[key]
+        n_exp = int(len(v.bin_centers))
+        n_got = int(sl.stop - sl.start)
+        if n_got != n_exp:
+            raise ValueError(
+                "stacked n_bins for %r is %d, VariableConfig has %d" % (key, n_got, n_exp)
+            )
+        idx.extend(range(sl.start, sl.stop))
+    perm = np.asarray(idx, dtype=int)
+    return arr[np.ix_(perm, perm)]
+
+
+def layout_meta_for_slug(pair_slug: str, *, bkgd_subtract: bool = False) -> tuple[int, dict]:
+    """Return ``(n_bins_total, meta)`` for a stacked or pairwise NPZ cell key."""
+    if pair_slug == STACK_SLUG:
+        meta = joint_stack_meta(default_constraint_stack_variables(), bkgd_subtract=bkgd_subtract)
+        return int(meta["n_bins_total"]), meta
+    for slug, vx, vy in default_kinematic_joint_pairs():
+        if slug == pair_slug:
+            meta = joint_meta(len(vx.bin_centers), len(vy.bin_centers), vx.var_save_name, vy.var_save_name)
+            return int(meta["n_bins_total"]), meta
+    raise ValueError("unknown joint slug %r" % pair_slug)

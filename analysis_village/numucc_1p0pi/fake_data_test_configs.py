@@ -1,5 +1,7 @@
 import numpy as np
 
+from analysis_village.numucc_1p0pi.categories import caf_mode_is_mec, caf_mode_is_qe
+
 
 def bump_center_position(var_config, bump_pos=None):
     """Truth-axis position of a center-bin Gaussian bump (matches ``FakeDataWeights``)."""
@@ -29,17 +31,26 @@ class FakeDataWeights:
         weights_fake_data = np.ones(len(self.mc_evt_df))
         weight_fakedata_signal_truth = np.ones(len(self.mc_nu_df[self.mc_nu_df.topo_categ == 1]))
         
+        # MEC / QE use CAF ``mc.genie_mode``. Default ``generator="genie"``
+        # (QE=0, MEC=10). Pass ``generator="gibuu"`` for GiBUU process IDs
+        # (QE=1, MEC=35|36). Never mix the two.
+        generator = kwargs.get("generator", "genie")
+
         # MEC normalization
         if test_name == "mec_test":
             scale_factor = kwargs.get("scale_factor", 0.5)
-            weights_fake_data[self.mc_evt_df.mc.genie_mode == 10] *= scale_factor
-            weight_fakedata_signal_truth[self.mc_nu_df[self.mc_nu_df.topo_categ == 1].mc.genie_mode == 10] *= scale_factor
+            weights_fake_data[caf_mode_is_mec(self.mc_evt_df.mc.genie_mode, generator)] *= scale_factor
+            weight_fakedata_signal_truth[caf_mode_is_mec(
+                self.mc_nu_df[self.mc_nu_df.topo_categ == 1].mc.genie_mode, generator
+            )] *= scale_factor
 
         # QE normalization
         elif test_name == "qe_test":
             scale_factor = kwargs.get("scale_factor", 1.2)
-            weights_fake_data[self.mc_evt_df.mc.genie_mode == 0] *= scale_factor
-            weight_fakedata_signal_truth[self.mc_nu_df[self.mc_nu_df.topo_categ == 1].mc.genie_mode == 0] *= scale_factor
+            weights_fake_data[caf_mode_is_qe(self.mc_evt_df.mc.genie_mode, generator)] *= scale_factor
+            weight_fakedata_signal_truth[caf_mode_is_qe(
+                self.mc_nu_df[self.mc_nu_df.topo_categ == 1].mc.genie_mode, generator
+            )] *= scale_factor
 
         # np normalization
         elif test_name == "np_test":

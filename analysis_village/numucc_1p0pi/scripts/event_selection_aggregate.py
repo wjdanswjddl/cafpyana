@@ -422,6 +422,8 @@ def render_summary_breakdown_plot(merged: dict, save_fig_dir: str,
     if save_fig:
         plt.savefig(path.join(save_fig_dir, "event_selection_summary.png"),
                     dpi=300, bbox_inches="tight")
+        plt.savefig(path.join(save_fig_dir, "event_selection_summary.pdf"),
+                    bbox_inches="tight")
     if show_fig:
         plt.show()
     else:

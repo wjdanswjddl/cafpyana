@@ -14,6 +14,14 @@ plot = False
 DETECTOR = "SBND_nohighyz"
 EPSILON = 1e-6 # for clipping distributions at bin ranges
 
+# Recorded neutrino-MC POT is high by this factor:
+#   true MC exposure = recorded_mc_pot / MC_POT_FIX.
+# data/MC weights (data_pot / recorded_mc_pot) therefore under-predict
+# neutrino MC, so neutrino-MC rates are multiplied by MC_POT_FIX.
+# Dirt and cosmics keep their own normalizations.
+# Independent generator flats (40 × fScaleFactor × Weight) do not use this.
+MC_POT_FIX = 1.032
+
 # def get_xsec_unit():
 #     # ==== xsec unit calculation ====
 #     # TODO: z-dependence?

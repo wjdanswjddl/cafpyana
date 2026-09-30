@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 #
-# Joint-bin (cross-variable) multisim map → aggregate into ``syst_disk_CC``.
+# Joint-bin (cross-variable) multisim map → aggregate into PRL Product B ``JointCC/``.
 # -----------------------------------------------------------------------------
 # Phase 1: same (syst, ``.df``) queue as ``run_syst_multisim_chunked.sh``, but each job
-# runs ``syst_cc_joint_multisim_chunk.py`` → stacked ``(n_X+n_Y)`` universes per kinematic
-# pair (X bins first, then Y). Pickles: ``nu__joint_cc__<tag>__<stem>.pkl`` (``joint_cc`` prefix
-# so parallel ``skip_existing`` does not reuse legacy ``nu__joint__*`` shards after pair-list updates).
+# runs ``syst_cc_joint_multisim_chunk.py`` → one inclusive stacked universe vector
+# (muon p, muon cosθ, proton p, proton cosθ; ``bkgd_subtract=False``).
+# Pickles: ``nu__joint_cc_stack__<tag>__<stem>.pkl`` (``_stack__`` prefix so
+# ``skip_existing`` does not reuse pairwise ``nu__joint_cc__*`` shards).
 # Phase 2: ``syst_cc_joint_multisim_aggregate.py`` → ``JointMCstat/``, ``JointFlux/``, ``JointG4/``
 # (one ``joint_*_combined.npz`` per category; ``cc_joint_cov`` sums them for the total multisim term).
 #
-# Pair coverage: by default the chunk script iterates **every** preset pair returned by
-# ``syst_cc_joint_multisim_common.default_kinematic_joint_pairs`` — including the same-side
-# pairs (``muon_p__muon_costheta``, ``proton_p__proton_costheta``) needed for the
-# **multi-variable Y** conditional constraint (``Y_i × Y_j`` and ``X_i × X_j`` cross blocks of
-# the joint covariance ``Σ``). Restrict via ``JOINT_PAIRS`` CSV when re-running a subset.
+# Pair coverage: default is one inclusive stacked vector (muon p, muon cosθ,
+# proton p, proton cosθ) with ``bkgd_subtract=False``. ``JOINT_PAIRS`` CSV
+# switches to the legacy pairwise shards.
 #
 # Environment (mirrors marginal multisim where applicable):
 #   JOINT_CC_WORK_BASE   Chunk work root (default: ``default_joint_multisim_cc_work_root``).
@@ -25,7 +24,7 @@
 #                           use the legacy flat ``chunks/`` layout.
 #   MCSTAT_WORK_BASE, G4_WORK_BASE, FLUX_WORK_BASE — same defaults as marginal script.
 #   MULTISIM_SYST_TYPES  all (Flux,G4) | full | comma subset (MCstat,Flux,G4).
-#   SYST_DISK_CC_ROOT    Output tree for CC joint NPZ (default: ``default_syst_disk_cc_root``).
+#   SYST_DISK_CC_ROOT    Output tree for CC joint NPZ (default: PRL Product B ``…/JointCC``).
 #   MC_DF_STAGE          Must be ``final`` (joint chunk does not implement sel_all).
 #   SKIP_AGGREGATE, MAX_FILES, WORKERS, G4_MODE, FLUX_MODE, FLUX_KNOB_GROUPS, NO_PLOTS (unused)
 #   JOINT_PAIRS          Optional CSV passed as ``--pairs`` (pair slugs). Examples:
@@ -150,14 +149,16 @@ CHUNKS_MCSTAT="$MCSTAT_WORK_BASE/chunks${_cc_ms_chunks_suffix}"
 CHUNKS_G4="$G4_WORK_BASE/chunks${_cc_ms_chunks_suffix}"
 CHUNKS_FLUX="$FLUX_WORK_BASE/chunks${_cc_ms_chunks_suffix}"
 
-SYST_DISK_CC_ROOT="$(python3 -c "
+if [[ -z "${SYST_DISK_CC_ROOT:-}" ]]; then
+    SYST_DISK_CC_ROOT="$(python3 -c "
 import sys
 from pathlib import Path
 sys.path.insert(0, '${REPO_ROOT}')
-from analysis_village.numucc_1p0pi.dataset_locations import default_syst_disk_cc_root
-print(Path(default_syst_disk_cc_root()).resolve())
+from analysis_village.numucc_1p0pi.dataset_locations import prl_syst_disk_root
+print((prl_syst_disk_root('B') / 'JointCC').resolve())
 ")"
-export NUMUCC_SYST_DISK_CC_ROOT="${NUMUCC_SYST_DISK_CC_ROOT:-$SYST_DISK_CC_ROOT}"
+fi
+export NUMUCC_SYST_DISK_CC_ROOT="$SYST_DISK_CC_ROOT"
 
 FAILED_LOG="$JOINT_CC_WORK_BASE/failed_cc_joint_multisim_df_files.log"
 MC_DF_STAGE="${MC_DF_STAGE:-final}"
@@ -179,8 +180,10 @@ mkdir -p "${CHUNKS_MULTISIM}/Combined" "$CHUNKS_MCSTAT" "$CHUNKS_G4" "$CHUNKS_FL
 touch "$FAILED_LOG"
 
 _optional_pairs=()
+_optional_mode=(--mode "${JOINT_CC_MODE:-stack}")
 if [[ -n "${JOINT_PAIRS:-}" ]]; then
     _optional_pairs=(--pairs "${JOINT_PAIRS}")
+    _optional_mode=(--mode pairs)
 fi
 
 echo "[cc-joint-multisim-run] JOINT_CC_WORK_BASE=$JOINT_CC_WORK_BASE"
@@ -206,6 +209,9 @@ parallel_args=(
 )
 if ((${#_optional_pairs[@]})); then
     parallel_args+=("${_optional_pairs[@]}")
+fi
+if ((${#_optional_mode[@]})); then
+    parallel_args+=("${_optional_mode[@]}")
 fi
 
 echo "[cc-joint-multisim-run] progress map BEGIN $(date -Is)"

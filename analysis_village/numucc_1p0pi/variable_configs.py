@@ -1,5 +1,7 @@
 import numpy as np
 import inspect
+import json
+import os
 
 # ===== References
 # MicroBooNE tki bins: https://arxiv.org/abs/2301.03700
@@ -9,6 +11,86 @@ import inspect
 INTEGRATED_HIST_DUMMY = 500.0
 
 INTEGRATED_VAR_SAVE_NAME = "integrated"
+
+
+def _vertex_edges(axis: str, default_edges: np.ndarray) -> np.ndarray:
+    """Optional ``NUMUCC_VERTEX_BINS_OVERRIDE`` JSON path or inline JSON.
+
+    Schema: ``{"n_bins": N, "edges_xy"?: [...], "edges_z"?: [...]}``.
+    When only ``n_bins`` is set, XY uses ``linspace(-190,190,N+1)`` and Z
+    ``linspace(10,450,N+1)`` (nominal is N=25 → 26 edges).
+    """
+    raw = os.environ.get("NUMUCC_VERTEX_BINS_OVERRIDE", "").strip()
+    if not raw:
+        return np.asarray(default_edges, dtype=float)
+    data = None
+    if os.path.isfile(raw):
+        try:
+            with open(raw) as f:
+                data = json.load(f)
+        except Exception:
+            data = None
+    if data is None:
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return np.asarray(default_edges, dtype=float)
+    if axis in ("x", "y"):
+        if "edges_xy" in data:
+            return np.asarray(data["edges_xy"], dtype=float)
+        n = int(data.get("n_bins", len(default_edges) - 1))
+        return np.linspace(-190.0, 190.0, n + 1)
+    if axis == "z":
+        if "edges_z" in data:
+            return np.asarray(data["edges_z"], dtype=float)
+        n = int(data.get("n_bins", len(default_edges) - 1))
+        return np.linspace(10.0, 450.0, n + 1)
+    return np.asarray(default_edges, dtype=float)
+
+
+def vertex_edges_for_nbins(axis: str, n_bins: int) -> np.ndarray:
+    """Nominal-range vertex edges with ``n_bins`` bins (``n_bins+1`` edges)."""
+    n = int(n_bins)
+    if axis in ("x", "y"):
+        return np.linspace(-190.0, 190.0, n + 1)
+    if axis == "z":
+        return np.linspace(10.0, 450.0, n + 1)
+    raise ValueError(f"unknown vertex axis {axis!r}")
+
+
+def vertex_multi_bin_var_configs(nbins_list=(40, 50, 60)):
+    """Vertex x/y/z VariableConfigs for each nbins — one DF walk fills all.
+
+    Save names are ``vertex_{x,y,z}__nbins{N}`` so packs can be split into
+    per-nbins Product B trees without a second multisim pass.
+    """
+    out = []
+    templates = (
+        ("x", "vertex_x", "Neutrino Vertex X [cm]",
+         ("slc", "vertex", "x", "", ""), ("mc", "position", "x", "", ""), ("mc", "position", "x")),
+        ("y", "vertex_y", "Neutrino Vertex Y [cm]",
+         ("slc", "vertex", "y", "", ""), ("mc", "position", "y", "", ""), ("mc", "position", "y")),
+        ("z", "vertex_z", "Neutrino Vertex Z [cm]",
+         ("slc", "vertex", "z", "", ""), ("mc", "position", "z", "", ""), ("mc", "position", "z")),
+    )
+    for n in nbins_list:
+        n = int(n)
+        for axis, base, plot, reco, truth, nu in templates:
+            edges = vertex_edges_for_nbins(axis, n)
+            out.append(
+                VariableConfig(
+                    var_save_name=f"{base}__nbins{n}",
+                    var_plot_name=plot,
+                    var_labels=[plot, plot.replace("Neutrino", "Slice"), ""],
+                    bins=edges,
+                    var_evt_reco_col=reco,
+                    var_evt_truth_col=truth,
+                    var_nu_col=nu,
+                    xsec_label=rf"$\frac{{d\sigma}}{{d\mathrm{{Vertex {axis.upper()}}}}}$",
+                    category_syst_var_save_name=base,
+                )
+            )
+    return out
 
 
 
@@ -305,7 +387,7 @@ class VariableConfig:
             var_labels=["Neutrino Vertex X [cm]", 
             "Slice Vertex X [cm]", 
             ""],
-            bins=np.linspace(-190, 190, 26),
+            bins=_vertex_edges("x", np.linspace(-190, 190, 26)),
             # var_evt_reco_col=('slc', 'vertex', 'x', '', '', '', ''),
             # var_evt_truth_col=('mc', 'position', 'x', '', '', '', ''),
             var_evt_reco_col=('slc', 'vertex', 'x', '', ''),
@@ -322,7 +404,7 @@ class VariableConfig:
             var_labels=["Neutrino Vertex Y [cm]", 
             "Slice Vertex Y [cm]", 
             ""],
-            bins=np.linspace(-190, 190, 26),
+            bins=_vertex_edges("y", np.linspace(-190, 190, 26)),
             var_evt_reco_col=('slc', 'vertex', 'y', '', ''),
             var_evt_truth_col=('mc', 'position', 'y', '', ''),
             var_nu_col=('mc', 'position', 'y'),
@@ -337,7 +419,7 @@ class VariableConfig:
             var_labels=["Neutrino Vertex Z [cm]", 
             "Slice Vertex Z [cm]", 
             ""],
-            bins=np.linspace(10, 450, 26),
+            bins=_vertex_edges("z", np.linspace(10, 450, 26)),
             var_evt_reco_col=('slc', 'vertex', 'z', '', ''),
             var_evt_truth_col=('mc', 'position', 'z', '', ''),
             var_nu_col=('mc', 'position', 'z'),
@@ -388,7 +470,6 @@ class VariableConfig:
             var_evt_truth_col=('mu', 'pfp', 'trk', 'truth', 'p', 'phi', ''),
             var_nu_col=('mc', 'mu', 'phi', '', '', '', ''),
             xsec_label=r"$\frac{d\sigma}{d\phi_{\\mu}}$ $\left(\frac{\mathrm{cm}^2}{\mathrm{deg}}\right)$",
-            category_syst_var_save_name="muon-dir_x",
         )
 
     # --- Muon end position ---
@@ -741,7 +822,7 @@ class VariableConfig:
             var_labels=[r"$\mathrm{(P_{MCS} - P_{Range}) \, / \, P_{Range}}$", 
             r"$\mathrm{(P_{MCS} - P_{Range})^{reco.}}$", 
             r"$\mathrm{(P_{MCS} - P_{Range})^{true}}$"],
-            bins=np.linspace(-0.8, 0.4, 41),
+            bins=np.linspace(-0.8, 0.4, 21),
             var_evt_reco_col=('pfp', 'trk', 'mcs_range_diff', '', '', ''),
             var_evt_truth_col=('pfp', 'trk', 'mcs_range_diff', '', '', ''),
             var_nu_col=('trk', 'mcs_range_diff', '', ''),
@@ -817,7 +898,7 @@ class VariableConfig:
             var_labels=[r"$\mathrm{(MCS - Range) \, / \, Range}$", 
             r"$\mathrm{(MCS - Range)^{reco.}}$", 
             r"$\mathrm{(MCS - Range)^{true}}$"],
-            bins=np.linspace(-0.8, 0.4, 41),
+            bins=np.linspace(-0.8, 0.4, 21),
             var_evt_reco_col=('trk1', 'pfp', 'trk', 'mcs_range_diff', '', '', ''),
             var_evt_truth_col=('trk1', 'pfp', 'trk', 'mcs_range_diff', '', '', ''),
             var_nu_col=('trk1', 'mcs_range_diff', '', ''),
@@ -836,7 +917,7 @@ class VariableConfig:
                 r"$\mathrm{\chi^{2}_{\mu,\,\mathrm{avg},\,\mathrm{reco.}}}$",
                 r"$\mathrm{\chi^{2}_{\mu,\,\mathrm{avg},\,\mathrm{true}}}$",
             ],
-            bins=np.linspace(0, 60, 61),
+            bins=np.linspace(0, 60, 21),
             var_evt_reco_col=("pfp", "trk", "chi2pid", "avg", "chi2_muon", ""),
             var_evt_truth_col=("", "", "", "", "", ""),
             var_nu_col=("", "", ""),
@@ -845,7 +926,10 @@ class VariableConfig:
 
     @classmethod
     def chi2_proton(cls):
-        """Plane-averaged proton χ² (same column as PID). Prefer this over I2-only."""
+        """Plane-averaged proton χ² (same column as PID). Prefer this over I2-only.
+
+        Bins ``linspace(0, 300, 21)``; values ≥300 clip into the last bin.
+        """
         return cls(
             var_save_name="chi2_p",
             var_plot_name=r"$\chi^2_{p,\mathrm{avg}}$",
@@ -854,7 +938,7 @@ class VariableConfig:
                 r"$\mathrm{\chi^{2}_{p,\,\mathrm{avg},\,\mathrm{reco.}}}$",
                 r"$\mathrm{\chi^{2}_{p,\,\mathrm{avg},\,\mathrm{true}}}$",
             ],
-            bins=np.linspace(0, 350, 61),
+            bins=np.linspace(0, 300, 21),
             var_evt_reco_col=("pfp", "trk", "chi2pid", "avg", "chi2_proton", ""),
             var_evt_truth_col=("", "", "", "", "", ""),
             var_nu_col=("", "", ""),
@@ -881,7 +965,7 @@ class VariableConfig:
                 rf"$\mathrm{{\chi^{{2}}_{{\mu,\,{lab},\,\mathrm{{reco.}}}}}}$",
                 rf"$\mathrm{{\chi^{{2}}_{{\mu,\,{lab},\,\mathrm{{true}}}}}}$",
             ],
-            bins=np.linspace(0, 60, 61),
+            bins=np.linspace(0, 60, 21),
             var_evt_reco_col=("pfp", "trk", "chi2pid", plane, "chi2_muon", ""),
             var_evt_truth_col=("", "", "", "", "", ""),
             var_nu_col=("", "", ""),
@@ -907,7 +991,7 @@ class VariableConfig:
                 rf"$\mathrm{{\chi^{{2}}_{{p,\,{lab},\,\mathrm{{reco.}}}}}}$",
                 rf"$\mathrm{{\chi^{{2}}_{{p,\,{lab},\,\mathrm{{true}}}}}}$",
             ],
-            bins=np.linspace(0, 350, 61),
+            bins=np.linspace(0, 300, 21),
             var_evt_reco_col=("pfp", "trk", "chi2pid", plane, "chi2_proton", ""),
             var_evt_truth_col=("", "", "", "", "", ""),
             var_nu_col=("", "", ""),

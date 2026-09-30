@@ -1098,7 +1098,7 @@ def show_cov_corr_heatmaps(
     )
     _draw_matrix_on_ax(
         axes[1], corr, bins,
-        cmap="bwr",
+        cmap="coolwarm",
         title="Correlation",
         xlab=xlab, ylab=xlab,
         vmin=-1, vmax=1,

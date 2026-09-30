@@ -56,33 +56,19 @@ def event_contained_per_tpc(df, incathode=PER_TPC_INCATHODE_CM):
     """True when the whole slice is fully contained in TPC1 **or** TPC2.
 
     Requires the slice vertex and both leading tracks' start **and** end points
-    to pass the FULL ``SBND_Gen1`` fiducial volume (x, y, z) AND all be in the
-    same TPC (all x < 0 or all x > 0).
+    to pass the FULL ``SBND_Gen1`` fiducial volume (x, y, z, including high-YZ)
+    AND all be in the same TPC. Same volume as truth ``IsTruthCC1p0piPerTPCFV``.
     """
-    points = [
-        df.slc.vertex,
-        df.trk1.pfp.trk.start,
-        df.trk1.pfp.trk.end,
-        df.trk2.pfp.trk.start,
-        df.trk2.pfp.trk.end,
-    ]
-
-    # All points must be in the full Gen1 fiducial volume (x, y, z)
-    all_in_fv = None
-    for pt in points:
-        m = InFV(pt, det="SBND_Gen1")
-        all_in_fv = m if all_in_fv is None else (all_in_fv & m)
-
-    # All points must be in the SAME TPC (all x < -cathode or all x > +cathode)
-    all_in_tpc1 = None
-    all_in_tpc2 = None
-    for pt in points:
-        m1 = pt.x < (-1 * incathode)
-        m2 = pt.x > incathode
-        all_in_tpc1 = m1 if all_in_tpc1 is None else (all_in_tpc1 & m1)
-        all_in_tpc2 = m2 if all_in_tpc2 is None else (all_in_tpc2 & m2)
-
-    return all_in_fv & (all_in_tpc1 | all_in_tpc2)
+    return points_in_gen1_same_tpc(
+        [
+            df.slc.vertex,
+            df.trk1.pfp.trk.start,
+            df.trk1.pfp.trk.end,
+            df.trk2.pfp.trk.start,
+            df.trk2.pfp.trk.end,
+        ],
+        incathode=incathode,
+    )
 
 
 def _apply_vertex_z_exclude(df):

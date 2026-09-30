@@ -133,26 +133,15 @@ python selected_events_cumulative.py --n_time_splits 15 --exposure-batch-indices
 
 `/exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/PRL`
 
+On 2026-09-30 this path was recreated as a numbers-only tree (real files). The previous tree, including test subdirectories and symlinks, is `.../numucc_1p0pi/PRL-tests`. See `analysis_village/numucc_1p0pi/README.md`.
+
 | Path under base | Contents |
 | --- | --- |
-| `systematics/` | Publication systematic covariances (built incrementally) |
-| `systematics/productB_sel_mup/GENIE/` | Product B GENIE total = **`GENIE_slim_v3`** (rate + xsec) |
-| `systematics/productB_sel_mup/GENIE/cov_mat_dict_per_knob.pkl` | Product B **per-knob** matrices (all waves merged) |
-| `systematics/productB_sel_mup/GENIE/knob_mode_map.json` | Knob → wave + production mode + **Ar23p-distributed** mode |
-| `systematics/productB_sel_mup/Cosmics/` | Product B cosmics (`cosmics_syst_dict.npz`) |
-| `systematics/productA_sel_all/GENIE/` | Product A GENIE total = **`GENIE_slim_v3`** (rate + xsec) |
-| `systematics/productA_sel_all/Cosmics/` | Product A cosmics (`cosmics_syst_dict.npz`) |
+| `systematics/productB_sel_mup/` | Product B: GENIE_slim_v3 + MEC May, with `tki-del_Tp` GENIE from v1×v3; DENT rolling 80% width 3 + Gauss σ=1 |
+| `systematics/productA_sel_all/` | Product A: 20-bin χ²/MCS, dE/dx smear |
+| `data_mc_overlays/productB_sel_mup/` | Product B data–MC overlays |
+| `data_mc_overlays/productA_sel_all/` | Product A data–MC overlays |
+| `unfolded/` | Product B Wiener-SVD unfold |
+| `response_matrices/` | Product B response matrices and efficiencies |
 
-Each `GENIE/` dir has loader-compatible `cov_mat_dict.pkl` (`genie` = xsec `cov_frac`,
-`genie_rate` = rate `cov_frac`), archival `genie_slim_v3.npz`, and `manifest.json`.
-
-### Legacy systematics tree (retired)
-
-The older combined tree used by many notebooks / `utils._DEFAULT_SYST_DISK_ROOT` was renamed
-(do **not** delete; keep for reference):
-
-- **Was:** `/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final/`
-- **Now:** `/exp/sbnd/data/users/munjung/plots/numucc1p0pi/systematics-final-archive/`
-
-Code defaults that still mention `systematics-final` should be pointed at the `-archive`
-path or at `PRL/systematics/...` as those products are migrated.
+Code defaults point at these short directory names. Test trees stay under `PRL-tests`.

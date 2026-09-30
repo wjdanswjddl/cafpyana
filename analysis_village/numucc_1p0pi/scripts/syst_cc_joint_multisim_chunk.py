@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-"""Map phase: one MC ``.df`` → pickle with **joint-bin** multisim histograms per kinematic pair.
+"""Map phase: one MC ``.df`` → pickle with **joint-bin** inclusive stacked histograms.
 
-For each requested systematic (MCstat / Flux / G4 — same column layout as
-``syst_multisim_chunk.py``) and each kinematic pair ``(var_X, var_Y)``, this script
-histograms **both** variables under the same universe weights into a single stacked
-vector of length ``n_X + n_Y`` (**constrained / proton channel X first**, then **constraining /
-muon channel Y**). Chunk pickles mirror the marginal multisim chunk schema except variable keys
-are *preset* pair slugs (e.g. ``muon_p__proton_costheta``). Output basename prefix is
-``nu__joint_cc__`` (see :mod:`syst_cc_joint_multisim_common`) so parallel ``skip_existing`` does
-not reuse pre-expansion ``nu__joint__*`` shards.
+Default (``--mode stack``): one inclusive selected-rate vector per universe
+(``get_univ_rates(..., cov_type=rate, bkgd_subtract=False)``) concatenating
+muon *p*, muon cosθ, proton *p*, proton cosθ. Pickle prefix
+``nu__joint_cc_stack__``.
 
-* Optional: ``NUMUCC_JOINT_MULTISIM_SHAPES`` — ``1`` (default): print stacked ``u_j`` / ``cv_j``
-  shapes once per ``(syst_type, syst_key, var_X, var_Y)`` per worker; ``all``: every call; ``0``: off.
+``--mode pairs`` (or ``--pairs``) keeps the legacy pairwise (X,Y) shards
+(``nu__joint_cc__``) for emergency use.
 
 Aggregate with :mod:`analysis_village.numucc_1p0pi.scripts.syst_cc_joint_multisim_aggregate`.
 """
@@ -49,10 +45,9 @@ from analysis_village.numucc_1p0pi.categories import get_topo_category  # noqa: 
 from analysis_village.numucc_1p0pi.evt_derived_kinematics import ensure_derived_trk_kinematics_cols  # noqa: E402
 from analysis_village.numucc_1p0pi.selection_framework import multicol_resolve_column_key  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_cc_joint_multisim_common import (  # noqa: E402
-    default_kinematic_joint_pairs,
     joint_cc_multisim_chunk_basename,
     parse_pair_slugs_csv,
-    select_joint_pairs,
+    stack_jobs,
 )
 from analysis_village.numucc_1p0pi.syst_multisim_common import (  # noqa: E402
     NEUTRINO_SYST_ORDER,
@@ -68,7 +63,7 @@ from analysis_village.numucc_1p0pi.syst_multisim_common import (  # noqa: E402
 from analysis_village.numucc_1p0pi.utils import get_univ_rates  # noqa: E402
 
 # See module docstring: ``NUMUCC_JOINT_MULTISIM_SHAPES`` = 1 | all | 0
-_LOGGED_JOINT_MULTISIM_SHAPES: set[tuple[str, str, str, str]] = set()
+_LOGGED_JOINT_MULTISIM_SHAPES: set[tuple] = set()
 
 
 def _parse_syst_names(spec: str | None):
@@ -142,70 +137,56 @@ def _merge_flux_or_g4_joint_block(merged_block: dict, raw_block: dict, label: st
         _merge_joint_pack(merged_block, pair_slug, pack["univ_events"], pack["cv_events"], pair_slug)
 
 
-def _joint_univ_rates_one_syst(
+def _joint_univ_rates_stack(
     mc_evt_df: pd.DataFrame,
-    var_X,
-    var_Y,
+    var_list,
     syst_name_key,
     n_univ: int,
     syst_type: str,
+    *,
+    bkgd_subtract: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Stacked per-universe histograms: shape ``(n_univ, n_X + n_Y)``."""
-    u_x, c_x = get_univ_rates(
-        cov_type="rate",
-        syst_type=syst_type,
-        evtdf=mc_evt_df,
-        nudf=None,
-        var_config=var_X,
-        syst_name=syst_name_key,
-        n_univ=n_univ,
-        bkgd_subtract=True,
-    )
-    u_y, c_y = get_univ_rates(
-        cov_type="rate",
-        syst_type=syst_type,
-        evtdf=mc_evt_df,
-        nudf=None,
-        var_config=var_Y,
-        syst_name=syst_name_key,
-        n_univ=n_univ,
-        bkgd_subtract=True,
-    )
-    if u_x.ndim != 2 or u_y.ndim != 2:
-        raise ValueError("joint univ arrays must be 2-D, got %s and %s" % (u_x.shape, u_y.shape))
-    if u_x.shape[0] != u_y.shape[0]:
-        raise ValueError(
-            "joint n_univ mismatch X vs Y: %d vs %d (shapes %s vs %s)"
-            % (u_x.shape[0], u_y.shape[0], u_x.shape, u_y.shape)
+    """Stacked per-universe histograms: shape ``(n_univ, sum n_bins)``."""
+    us = []
+    cs = []
+    names = []
+    for var in var_list:
+        u, c = get_univ_rates(
+            cov_type="rate",
+            syst_type=syst_type,
+            evtdf=mc_evt_df,
+            nudf=None,
+            var_config=var,
+            syst_name=syst_name_key,
+            n_univ=n_univ,
+            bkgd_subtract=bkgd_subtract,
         )
-    c_x = np.asarray(c_x, dtype=np.float64).reshape(-1)
-    c_y = np.asarray(c_y, dtype=np.float64).reshape(-1)
-    if c_x.size != u_x.shape[1] or c_y.size != u_y.shape[1]:
-        raise ValueError(
-            "joint cv length vs univ width: len(cv_X)=%d vs n_bins_X=%d; len(cv_Y)=%d vs n_bins_Y=%d"
-            % (c_x.size, u_x.shape[1], c_y.size, u_y.shape[1])
-        )
-    u_j = np.hstack([u_x, u_y])
-    c_j = np.concatenate([c_x, c_y])
-    _sk = (syst_type, repr(syst_name_key), var_X.var_save_name, var_Y.var_save_name)
+        u = np.asarray(u, dtype=np.float64)
+        c = np.asarray(c, dtype=np.float64).reshape(-1)
+        if u.ndim != 2:
+            raise ValueError("joint univ array must be 2-D, got %s for %s" % (u.shape, var.var_save_name))
+        if c.size != u.shape[1]:
+            raise ValueError(
+                "joint cv length vs univ width for %s: len(cv)=%d vs n_bins=%d"
+                % (var.var_save_name, c.size, u.shape[1])
+            )
+        us.append(u)
+        cs.append(c)
+        names.append(var.var_save_name)
+    n_univ_set = {u.shape[0] for u in us}
+    if len(n_univ_set) != 1:
+        raise ValueError("joint n_univ mismatch across stack vars: %s" % [u.shape for u in us])
+    u_j = np.hstack(us)
+    c_j = np.concatenate(cs)
+    _sk = (syst_type, repr(syst_name_key), tuple(names))
     _shape_log = os.environ.get("NUMUCC_JOINT_MULTISIM_SHAPES", "1").strip().lower()
     if _shape_log != "0":
         if _shape_log == "all" or _sk not in _LOGGED_JOINT_MULTISIM_SHAPES:
             if _shape_log != "all":
                 _LOGGED_JOINT_MULTISIM_SHAPES.add(_sk)
             print(
-                "[cc-joint-multisim-chunk] joint stacked shapes syst=%r syst_key=%s var_X=%r var_Y=%r: "
-                "u_x=%s u_y=%s -> u_j=%s cv_j=%s"
-                % (
-                    syst_type,
-                    syst_name_key,
-                    var_X.var_save_name,
-                    var_Y.var_save_name,
-                    u_x.shape,
-                    u_y.shape,
-                    u_j.shape,
-                    c_j.shape,
-                ),
+                "[cc-joint-multisim-chunk] stacked shapes syst=%r syst_key=%s vars=%s: u_j=%s cv_j=%s"
+                % (syst_type, syst_name_key, names, u_j.shape, c_j.shape),
                 flush=True,
             )
     return u_j, c_j
@@ -213,11 +194,13 @@ def _joint_univ_rates_one_syst(
 
 def _accum_univ_joint_for_mc_knobs(
     mc_evt_df: pd.DataFrame,
-    joint_pairs: tuple[tuple[str, object, object], ...],
+    jobs: tuple[tuple[str, tuple], ...],
     knobs: tuple[str, ...],
     acc_cat: dict,
     log_tag: str,
     n_univ_requested: int,
+    *,
+    bkgd_subtract: bool = False,
 ) -> None:
     for knob in knobs:
         sk = ("mc", knob)
@@ -225,11 +208,13 @@ def _accum_univ_joint_for_mc_knobs(
         if n_u <= 0:
             continue
         knob_acc = acc_cat.setdefault(knob, {})
-        for pair_slug, vx, vy in joint_pairs:
+        for pair_slug, vars_ in jobs:
             try:
-                uj, cj = _joint_univ_rates_one_syst(mc_evt_df, vx, vy, sk, n_u, syst_type=log_tag)
+                uj, cj = _joint_univ_rates_stack(
+                    mc_evt_df, vars_, sk, n_u, syst_type=log_tag, bkgd_subtract=bkgd_subtract
+                )
             except Exception as ex:
-                print(f"[cc-joint-multisim-chunk] skip pair={pair_slug} {log_tag} knob={knob}: {ex}")
+                print(f"[cc-joint-multisim-chunk] skip slug={pair_slug} {log_tag} knob={knob}: {ex}")
                 continue
             _merge_joint_pack(knob_acc, pair_slug, uj, cj, "%s/%s/%s" % (log_tag, knob, pair_slug))
 
@@ -237,7 +222,7 @@ def _accum_univ_joint_for_mc_knobs(
 def _accumulate_joint_final(
     args,
     syst_names: tuple[str, ...],
-    joint_pairs: tuple[tuple[str, object, object], ...],
+    jobs: tuple[tuple[str, tuple], ...],
 ) -> Dict[str, Any]:
     syst_active = frozenset(syst_names)
     acc_syst: Dict[str, Any] = {sn: {} for sn in NEUTRINO_SYST_ORDER}
@@ -247,6 +232,7 @@ def _accumulate_joint_final(
         if getattr(args, "flux_mode", "knobs") == "knobs"
         else ()
     )
+    bkgd_subtract = bool(getattr(args, "bkgd_subtract", False))
 
     def flush_evt(mc_evt_df: pd.DataFrame) -> None:
         if "topo_categ" not in mc_evt_df.columns:
@@ -266,36 +252,44 @@ def _accumulate_joint_final(
             if sname == "Flux" and args.flux_mode == "knobs":
                 if flux_knobs:
                     _accum_univ_joint_for_mc_knobs(
-                        mc_evt_df, joint_pairs, flux_knobs, acc_syst["Flux"], "Flux", args.n_universe
+                        mc_evt_df, jobs, flux_knobs, acc_syst["Flux"], "Flux", args.n_universe,
+                        bkgd_subtract=bkgd_subtract,
                     )
                 continue
             if sname == "Flux" and args.flux_mode == "bundled":
                 sk = _univ_syst_key_for_df(mc_evt_df, "Flux")
                 n_u = min(int(args.n_universe), _count_univ_columns(mc_evt_df, sk))
                 if n_u > 0:
-                    for pair_slug, vx, vy in joint_pairs:
+                    for pair_slug, vars_ in jobs:
                         try:
-                            uj, cj = _joint_univ_rates_one_syst(mc_evt_df, vx, vy, sk, n_u, syst_type="Flux")
+                            uj, cj = _joint_univ_rates_stack(
+                                mc_evt_df, vars_, sk, n_u, syst_type="Flux",
+                                bkgd_subtract=bkgd_subtract,
+                            )
                         except Exception as ex:
-                            print(f"[cc-joint-multisim-chunk] skip pair={pair_slug} Flux bundled: {ex}")
+                            print(f"[cc-joint-multisim-chunk] skip slug={pair_slug} Flux bundled: {ex}")
                             continue
                         _merge_joint_pack(acc_syst["Flux"], pair_slug, uj, cj, "Flux/%s" % pair_slug)
                 continue
             if sname == "G4" and args.g4_mode == "knobs":
                 if g4_knobs:
                     _accum_univ_joint_for_mc_knobs(
-                        mc_evt_df, joint_pairs, g4_knobs, acc_syst["G4"], "G4", args.n_universe
+                        mc_evt_df, jobs, g4_knobs, acc_syst["G4"], "G4", args.n_universe,
+                        bkgd_subtract=bkgd_subtract,
                     )
                 continue
             if sname == "G4" and args.g4_mode == "bundled":
                 sk = _univ_syst_key_for_df(mc_evt_df, "G4")
                 n_u = min(int(args.n_universe), _count_univ_columns(mc_evt_df, sk))
                 if n_u > 0:
-                    for pair_slug, vx, vy in joint_pairs:
+                    for pair_slug, vars_ in jobs:
                         try:
-                            uj, cj = _joint_univ_rates_one_syst(mc_evt_df, vx, vy, sk, n_u, syst_type="G4")
+                            uj, cj = _joint_univ_rates_stack(
+                                mc_evt_df, vars_, sk, n_u, syst_type="G4",
+                                bkgd_subtract=bkgd_subtract,
+                            )
                         except Exception as ex:
-                            print(f"[cc-joint-multisim-chunk] skip pair={pair_slug} G4 bundled: {ex}")
+                            print(f"[cc-joint-multisim-chunk] skip slug={pair_slug} G4 bundled: {ex}")
                             continue
                         _merge_joint_pack(acc_syst["G4"], pair_slug, uj, cj, "G4/%s" % pair_slug)
                 continue
@@ -304,11 +298,14 @@ def _accumulate_joint_final(
             if n_u <= 0:
                 continue
             stype = "MCstat" if sname == "MCstat" else sname
-            for pair_slug, vx, vy in joint_pairs:
+            for pair_slug, vars_ in jobs:
                 try:
-                    uj, cj = _joint_univ_rates_one_syst(mc_evt_df, vx, vy, sk, n_u, syst_type=stype)
+                    uj, cj = _joint_univ_rates_stack(
+                        mc_evt_df, vars_, sk, n_u, syst_type=stype,
+                        bkgd_subtract=bkgd_subtract,
+                    )
                 except Exception as ex:
-                    print(f"[cc-joint-multisim-chunk] skip pair={pair_slug} syst={sname}: {ex}")
+                    print(f"[cc-joint-multisim-chunk] skip slug={pair_slug} syst={sname}: {ex}")
                     continue
                 _merge_joint_pack(acc_syst[sname], pair_slug, uj, cj, "%s/%s" % (sname, pair_slug))
 
@@ -349,17 +346,34 @@ def parse_args():
         help="Passed to ``flux_mc_knob_names`` when --flux-mode knobs.",
     )
     p.add_argument(
+        "--mode",
+        choices=("stack", "pairs"),
+        default="stack",
+        help="``stack`` (default): one inclusive 4-var vector. ``pairs``: legacy pairwise shards.",
+    )
+    p.add_argument(
         "--pairs",
         default=None,
-        help="Comma-separated pair slugs (default: all kinematic pairs). Example: muon_p__proton_costheta",
+        help="Comma-separated pair slugs (implies --mode pairs). Example: muon_p__proton_costheta",
+    )
+    p.add_argument(
+        "--bkgd-subtract",
+        action="store_true",
+        help="Legacy signal-subtracted universes. Default is inclusive selected rate.",
     )
     return p.parse_args()
+
+
+def _resolve_mode(args) -> str:
+    if getattr(args, "pairs", None):
+        return "pairs"
+    return str(getattr(args, "mode", "stack") or "stack")
 
 
 def compute_out_path(args, syst_names) -> str:
     stem = path.splitext(path.basename(args.df_file))[0]
     tag = "_".join(syst_names)
-    return path.join(args.out_dir, joint_cc_multisim_chunk_basename(tag, stem))
+    return path.join(args.out_dir, joint_cc_multisim_chunk_basename(tag, stem, mode=_resolve_mode(args)))
 
 
 def run_with_args(args, *, skip_existing: bool = False) -> Tuple[str, str]:
@@ -367,19 +381,22 @@ def run_with_args(args, *, skip_existing: bool = False) -> Tuple[str, str]:
     syst_names = _parse_syst_names(args.syst_names)
     if args.input_stage != "final":
         raise SystemExit("[cc-joint-multisim-chunk] only --input-stage final is implemented")
-    pair_slugs = parse_pair_slugs_csv(args.pairs)
-    joint_pairs = select_joint_pairs(pair_slugs)
+    mode = _resolve_mode(args)
+    pair_slugs = parse_pair_slugs_csv(args.pairs) if mode == "pairs" else None
+    jobs = stack_jobs(mode=mode, pair_slugs=pair_slugs)
 
     out_path = compute_out_path(args, syst_names)
     if skip_existing and path.exists(out_path):
         return out_path, "skipped"
 
-    acc_syst = _accumulate_joint_final(args, syst_names, joint_pairs)
+    acc_syst = _accumulate_joint_final(args, syst_names, jobs)
     blob = {
-        "kind": "joint_multisim_cc_chunk",
+        "kind": "joint_multisim_cc_stack_chunk" if mode == "stack" else "joint_multisim_cc_chunk",
+        "mode": mode,
+        "bkgd_subtract": bool(getattr(args, "bkgd_subtract", False)),
         "df_file": args.df_file,
         "syst_names_computed": list(syst_names),
-        "pairs": [p[0] for p in joint_pairs],
+        "pairs": [p[0] for p in jobs],
         "splits_processed": int(get_n_split(args.df_file)) if args.max_splits <= 0 else int(args.max_splits),
         "n_univ_requested": args.n_universe,
         "syst": acc_syst,

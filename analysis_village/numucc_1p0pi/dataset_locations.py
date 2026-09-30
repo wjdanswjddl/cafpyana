@@ -19,8 +19,11 @@ Edit paths **here only** so drivers stay thin:
 - ``run_syst_cosmics_chunked.sh`` — ``syst_cosmics_chunk.py`` / ``syst_cosmics_aggregate.py``;
   globs reuse ``EVENT_SELECTION_GLOBS`` ``offbeam`` / ``intime``.
 - ``default_syst_disk_root()`` — PRL Product **B** ``syst_disk_layout`` root
-  (``…/PRL/systematics/productB_sel_mup``) used by consumers / ``run_syst_*`` unless
-  ``NUMUCC_SYST_DISK_ROOT`` is set. Product **A** is ``prl_syst_disk_root("A")``.
+  (``…/PRL/systematics/productB_sel_mup``, GENIE =
+  ``GENIE_slim_v3`` + MEC May, DENT = rolling 80% w=3 + Gauss σ=1) used by
+  consumers / ``run_syst_*`` unless ``NUMUCC_SYST_DISK_ROOT`` is set. Raw DENT:
+  ``…/productB_sel_mup__dent_raw``. Product **A** is ``prl_syst_disk_root("A")``.
+  Legacy slim_v3-only B tree: ``…/productB_sel_mup_legacy_slim_v3``.
 
 **Naming:** *HDF splits*, *map shards* (one ``.df`` file), and *exposure batches* (time-ordered
 data slices for staged access) are different concepts — see ``exposure_access``.
@@ -117,11 +120,16 @@ MULTISIM_SYST_GLOBS_FINAL: Dict[str, str] = {
         Path("/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs")
         / "2026_09_04_173044__sel_mup-wgts_mcstat/*.df"
     ),
-    # "MCstat": str(SPRING_GEN1_ROOT / "2026_05_18_145611__sel_mup-wgts_mcstat/merged_perTPC/*.df"),
-    "Flux": str(SPRING_GEN1_ROOT / "2026_05_11_155745__sel_mup-wgts_flux/merged_perTPC/*.df"),
-    # "Flux": str(SPRING_GEN1_ROOT_EAF / "2026_05_11_155745__sel_mup-wgts_flux/*.df"),
-    "G4": str(SPRING_GEN1_ROOT / "2026_05_11_031351__sel_mup-wgts_g4/merged_perTPC/*.df"),
-    # "G4": str(SPRING_GEN1_ROOT_EAF / "2026_05_11_031351__sel_mup-wgts_g4/*.df"),
+    # Current sel_mup Flux/G4 weight DFs (May ``merged_perTPC`` trees are gone).
+    # Same corrected samples as ``systematics-multisim-live.ipynb`` / PRL Product B.
+    "Flux": str(
+        Path("/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs")
+        / "2026_09_03_022028__sel_mup-wgts_flux-corrected/*.df"
+    ),
+    "G4": str(
+        Path("/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs")
+        / "2026_09_03_021549__sel_mup-wgts_g4-corrected/*.df"
+    ),
     # "GENIE": str(SPRING_GEN1_ROOT / "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_23_103124__sel_mup-wgts_genie_slim/*df"),
     # "GENIE": str(SPRING_GEN1_ROOT / "/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs/2026_05_11_024530__sel_mup-wgts_genie_CCQE/*df"),
     "GENIE": str(SPRING_GEN1_ROOT / f"2026_05_23_235202__sel_mup-wgts_genie_slim/perTPC/*.df"),
@@ -461,7 +469,13 @@ def default_detvar_syst_work_root(tag: str | None = None) -> Path:
 PRL_SYSTEMATICS_ROOT = Path(
     f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/PRL/systematics"
 )
+# Product B consumer tree. As of 2026-09-30 ``productB_sel_mup`` is a real
+# directory of the former dentsmooth consumer (GENIE_slim_v3 + MEC May, with
+# ``tki-del_Tp`` GENIE taken from v1×v3; DENT = rolling 80% w=3 + Gauss σ=1).
+# Test trees (raw DENT, FSI v1×v3, dent variants) stay under ``PRL-tests``.
 PRL_PRODUCT_B_DIR = "productB_sel_mup"
+PRL_PRODUCT_B_DIR_DENT_RAW = "productB_sel_mup__dent_raw"  # deprecated raw DENT unisim
+PRL_PRODUCT_B_DIR_FSI_V1V3 = "productB_sel_mup__FSI_v1v3"  # deprecated former overlay nominal
 PRL_PRODUCT_A_DIR = "productA_sel_all"
 
 
@@ -485,7 +499,7 @@ def default_syst_disk_root() -> Path:
 
     Same logical tree that ``utils.get_syst_unc`` reads when ``NUMUCC_SYST_DISK_ROOT`` is set.
     If that environment variable is set, this function returns that path (expanded). If not,
-    returns the PRL Product **B** tree (``…/PRL/systematics/productB_sel_mup``).
+    returns the PRL Product **B** consumer tree (``…/PRL/systematics/<PRL_PRODUCT_B_DIR>``).
     """
     env = os.environ.get("NUMUCC_SYST_DISK_ROOT")
     if env:
@@ -493,21 +507,98 @@ def default_syst_disk_root() -> Path:
     return prl_syst_disk_root("B")
 
 
-def default_syst_disk_cc_root() -> Path:
-    """Default root for **joint** (cross-variable) syst outputs (``syst_disk_CC`` tree).
+# PRL data–MC overlay counts (written by ``scripts/data_mc_overlay_products.py``).
+PRL_OVERLAYS_ROOT = Path(
+    f"/exp/sbnd/data/users/{os.environ.get('USER', 'user')}/xsec/numucc_1p0pi/PRL/data_mc_overlays"
+)
+PRL_PRODUCT_B_OVERLAY_DIR = "productB_sel_mup"  # real files; former dentsmooth Product B overlays
+PRL_PRODUCT_A_OVERLAY_DIR = "productA_sel_all"
 
-    Set ``NUMUCC_SYST_DISK_CC_ROOT`` to override. Otherwise uses ``syst_disk_CC`` as a sibling
-    directory next to :func:`default_syst_disk_root` when that path ends with ``syst_disk``,
-    else ``<parent>/syst_disk_CC`` alongside the same parent as ``default_syst_disk_root``.
+# Joint GENIE map: Product B ``GENIE_slim_v3`` only (FSI_compare DFs). Do **not**
+# also sum VecFF / Ar23p / CCQE / MEC / … — those knobs are already inside the
+# slim product. ``align_joint_cc_genie.py`` writes that slim_v3 joint as combined
+# (full off-diagonals). Pass ``--mec-splice`` to add the May−Sep interpolator joint.
+DEFAULT_JOINT_CC_GENIE_GROUPS: Tuple[str, ...] = ("FSI_compare",)
+
+
+def prl_overlay_root(product: str = "B") -> Path:
+    """PRL ``data_mc_overlays`` directory (``counts_report.npz``) for Product **B** or **A**."""
+    key = str(product).strip().lower().replace("-", "_")
+    if key in ("b", "productb", "sel_mup", "productb_sel_mup", "mup"):
+        return PRL_OVERLAYS_ROOT / PRL_PRODUCT_B_OVERLAY_DIR
+    if key in ("a", "producta", "sel_all", "producta_sel_all", "all"):
+        return PRL_OVERLAYS_ROOT / PRL_PRODUCT_A_OVERLAY_DIR
+    raise ValueError(
+        f"Unknown PRL overlay product {product!r}; use 'A'/'B' or productA_sel_all/productB_sel_mup"
+    )
+
+
+def prl_overlay_counts_npz(product: str = "B") -> Path:
+    """``counts_report.npz`` written by the PRL overlay driver."""
+    return prl_overlay_root(product) / "counts_report.npz"
+
+
+def prl_constraint_validation_root(slug: str = "mu_p_dirz") -> Path:
+    """PRL study tree ``…/PRL/constraint_validation_<slug>/`` (JointCC + ``plot/``)."""
+    return PRL_OVERLAYS_ROOT.parent / ("constraint_validation_%s" % slug)
+
+
+def prl_constraint_validation_plot_dir(slug: str = "mu_p_dirz") -> Path:
+    """Figure directory ``plot/`` under :func:`prl_constraint_validation_root`."""
+    return prl_constraint_validation_root(slug) / "plot"
+
+
+def all_genie_group_tags() -> Tuple[str, ...]:
+    """GENIE group tags known to globs / knob maps (includes FSI_compare, VecFF, slim)."""
+    seen: List[str] = []
+    for t in GENIE_GROUP_ORDER:
+        if t not in seen:
+            seen.append(t)
+    for t in list(GENIE_GROUP_KNOBS) + list(GENIE_GROUP_GLOBS) + list(GENIE_GROUP_GLOBS_SEL_ALL):
+        if t not in seen:
+            seen.append(t)
+    return tuple(seen)
+
+
+def joint_cc_genie_knobs_for_group(group: str) -> List[str]:
+    """Knobs histogrammed for one joint-CC GENIE group.
+
+    ``FSI_compare`` is the bundled Product B GENIE piece: only ``GENIE_slim_v3``.
+    Other groups use :data:`GENIE_GROUP_KNOBS`. Do not add VecFF / Ar23p on top
+    of slim_v3 for Joint CC — that double-counts knobs already in the product.
+    """
+    if group == "FSI_compare":
+        return ["GENIE_slim_v3"]
+    knobs = GENIE_GROUP_KNOBS.get(group)
+    if not knobs:
+        raise KeyError(
+            "unknown GENIE group %r for joint CC; expected one of %s"
+            % (group, tuple(all_genie_group_tags()))
+        )
+    knobs = list(knobs)
+    # ``PionAbsWeighter_SBN_v3_QuasiDeuteronFraction`` is on Ar23+ CAFs and on
+    # Sep-19 FSI_compare DFs (inside ``FSI_v3_N`` / ``GENIE_slim_v3``). It is
+    # **not** on the Sep-12 ``sel_mup`` Ar23p DF glob — that extraction ran two
+    # days before beb9fc4 added the name to ``ar23p_genie_systematics``. There
+    # is no later sel_mup Ar23p tree. Joint GENIE already carries it via
+    # ``GENIE_slim_v3``; repeating it as an Ar23p extra would double-count.
+    if group == "Ar23p":
+        knobs = [k for k in knobs if k != "PionAbsWeighter_SBN_v3_QuasiDeuteronFraction"]
+    return knobs
+
+
+def default_syst_disk_cc_root() -> Path:
+    """Default root for **joint** (cross-variable) syst outputs.
+
+    Set ``NUMUCC_SYST_DISK_CC_ROOT`` to override. Otherwise
+    ``<prl_syst_disk_root("B")>/JointCC`` — **not** chained through
+    :func:`default_syst_disk_root`, so a leftover ``NUMUCC_SYST_DISK_ROOT``
+    pointing at the retired ``syst_disk`` tree cannot redirect JointCC.
     """
     env = os.environ.get("NUMUCC_SYST_DISK_CC_ROOT")
     if env:
         return Path(env).expanduser()
-    base = default_syst_disk_root()
-    name = base.name
-    if name == "syst_disk":
-        return base.parent / "syst_disk_CC"
-    return base.parent / "syst_disk_CC"
+    return prl_syst_disk_root("B") / "JointCC"
 
 
 def default_joint_genie_cc_work_root(tag: str | None = None) -> Path:
@@ -569,10 +660,22 @@ def iter_event_selection_df_paths(sample: str) -> Iterator[str]:
 
 def _multisim_glob_map(mc_df_stage: str) -> Dict[str, str]:
     if mc_df_stage == "final":
-        return MULTISIM_SYST_GLOBS_FINAL
-    if mc_df_stage == "sel_all":
-        return MULTISIM_SYST_GLOBS_SEL_ALL
-    raise ValueError("mc_df_stage must be 'final' or 'sel_all', got %r" % mc_df_stage)
+        out = dict(MULTISIM_SYST_GLOBS_FINAL)
+    elif mc_df_stage == "sel_all":
+        out = dict(MULTISIM_SYST_GLOBS_SEL_ALL)
+    else:
+        raise ValueError("mc_df_stage must be 'final' or 'sel_all', got %r" % mc_df_stage)
+    # Optional per-syst overrides (e.g. Sep-3 corrected sel_mup weight DFs).
+    flux = os.environ.get("NUMUCC_MULTISIM_FLUX_GLOB", "").strip()
+    g4 = os.environ.get("NUMUCC_MULTISIM_G4_GLOB", "").strip()
+    mcstat = os.environ.get("NUMUCC_MULTISIM_MCSTAT_GLOB", "").strip()
+    if flux:
+        out["Flux"] = flux
+    if g4:
+        out["G4"] = g4
+    if mcstat:
+        out["MCstat"] = mcstat
+    return out
 
 
 def iter_multisim_syst_df_paths(mc_df_stage: str, syst_name: str) -> Iterator[str]:
@@ -631,6 +734,8 @@ def summary_lines() -> Iterable[str]:
     yield "SPRING_GEN1_ROOT=%s" % SPRING_GEN1_ROOT
     yield "PLOTS_BASE=%s" % PLOTS_BASE
     yield "default_syst_disk_root=%s" % default_syst_disk_root()
+    yield "default_syst_disk_cc_root=%s" % default_syst_disk_cc_root()
+    yield "prl_overlay_counts_npz(B)=%s" % prl_overlay_counts_npz("B")
     yield ""
     yield "## event_selection"
     for k, pat in EVENT_SELECTION_GLOBS.items():

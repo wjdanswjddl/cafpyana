@@ -52,23 +52,22 @@ def IsNuInFV_NumuNC(df):
 
 
 def IsTruthCC1p0piPerTPCFV(df, incathode=PER_TPC_INCATHODE_CM):
-    """Truth fiducial aligned with reco per-TPC cut (vertex + μ/p ends in same TPC).
+    """Truth fiducial aligned with reco ``event_contained_per_tpc``.
 
-    Reco uses ``slc.vertex`` and reconstructed track ends; truth uses ``mc.position``
-    and true lepton end positions. Same ``SBND_TPC1`` / ``SBND_TPC2`` x-bands as
-    ``InFV(..., det=\"SBND_TPC1|2\")`` in ``makedf.util``.
+    Reco uses the slice vertex and reconstructed track start/end points; truth
+    uses ``mc.position`` and true μ/p start **and** end. Both require the full
+    ``SBND_Gen1`` volume (x, y, z, including high-YZ) and the same TPC.
     """
-    in_tpc1 = (
-        InFV(df.mc.position, det="SBND_TPC1", incathode=incathode)
-        & InFV(df.mc.mu.end, det="SBND_TPC1", incathode=incathode)
-        & InFV(df.mc.p.end, det="SBND_TPC1", incathode=incathode)
+    return points_in_gen1_same_tpc(
+        [
+            df.mc.position,
+            df.mc.mu.start,
+            df.mc.mu.end,
+            df.mc.p.start,
+            df.mc.p.end,
+        ],
+        incathode=incathode,
     )
-    in_tpc2 = (
-        InFV(df.mc.position, det="SBND_TPC2", incathode=incathode)
-        & InFV(df.mc.mu.end, det="SBND_TPC2", incathode=incathode)
-        & InFV(df.mc.p.end, det="SBND_TPC2", incathode=incathode)
-    )
-    return in_tpc1 | in_tpc2
 
 
 def IsTruthCC1p0piNominalFV(df, detector=DETECTOR):
@@ -86,9 +85,10 @@ def Is_1p0pi(df, detector=DETECTOR, signal_truth_fv="per_tpc"):
     """True CC 1p0π topology with configurable truth fiducial.
 
     signal_truth_fv : {'per_tpc', 'nominal', 'none'}
-        ``per_tpc`` — ``IsTruthCC1p0piPerTPCFV`` (matches per-TPC reco selection).
+        ``per_tpc`` — ``IsTruthCC1p0piPerTPCFV`` (Gen-1 + same TPC on vertex and
+        μ/p start/end; matches reco ``event_contained_per_tpc``).
         ``nominal`` — μ/p start and end in ``detector`` (default ``SBND_nohighyz``).
-        ``none`` — topology only, no μ/p end containment requirement.
+        ``none`` — topology only, no μ/p containment requirement.
     """
     topo = (
         (df.mc.nmu_220MeVc == 1)
@@ -123,22 +123,59 @@ def IsNuInFV_NumuCC_1p0pi(df, detector=DETECTOR, signal_truth_fv="per_tpc"):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
               Is_1p0pi(df, detector=detector, signal_truth_fv=signal_truth_fv)
 
+# Interaction codes live in the same CAF branch ``mc.genie_mode`` for every
+# generator, but the integers are **not** interchangeable:
+#   GENIE CAF (Interaction_t): QE=0, RES=1, DIS=2, COH=3, MEC=10
+#   GiBUU CAF (GiBUU process ID): QE=1, RES=2–31, DIS=32/33/34/37, MEC=35|36
+#   NUISANCE flat-tree ``Mode`` (GENIE/GiBUU/NEUT flats): QE=1
+# ``genie_mode==1`` is GENIE RES and GiBUU QE. Never apply GENIE 0/1/2/10
+# cuts to GiBUU, or NUISANCE ``Mode==1`` to CAF GENIE.
+GENIE_CAF_MODE_QE = 0
+GENIE_CAF_MODE_RES = 1
+GENIE_CAF_MODE_DIS = 2
+GENIE_CAF_MODE_MEC = 10
+GIBUU_CAF_MODE_QE = 1
+GIBUU_CAF_MODE_MEC = (35, 36)
+GIBUU_CAF_MODE_DIS = (32, 33, 34, 37)
+
+
+def caf_mode_is_qe(mode, generator="genie"):
+    """Boolean mask on CAF ``mc.genie_mode`` (or NUISANCE ``Mode`` is not this)."""
+    mode = np.asarray(mode)
+    gen = str(generator).lower()
+    if gen == "gibuu":
+        return mode == GIBUU_CAF_MODE_QE
+    if gen == "genie":
+        return mode == GENIE_CAF_MODE_QE
+    raise ValueError(f"unknown generator {generator!r}; use 'genie' or 'gibuu'")
+
+
+def caf_mode_is_mec(mode, generator="genie"):
+    mode = np.asarray(mode)
+    gen = str(generator).lower()
+    if gen == "gibuu":
+        return (mode == GIBUU_CAF_MODE_MEC[0]) | (mode == GIBUU_CAF_MODE_MEC[1])
+    if gen == "genie":
+        return mode == GENIE_CAF_MODE_MEC
+    raise ValueError(f"unknown generator {generator!r}; use 'genie' or 'gibuu'")
+
+
 # --- numu CC in FV, breakdown in interaction mode (GENIE)
 def IsNuInFV_NumuCC_QE(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              (df.mc.genie_mode == 0)
+              (df.mc.genie_mode == GENIE_CAF_MODE_QE)
 
 def IsNuInFV_NumuCC_MEC(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              (df.mc.genie_mode == 10)
+              (df.mc.genie_mode == GENIE_CAF_MODE_MEC)
 
 def IsNuInFV_NumuCC_RES(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              (df.mc.genie_mode == 1)
+              (df.mc.genie_mode == GENIE_CAF_MODE_RES)
 
 def IsNuInFV_NumuCC_DIS(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              (df.mc.genie_mode == 2)
+              (df.mc.genie_mode == GENIE_CAF_MODE_DIS)
 
 # def IsNuInFV_NumuCC_COH(df):
 #     return IsNuInFV(df) & (df.pdg == 14) & (df.iscc == 1) &\
@@ -146,17 +183,18 @@ def IsNuInFV_NumuCC_DIS(df):
 
 def IsNuInFV_NumuCC_OtherMode(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              ~(df.mc.genie_mode == 0) & ~(df.mc.genie_mode == 1) & ~(df.mc.genie_mode == 2) & ~(df.mc.genie_mode == 10)
+              ~(df.mc.genie_mode == GENIE_CAF_MODE_QE) & ~(df.mc.genie_mode == GENIE_CAF_MODE_RES) &\
+              ~(df.mc.genie_mode == GENIE_CAF_MODE_DIS) & ~(df.mc.genie_mode == GENIE_CAF_MODE_MEC)
 
 
 # --- numu CC in FV, breakdown in interaction mode (GiBUU)
 def IsNuInFV_NumuCC_QE_GiBUU(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              (df.mc.genie_mode == 1)
+              (df.mc.genie_mode == GIBUU_CAF_MODE_QE)
 
 def IsNuInFV_NumuCC_MEC_GiBUU(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              ((df.mc.genie_mode == 35) | (df.mc.genie_mode == 36))
+              ((df.mc.genie_mode == GIBUU_CAF_MODE_MEC[0]) | (df.mc.genie_mode == GIBUU_CAF_MODE_MEC[1]))
 
 def IsNuInFV_NumuCC_RES_GiBUU(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
@@ -164,7 +202,8 @@ def IsNuInFV_NumuCC_RES_GiBUU(df):
 
 def IsNuInFV_NumuCC_DIS_GiBUU(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
-              ((df.mc.genie_mode == 32) | (df.mc.genie_mode == 33) | (df.mc.genie_mode == 34) | (df.mc.genie_mode == 37))
+              ((df.mc.genie_mode == GIBUU_CAF_MODE_DIS[0]) | (df.mc.genie_mode == GIBUU_CAF_MODE_DIS[1]) |
+               (df.mc.genie_mode == GIBUU_CAF_MODE_DIS[2]) | (df.mc.genie_mode == GIBUU_CAF_MODE_DIS[3]))
 
 def IsNuInFV_NumuCC_OtherMode_GiBUU(df):
     return IsNuInFV(df) & (df.mc.pdg == 14) & (df.mc.iscc == 1) &\
@@ -337,6 +376,42 @@ def get_genie_sb_category(df, ret_cuts=False, print_summary=False, detector=DETE
     return cuts
 
 
+def get_gibuu_category(df, ret_cuts=False, print_summary=False):
+    """Interaction-mode breakdown using GiBUU process IDs in ``mc.genie_mode``."""
+    cut_cosmic = IsCosmic(df)
+    cut_outfv = IsNuOutFV(df)
+    cut_fv_other = IsNuInFV_NuOther(df)
+    cut_nc = IsNuInFV_NumuNC(df)
+    cut_other = IsNuInFV_NumuCC_OtherMode_GiBUU(df)
+    cut_dis = IsNuInFV_NumuCC_DIS_GiBUU(df)
+    cut_res = IsNuInFV_NumuCC_RES_GiBUU(df)
+    cut_mec = IsNuInFV_NumuCC_MEC_GiBUU(df)
+    cut_qe = IsNuInFV_NumuCC_QE_GiBUU(df)
+
+    assert (cut_cosmic & cut_outfv & cut_fv_other & cut_nc & cut_other & cut_dis & cut_res & cut_mec & cut_qe).sum() == 0
+    assert (cut_cosmic | cut_outfv | cut_fv_other | cut_nc | cut_other | cut_dis | cut_res | cut_mec | cut_qe).sum() == len(df)
+
+    gibuu_categ = pd.Series(10, index=df.index)
+    gibuu_categ[cut_cosmic] = -1
+    gibuu_categ[cut_outfv] = 0
+    gibuu_categ[cut_qe] = 1
+    gibuu_categ[cut_mec] = 2
+    gibuu_categ[cut_res] = 3
+    gibuu_categ[cut_dis] = 4
+    gibuu_categ[cut_other] = 5
+    gibuu_categ[cut_nc] = 6
+    gibuu_categ[cut_fv_other] = 7
+
+    if print_summary:
+        print(gibuu_categ.value_counts())
+
+    if ret_cuts:
+        # cosmic-first, matches ``gibuu_mode_labels[::-1]``
+        return [cut_cosmic, cut_outfv, cut_fv_other, cut_nc, cut_other, cut_dis, cut_res, cut_mec, cut_qe]
+
+    return gibuu_categ
+
+
 # --- colors & labelsfor plotting ---
 # nu / cosmic breakdown
 nu_cosmics_labels = ["Cosmic", r"Out-FV $\nu$", r"FV $\nu$"]
@@ -420,10 +495,18 @@ def get_category_cuts(breakdown_type, df, ret_cuts=False):
         labels = genie_mode_labels[::-1]
         colors = genie_mode_colors[::-1]
         cuts = get_genie_category(df, ret_cuts=ret_cuts)
-    
-    # TODO: GiBUU breakdown
+
+    elif breakdown_type == "gibuu":
+        labels = gibuu_mode_labels[::-1]
+        colors = gibuu_mode_colors[::-1]
+        cuts = get_gibuu_category(df, ret_cuts=ret_cuts)
+
+    elif breakdown_type == "genie_sb":
+        labels = genie_sb_mode_labels[::-1]
+        colors = genie_sb_mode_colors[::-1]
+        cuts = get_genie_sb_category(df, ret_cuts=ret_cuts)
 
     else:
-        raise ValueError("Invalid breakdown_type: %s, please choose between [topology, genie, or genie_sb]" % breakdown_type)
+        raise ValueError("Invalid breakdown_type: %s, please choose between [topology, genie, genie_sb, or gibuu]" % breakdown_type)
 
     return cuts, labels, colors

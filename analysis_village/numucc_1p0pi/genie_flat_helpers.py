@@ -279,6 +279,13 @@ def build_genie_flat_cache(files, data_pot, genie_ref_pot, **load_kw):
 
 
 def genie_flat_integrated_sigma(nu_df, mask, pot_scale):
+    """Flux-averaged σ [cm²/nucleus] for selected flat events.
+
+    ``fScaleFactor`` from NUISANCE GenericFlux is per-nucleon because PrepareGENIE
+    builds ``nuisance_events = Φ×σ_nucleus/totalnucl`` with ``totalnucl=A=40`` for
+    ``1000180400``. Multiplying by 40 restores per-nucleus units, matching
+    production ``XSEC_UNIT = 1/(Φ × N_Ar)``. This is *not* a double-count of A.
+    """
     m = np.asarray(mask, dtype=bool)
     w = (
         40.0

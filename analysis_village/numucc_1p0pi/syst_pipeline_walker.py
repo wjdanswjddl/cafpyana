@@ -64,20 +64,34 @@ CHI2_CUT_STAGES: Tuple[str, ...] = ("2prong-vtxdist", "2prong-muX", "2prong-mup"
 CHI2_PLANES: Tuple[str, ...] = ("I0", "I1", "I2", "avg")
 
 # Skip PlotSpecs that are not cut-driving diagnostics for syst rate histos.
-# ``not_mu`` PlotSpecs are skipped here; dedicated subset specs below fill them.
-_SKIP_NAME_SUFFIXES = frozenset({"final", "not_mu"})
+# ``not_mu`` / ``len50`` / ``len50_qual`` PlotSpecs are skipped here; dedicated
+# subset specs below fill them with distinct save-name slugs.
+_SKIP_NAME_SUFFIXES = frozenset({"final", "not_mu", "len50", "len50_qual"})
 
 # Stage for the dedicated track-subset χ² packs (avg plane only).
 CHI2_SUBSET_STAGE_KEY: str = "2prong-vtxdist"
 
-# Slugs for len>50 / not_mu avg-χ² at vtxdist (added to Product A without replacing
-# existing all-track ``chi2_avg_*__at_2prong-vtxdist`` packs).
+# Slim Product A campaign slugs (χ² subsets + MCS at vtxdist). Env campaigns
+# also include ``chi2_avg_{mu,p}__at_2prong-vtxdist`` via NUMUCC_CUT_STAGE_SLUGS.
 CHI2_TRACK_SUBSET_SLUGS: Tuple[str, ...] = (
     "chi2_avg_mu_len50__at_2prong-vtxdist",
     "chi2_avg_p_len50__at_2prong-vtxdist",
     "chi2_avg_mu_not_mu__at_2prong-vtxdist",
     "chi2_avg_p_not_mu__at_2prong-vtxdist",
+    "chi2_avg_mu_len50_qual__at_2prong-vtxdist",
+    "chi2_avg_p_len50_qual__at_2prong-vtxdist",
 )
+
+# MCS/range after len>50 (same vtxdist stage as χ² subsets).
+MCS_LEN50_SLUG: str = "mcs_range_diff_len50"
+
+# Full slim allowlist for the overnight rebinned χ²/MCS campaign.
+CHI2_MCS_REBIN_SLUGS: Tuple[str, ...] = (
+    "chi2_avg_mu__at_2prong-vtxdist",
+    "chi2_avg_p__at_2prong-vtxdist",
+    "mcs_range_diff",
+    MCS_LEN50_SLUG,
+) + CHI2_TRACK_SUBSET_SLUGS
 
 
 def clone_var_config(vc: VariableConfig, *, var_save_name: str) -> VariableConfig:
@@ -193,6 +207,30 @@ def _build_cut_stage_specs() -> List[CutStageVarSpec]:
                 ),
                 "trk_not_mu",
             ),
+            CutStageVarSpec(
+                stage,
+                clone_var_config(
+                    VariableConfig.chi2_avg_mu(),
+                    var_save_name="chi2_avg_mu_len50_qual__at_2prong-vtxdist",
+                ),
+                "trk_len50_qual",
+            ),
+            CutStageVarSpec(
+                stage,
+                clone_var_config(
+                    VariableConfig.chi2_avg_proton(),
+                    var_save_name="chi2_avg_p_len50_qual__at_2prong-vtxdist",
+                ),
+                "trk_len50_qual",
+            ),
+            CutStageVarSpec(
+                stage,
+                clone_var_config(
+                    VariableConfig.mcs_range_diff(),
+                    var_save_name=MCS_LEN50_SLUG,
+                ),
+                "trk_len50",
+            ),
         ]
     )
     return specs
@@ -211,6 +249,7 @@ def active_cut_stage_specs() -> Tuple[CutStageVarSpec, ...]:
 
     Set ``NUMUCC_CUT_STAGE_SLUGS=slug1,slug2,...`` to histogram only those cut-stage
     variables (used for focused chi2 subset campaigns without redoing all packs).
+    Use a non-matching token (e.g. ``__none__``) to skip all cut-stage fills.
     """
     raw = os.environ.get("NUMUCC_CUT_STAGE_SLUGS", "").strip()
     if not raw:
@@ -223,7 +262,18 @@ FINAL_STAGE_KEY: str = "2prong-mup"
 
 
 def final_stage_var_configs(extra: Optional[Sequence[VariableConfig]] = None) -> List[VariableConfig]:
-    """Final-selection variables (CORE + with_final_selected_evt_variables(...))."""
+    """Final-selection variables (CORE + with_final_selected_evt_variables(...)).
+
+    ``NUMUCC_FINAL_VAR_SET=vertex_multi`` → only ``vertex_{x,y,z}__nbins{N}``
+    (nbins from ``NUMUCC_VERTEX_MULTI_NBINS``, default 40,50,60).
+    """
+    vset = os.environ.get("NUMUCC_FINAL_VAR_SET", "").strip().lower()
+    if vset == "vertex_multi":
+        from analysis_village.numucc_1p0pi.variable_configs import vertex_multi_bin_var_configs
+
+        raw = os.environ.get("NUMUCC_VERTEX_MULTI_NBINS", "40,50,60")
+        nbins = [int(x) for x in raw.split(",") if x.strip()]
+        return list(vertex_multi_bin_var_configs(nbins))
     base: List[VariableConfig] = list(CORE_SELECTED_EVT_VARIABLE_CONFIGS)
     if extra:
         for vc in extra:
@@ -281,6 +331,7 @@ def get_var_series(
 
     Track subsets:
     * ``trk_len50`` — concat trk1+trk2 with ``pfp.trk.len > MU_LEN_TH`` (50 cm)
+    * ``trk_len50_qual`` — len>50 and ``|Δp|/p < QUAL_TH``
     * ``trk_not_mu`` — same population as :func:`sel_trks_concat_not_mu`
     """
     evt = state.get("evt")
@@ -298,10 +349,12 @@ def get_var_series(
         return _trk_concat_series(evt, var_config)
     if target == "trk_len50":
         return _trk_len50_series(evt, var_config)
+    if target == "trk_len50_qual":
+        return _trk_len50_qual_series(evt, var_config)
     if target == "trk_not_mu":
         return _trk_not_mu_series(state, var_config)
     raise ValueError(
-        f"target must be 'evt', 'trk', 'trk_len50', or 'trk_not_mu', got {target!r}"
+        f"target must be 'evt', 'trk', 'trk_len50', 'trk_len50_qual', or 'trk_not_mu', got {target!r}"
     )
 
 
@@ -357,6 +410,52 @@ def _trk_len50_series(
             np.zeros(0, dtype=np.int64),
         )
     return v[mask], idx[mask]
+
+
+def _trk_mcs_abs_series(evt: pd.DataFrame) -> Optional[np.ndarray]:
+    """Concatenated ``|Δp|/p`` for trk1+trk2, or None."""
+    if not _evt_has_trk1_trk2(evt):
+        return None
+    try:
+        trks = pd.concat([evt.trk1, evt.trk2])
+        mcs = np.abs(
+            (trks.pfp.trk.rangeP.p_muon - trks.pfp.trk.mcsP.fwdP_muon)
+            / trks.pfp.trk.rangeP.p_muon
+        )
+        return np.asarray(mcs, dtype=float)
+    except Exception:
+        return None
+
+
+def _trk_len50_qual_series(
+    evt: pd.DataFrame, var_config: VariableConfig
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    got = _trk_len50_series(evt, var_config)
+    if got is None:
+        return None
+    v, idx = got
+    if v.shape[0] == 0:
+        return v, idx
+    lengths = _trk_len_series(evt)
+    mcs = _trk_mcs_abs_series(evt)
+    if lengths is None or mcs is None or lengths.shape[0] != mcs.shape[0]:
+        return None
+    # Rebuild mask on full concat then apply len50 ∩ qual (same order as len50).
+    len_mask = np.asarray(lengths, dtype=float) > float(MU_LEN_TH)
+    qual_mask = np.asarray(mcs, dtype=float) < float(QUAL_TH)
+    mask = len_mask & qual_mask
+    full = _trk_concat_series(evt, var_config)
+    if full is None:
+        return None
+    fv, fidx = full
+    if fv.shape[0] != mask.shape[0]:
+        return None
+    if not mask.any():
+        return (
+            np.zeros(0, dtype=np.float64),
+            np.zeros(0, dtype=np.int64),
+        )
+    return fv[mask], fidx[mask]
 
 
 def _trk_not_mu_series(

@@ -219,7 +219,7 @@ def _worker(job: dict) -> dict:
 def parse_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--mc-df-stage", choices=("final", "sel_all"), default="final")
-    p.add_argument("--var-set", choices=("final", "intermediate", "both", "sel_all"), default="final")
+    p.add_argument("--var-set", choices=("final", "intermediate", "both", "sel_all", "vertex_multi"), default="final")
     p.add_argument("--syst-types", default="all",
                    help="all | full | comma list (MCstat,Flux,G4). Same semantics as the bash driver.")
     p.add_argument("--max-files", type=int, default=0,

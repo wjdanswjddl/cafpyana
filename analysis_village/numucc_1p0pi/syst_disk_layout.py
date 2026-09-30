@@ -2,7 +2,11 @@
 
 Canonical consumer roots (PRL publication collection):
 
-* Product **B**: ``…/PRL/systematics/productB_sel_mup``
+* Product **B** producer: ``…/PRL/systematics/productB_sel_mup`` (GENIE = ``GENIE_slim_both`` / FSI v1×v3)
+* Product **B** overlay/unfold consumer (since 2026-09-29): ``…/productB_sel_mup``
+  (GENIE = ``GENIE_slim_v3`` + MEC→May; DENT = rolling 80% w=3 + Gauss σ=1). Raw DENT:
+  ``…/productB_sel_mup__dent_raw`` → ``…/productB_sel_mup__genie_FSIv3_MEC_May``. Former GENIE:
+  ``…/productB_sel_mup__FSI_v1v3`` (was ``productB_sel_mup__detfull_smear``; compat symlink kept).
 * Product **A**: ``…/PRL/systematics/productA_sel_all``
 
   (see ``dataset_locations.prl_syst_disk_root`` / ``default_syst_disk_root``).

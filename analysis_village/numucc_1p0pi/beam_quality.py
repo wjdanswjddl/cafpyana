@@ -1,10 +1,15 @@
 """Beam-quality cuts for SBND 1e20 data (from ``notebooks/beam_quality.ipynb``).
 
 Identifies bad triggered events from:
-- bad beam spills (FOM = 0 or 4, or 0 < FOM < ``fom_cut``)
-- short runs (duration < ``min_run_duration_min``)
+- bad beam spills (FOM = 0 or 4, or 0 < FOM < ``FOM_CUT``)
+- short runs (duration < ``MIN_RUN_DURATION_MIN``)
 
 Returns ``evt_good`` and a hdr table restricted to good triggered events.
+
+Product B overlays and unfolding must call :func:`apply_beam_quality_cuts` on
+the raw data sample. Do **not** scale POT by FOM and do **not** load a
+pre-cut ``beam_data_*_qualitycut.df``. After these cuts the selected
+sample has :data:`EXPECTED_N_EVT_GOOD` events (12,804).
 """
 
 from __future__ import annotations
@@ -13,6 +18,12 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+
+# Canonical Product B / overlay / unfold cuts. Importers must use these —
+# do not scale POT by FOM or load a pre-cut ``beam_data_*_qualitycut.df``.
+FOM_CUT = 0.98
+MIN_RUN_DURATION_MIN = 20.0
+EXPECTED_N_EVT_GOOD = 12804  # Product B pin after FOM + short-run cuts
 
 BEAM_COLS = ("TOR875", "TOR860", "FOM", "THCURR", "spill_time")
 
@@ -86,7 +97,7 @@ def match_beam_spills(data_hdr_df: pd.DataFrame, pot_df: pd.DataFrame) -> pd.Dat
 def short_run_ids(
     data_hdr_df: pd.DataFrame,
     *,
-    min_run_duration_min: float = 20.0,
+    min_run_duration_min: float = MIN_RUN_DURATION_MIN,
 ) -> set:
     """Return run IDs whose triggered-event span is shorter than the threshold."""
     short_runs: set = set()
@@ -102,7 +113,7 @@ def short_run_ids(
 def bad_hdr_mask(
     data_hdr_df: pd.DataFrame,
     *,
-    fom_cut: float = 0.98,
+    fom_cut: float = FOM_CUT,
     short_runs: set | None = None,
 ) -> pd.Series:
     fom = data_hdr_df["FOM"]
@@ -120,8 +131,8 @@ def apply_beam_quality_cuts(
     data_hdr_df: pd.DataFrame,
     pot_df: pd.DataFrame,
     *,
-    fom_cut: float = 0.98,
-    min_run_duration_min: float = 20.0,
+    fom_cut: float = FOM_CUT,
+    min_run_duration_min: float = MIN_RUN_DURATION_MIN,
 ) -> tuple[pd.DataFrame, pd.DataFrame, BeamQualitySummary]:
     """Return ``(evt_good, hdr_good, summary)`` after beam-quality selection."""
     hdr_matched = match_beam_spills(data_hdr_df, pot_df)

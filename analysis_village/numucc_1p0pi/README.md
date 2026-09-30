@@ -6,6 +6,21 @@ Workflow: CAF ROOT files → pandas dataframes (`.df`, via `run_df_maker.py` +
 See the repo-root `README.md` for the phase-by-phase run instructions and
 `scripts/README.md` for the systematics/selection drivers.
 
+## PRL directory (2026-09-30)
+
+On 2026-09-30 the previous data tree was renamed to
+`/exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/PRL-tests` (test subdirectories
+and symlinks kept for later investigations). The path `.../numucc_1p0pi/PRL`
+was recreated with only the live numeric products, copied as real files:
+
+- `systematics/productB_sel_mup` — former `productB_sel_mup__det_dentsmooth_upper80_w3`
+- `systematics/productA_sel_all` — former `productA_sel_all__bins_chi2mcs20_detfull_smear`
+- `data_mc_overlays/productB_sel_mup` and `productA_sel_all`
+- `unfolded` — former `unfolded_det_dentsmooth_upper80_w3`
+- `response_matrices`
+
+See `PRL/LAYOUT.txt` and `PRL-tests/LAYOUT.txt`.
+
 ## Event selection (read this first)
 
 Selection is defined in **two** places only. Everything else (CAF makers,
@@ -101,7 +116,7 @@ pipeline offline, use:
 - `variable_configs.py` — `VariableConfig` registry: binning, labels, and save names for all histogrammed variables.
 - `final_selected_evt_vars.py` — registries of final-selection and intermediate-cut variables.
 - `evt_derived_kinematics.py` — derived μ/p kinematics columns (momenta, angles, TKI inputs).
-- `dataset_locations.py` — central input globs, work roots, and syst-disk roots (`default_syst_disk_root` → PRL `productB_sel_mup`; `prl_syst_disk_root("A"|"B")`); override with `NUMUCC_SPRING_GEN1_ROOT` / `NUMUCC_SYST_DISK_ROOT`.
+- `dataset_locations.py` — central input globs, work roots, and syst-disk roots (`prl_syst_disk_root("B")` / overlays / unfold → `productB_sel_mup`: GENIE_slim_v3 + MEC May, DENT rolling 80% w=3 + Gauss σ=1; `prl_overlay_counts_npz("B")` → `PRL/data_mc_overlays/productB_sel_mup/counts_report.npz`; joint CC → `<Product B>/JointCC`; `prl_syst_disk_root("A")` → `productA_sel_all`); override with `NUMUCC_SPRING_GEN1_ROOT` / `NUMUCC_SYST_DISK_ROOT` / `NUMUCC_SYST_DISK_CC_ROOT`.
 - `files_config.py` — monolithic `.df` loaders (`get_ana_dfs`) used by scripts and most notebooks.
 - `files_config_new.py` — split-file loaders used by a subset of notebooks (with `pyanalib.split_df_helpers_new`).
 - `exposure_access.py` — staged data-access policy (`DataAccessStage`) and exposure-batch definitions.
@@ -118,13 +133,14 @@ pipeline offline, use:
 - `syst_genie_inspect.py` — load/plot helpers for GENIE `cov_mat_dict` inspection notebook.
 - `syst_cosmics_common.py` — cosmics variable registry, flat unc, **SelectedRate** contamination helpers.
 - `syst_detvar_common.py` — WireMod/DENT matching wrappers, batched hist fill, envelope/unisim packs, Detector combine/plots.
+  Nominal Detector recipe: nested WireMod+DENT (`build_wiremod_nested_detector_dict`); older 3-knob / flat-10 recipes kept as tests under `PRL/systematics/product*__detector_*`.
 - `syst_summary_inspect.py` — load multi-root syst disks + total-by-source plots for `systematics-summary.ipynb`.
-- `syst_cc_joint_multisim_common.py` — joint-pair layout and filename helpers.
+- `syst_cc_joint_multisim_common.py` — stacked inclusive joint layout (`stacked_mu_p`) and pairwise helpers.
 - `syst_pipeline_walker.py` — walks `build_pipeline` on sel_all dfs (Product A1 / shared fill).
 - `syst_histcounts.py` — Product **A2** histcounts pack/unpack; per-variable HDF keys.
 - `legacy_sel_all_syst/` — Product **A1** runners + notebooks for existing sel_all weight DFs.
 - `syst_category_summary.py` — pack/load per-category systematic summary NPZ.
-- `cc_joint_cov.py` — builds the joint covariance for the conditional (muon → proton) constraint.
+- `cc_joint_cov.py` — stacked joint covariance for the conditional (muon → proton) constraint; CategorySummary extras on the diagonal.
 - `genie_flat_helpers.py` — flat-GENIE / generator-comparison cross-section helpers.
 - `fake_data_test_configs.py` — reweighting configurations for fake-data unfolding tests.
 
@@ -203,8 +219,12 @@ Systematics:
 
 Unfolding and generators:
 
-- `unfolding-prepare.ipynb` — **PRL Product B step 1:** load Sep-1 `sel_mup` DFs (beam-quality data + MC `evt`/`mcnu`), recompute data–MC overlays and assert vs `PRL/data_mc_overlays/productB_sel_mup/counts_report.npz`, build efficiency/response matrices → `PRL/response_matrices/`.
-- `unfolding.ipynb` — **PRL Product B step 2:** load response pack + Product B CategorySummary `total_xsec`, MC closure test, data Wiener-SVD (`C_type=2`), save flux + unfolded products under `PRL/unfolded/`.
+- `unfolding-prepare.ipynb` — **PRL Product B step 1:** overlays (OffBeam cosmics) via `scripts/data_mc_overlay_products.py`, then **batched** efficiency/response via `scripts/response_matrices_product_b.py` (streams MC file-by-file; no full-sample DF load) → `PRL/response_matrices/`. Product B responses are **not** precomputed until this step runs (`PRL/response_matrices/` starts empty). Gen1 May responses live only under `RESULTS/DATA_RESULTS/gen1_final_unfold/` and must not be reused for Product B.
+- `unfolding.ipynb` — **PRL Product B step 2:** load response pack + Product B CategorySummary `total_xsec` from `PRL/systematics/productB_sel_mup` (nominal since 2026-09-29: GENIE = **`GENIE_slim_v3`** = base × FSI_v3, MEC knobs → May; DENT = rolling 80% w=3 + Gauss σ=1), MC closure test, data Wiener-SVD (`C_type=2`), save under `PRL/unfolded/`. Raw DENT: `productB_sel_mup__dent_raw` / `PRL/unfolded_dent_raw`.
+- `unfolding-FSI_v1v3.ipynb` — **deprecated former nominal** (GENIE = `GENIE_slim_both` / FSI v1×v3): `PRL/systematics/productB_sel_mup__FSI_v1v3` (was `productB_sel_mup__detfull_smear`; compat symlink kept) → `PRL/unfolded_FSI_v1v3/` (was `PRL/unfolded/`). Legacy slim_v3-only: `productB_sel_mup_legacy_slim_v3` + `PRL/unfolded_legacy_slim_v3`.
+- `unfolding-{MEC_May,GENIE_May,GENIE_May_FSIv3N,FSIv3_MEC_May}.ipynb` — GENIE-covariance variant tests (trees `productB_sel_mup__genie_*`, outputs `PRL/unfolded_genie_*`), each with a §7 comparison against the FSI v1×v3 result. `build_genie_may_test_trees.py` builds the May-archive variants.
+- Detector variant tests (script-driven, `scripts/unfold_product_b.py`): `build_detector_nosmear_test_tree.py` (drop dE/dx smear26 → `productB_sel_mup__det_nosmear`, notebook `unfolding-det_nosmear.ipynb`); `build_dent_smooth_test_trees.py` (DENT unisim σ/N smoothed with the `dent.ipynb` shortlist ported to `dent_smoothing.py`: `th1`, `gauss15`, `mavg3`, `savgol`, `rebin2`, plus conservative `upper80` / `upper80_w3` → `productB_sel_mup__det_dentsmooth_<m>`, unfolds `PRL/unfolded_det_dentsmooth_<m>`). Consumer nominal DENT is `upper80_w3`; the unsmoothed unisim is `productB_sel_mup__dent_raw`. `summarize_dent_smooth_tests.py` → `PRL/unfolded_det_dentsmooth_summary/` (two-sided shortlist) and `PRL/unfolded_det_dentsmooth_upper80_w3_summary/`.
+- `unfolding-fake_data_tests.ipynb` — Product B fake-data unfold (reweights + GiBUU) using the live response / POT / `MC_POT_FIX`; χ² table under `PRL/unfolded/fake_data_tests/`.
 - `unfolding-legacy-gen1.ipynb` — May Gen1 recovered-cov rebuild (`CovRotation` recovery; χ²≈34.5/12 for `tki-del_Tp`). Do not use for the Product B data release.
 - `unfolding-genie-comparison.ipynb` — currently wired to Gen1 ingredients; Old vs New GENIE `total_xsec` extracted xsecs.
 - `generator_comparison.ipynb` — unfolded data vs generator predictions.

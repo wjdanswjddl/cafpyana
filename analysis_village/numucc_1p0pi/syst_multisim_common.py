@@ -245,6 +245,12 @@ def build_var_configs(var_set: str):
         VariableConfig.opening_angle(),
     ]
     final_list = with_final_selected_evt_variables(list(CORE_SELECTED_EVT_VARIABLE_CONFIGS) + final_extra)
+    if var_set == "vertex_multi":
+        # One DF walk fills vertex×{N} for every N in NUMUCC_VERTEX_MULTI_NBINS.
+        from analysis_village.numucc_1p0pi.variable_configs import vertex_multi_bin_var_configs
+        raw = os.environ.get("NUMUCC_VERTEX_MULTI_NBINS", "40,50,60")
+        nbins = [int(x) for x in str(raw).split(",") if str(x).strip()]
+        return vertex_multi_bin_var_configs(nbins)
     if var_set == "final":
         return final_list
     if var_set == "intermediate":

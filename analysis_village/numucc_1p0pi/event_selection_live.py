@@ -269,13 +269,19 @@ def _draw_compact_overlay(
     show_legend: bool = True,
     legend_fontsize: float = 6.5,
 ) -> None:
-    """Stack MC (+ cosmics folded into cat-0, dirt) like ``overlay_hists_from_histdata``."""
+    """Stack MC (+ cosmics / dirt) like ``overlay_hists_from_histdata``.
+
+    Track-PDG: separate ``Intime Cosmics`` layer (MC Other kept).
+    Topology/genie: fold offbeam/intime into MC cosmics as one ``Cosmics`` entry.
+    """
     from matplotlib.patches import Patch
+    from analysis_village.numucc_1p0pi.utils import PDG_COSMIC_COLOR, PDG_COSMIC_LABEL
 
     bins = np.asarray(hd.bins, dtype=float)
     centers = 0.5 * (bins[:-1] + bins[1:])
     widths = np.diff(bins)
     labels, colors = _breakdown_style(hd.breakdown_type)
+    bt = getattr(hd, "breakdown_type", "")
 
     weights: List[np.ndarray] = []
     if hd.mc_hist is not None and (
@@ -287,21 +293,42 @@ def _draw_compact_overlay(
     ):
         weights = [np.asarray(hd.mc_hist[i], dtype=float).copy() for i in range(hd.mc_hist.shape[0])]
 
+    prefer_offbeam = True  # match Product A: prefer offbeam when available
     cosmic = None
-    if hd.has_intime and hd.intime_hist is not None:
+    if prefer_offbeam and getattr(hd, "has_offbeam", False) and hd.offbeam_hist is not None:
+        cosmic = np.asarray(hd.offbeam_hist, dtype=float)
+    elif hd.has_intime and hd.intime_hist is not None:
         cosmic = np.asarray(hd.intime_hist, dtype=float)
     elif getattr(hd, "has_offbeam", False) and hd.offbeam_hist is not None:
         cosmic = np.asarray(hd.offbeam_hist, dtype=float)
-    if cosmic is not None and weights:
-        weights[0] = weights[0] + cosmic
 
     plot_labels = list(labels)
     plot_colors = list(colors)
+    if bt in ("topology", "genie", "genie_sb"):
+        plot_labels = [
+            ("Cosmics" if lab in ("Cosmic", "Cosmics") else lab) for lab in plot_labels
+        ]
+    if cosmic is not None and weights:
+        if bt == "pdg":
+            weights = [np.asarray(cosmic, dtype=float)] + weights
+            plot_labels = plot_labels + [PDG_COSMIC_LABEL]
+            plot_colors = plot_colors + [PDG_COSMIC_COLOR]
+        else:
+            weights[0] = np.asarray(weights[0], dtype=float) + np.asarray(cosmic, dtype=float)
+
     if hd.has_dirt and hd.dirt_hist is not None and weights:
         dirt = np.asarray(hd.dirt_hist, dtype=float)
-        weights = [dirt] + weights
-        plot_colors = plot_colors + ["black"]
-        plot_labels = plot_labels + ["Dirt"]
+        # PDG with dirt_cat is folded in full overlays; compact view keeps aggregate dirt.
+        if bt == "pdg" and getattr(hd, "dirt_cat_hist", None) is not None:
+            dirt_cat = np.asarray(hd.dirt_cat_hist, dtype=float)
+            offset = 1 if (bt == "pdg" and cosmic is not None) else 0
+            n_fold = min(len(weights) - offset, dirt_cat.shape[0])
+            for ic in range(n_fold):
+                weights[ic + offset] = np.asarray(weights[ic + offset], dtype=float) + dirt_cat[ic]
+        else:
+            weights = [dirt] + weights
+            plot_colors = plot_colors + ["black"]
+            plot_labels = plot_labels + ["Dirt"]
 
     plot_colors = plot_colors[::-1]
     plot_labels = plot_labels[::-1]
@@ -379,8 +406,17 @@ def _draw_compact_overlay(
     if ymax > 0:
         ax.set_ylim(0, ymax * 1.25)
     if show_legend and legend_handles:
+        # Data first; MC high→low with Cosmic last (stack was bottom→top).
+        data_hs = [
+            h for h in legend_handles if str(getattr(h, "get_label", lambda: "")()).startswith("Data")
+        ]
+        mc_hs = [
+            h
+            for h in legend_handles
+            if not str(getattr(h, "get_label", lambda: "")()).startswith("Data")
+        ]
         ax.legend(
-            handles=legend_handles,
+            handles=data_hs + mc_hs[::-1],
             fontsize=legend_fontsize,
             loc="upper right",
             frameon=False,
@@ -397,8 +433,10 @@ def _draw_summary_bar(
     *,
     legend_fontsize: float = 6.5,
 ) -> None:
-    """Per-stage topology composition including cosmics + dirt (bars sum to 100%)."""
+    """Per-stage topology composition including cosmics + dirt (bars sum to 100%).
 
+    Offbeam/intime is folded into the MC Cosmics fraction (one ``Cosmics`` entry).
+    """
     bar = merged.get("bar") or {}
     stage_keys = list(merged.get("stage_keys") or [])
     stage_labels = list(merged.get("stage_labels") or [])
@@ -420,7 +458,7 @@ def _draw_summary_bar(
         )
         dirt = float(bb.dirt_count)
         if len(v) > 0:
-            v[0] += cosmic
+            v[0] += cosmic  # group MC + data-driven into Cosmics
         tot = float(v.sum() + dirt)
         if tot <= 0:
             rows.append(np.zeros(n_topo + 1, dtype=float))
@@ -441,7 +479,9 @@ def _draw_summary_bar(
     y = np.arange(len(avail))
     left = np.zeros(len(avail))
     stack_colors = list(topology_colors) + ["sienna"]
-    stack_labels = list(topology_labels) + ["Dirt"]
+    stack_labels = [
+        ("Cosmics" if lab in ("Cosmic", "Cosmics") else lab) for lab in topology_labels
+    ] + ["Dirt"]
     for i, (color, lab) in enumerate(zip(stack_colors, stack_labels)):
         if i >= data.shape[1]:
             break
@@ -512,8 +552,6 @@ def ordered_efficiency_vars(merged: dict) -> List[object]:
         vars_seen.update(by_v.keys())
     out = []
     for vc in EFFICIENCY_VARS:
-        if vc.var_save_name == "muon-dir_phi":
-            continue
         if vc.var_save_name in vars_seen:
             out.append(vc)
     return out
