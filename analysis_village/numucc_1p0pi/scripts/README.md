@@ -43,7 +43,6 @@ Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `d
 
 - **`get_systematics_genie.py`**: GENIE knob uncertainties. Requires **`evt`** and **`mcnu`** dataframes and separate **rate** vs **cross-section** covariance logic (see script docstring). Supports monolithic use or **`chunk-map`** / **`chunk-merge`** for HDF-split processing.
 - **`syst_genie_parallel.py`** / **`syst_genie_aggregate.py`** (drivers: `run_syst_genie_chunked.sh`, `run_genie_mp.sh`): parallel chunked orchestration.
-- **`merge_integrated_genie_into_final.py`**: folds integrated GENIE covariances into the final covariance tree.
 
 ---
 
@@ -53,15 +52,11 @@ Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `d
   `PRL/systematics/product{A,B}_*/Detector/` — geometry vs matched CV;
   calo/efield components on top of WireMod cv; YZ/XTXW distinct DoFs; + DENT.
   Product A overlays consume detector as `diag(u**2)`; Product B keeps full cov
-  in CategorySummary. Alternate recipes live under
-  `product*__detector_{legacy_3knob,unisim3,wiremod10,wiremod_nested,...}/` as **tests**.
-- **`build_detector_unisim_test_trees.py`**: rebuild parallel test Detector trees
-  (does not overwrite nominal).
+  in CategorySummary.
 - **`syst_detvar_chunk.py`** → **`syst_detvar_aggregate.py`** (driver: `run_syst_detvar_chunked.sh`): WireMod / calorimetry / E-field unisim covariances from DetVar CAF `.df` files.
 - **`wiremod_match_common_events.py`** (driver: `run_match_detvars.sh`): match common events between CV and WireMod samples.
-- **`sce_match_common_events.py`** (driver: `run_match_sce.sh`): same for 0x/2x SCE samples.
 - **`dent_match_common_events.py`** (driver: `run_match_dent.sh`): match CV vs DENT at `sel_all` (primary) and `sel_mup`.
-- **`dent_compare.py`**: DENT matched histograms, comparison plots, and efficiency/purity summary under `systematics-final/DENT/`.
+- **`dent_compare.py`**: histogram and efficiency helpers used by `dent.ipynb`, `wiremod.ipynb`, and the WireMod walkers.
 
 ---
 
@@ -90,18 +85,16 @@ Default production writes **one inclusive stacked vector** per universe
   runs the selection pipeline per job, aggregates histograms, and renders final plots.
 - **`selected_events.py`** / **`selected_events_cumulative.py`** (drivers: `run_event_rate_comp*.sh`):
   final-selection data/MC rate comparisons, per exposure batch or cumulative.
-- **`unfolding_data.py`**: scripted Wiener-SVD unfolding of beam data (twin of `notebooks/unfolding-data.ipynb`).
-- **`response_matrices_product_b.py`**: batch-accumulate Product B efficiencies + response matrices (streams `evt`/`mcnu` MC files; merges data/bkg from `counts_report.npz`) → `PRL/response_matrices/`. Called by `notebooks/unfolding-prepare.ipynb`.
+- **`unfold_product_b.py`**: Wiener-SVD unfolding of Product B (same path as `notebooks/unfolding.ipynb`).
+- **`response_matrices_product_b.py`**: batch-accumulate Product B efficiencies + response matrices (streams `evt`/`mcnu` MC files; merges data/bkg from `counts_report.npz`) → `PRL/response_matrices/`.
 - **`fake_data_unfold_tests.py`**: stream Product B GENIE + GiBUU histograms for `notebooks/unfolding-fake_data_tests.ipynb` → `PRL/unfolded/fake_data_tests/`.
 - **`data_mc_overlay_products.py`**: Product A/B data–MC overlays with OffBeam cosmics → `PRL/data_mc_overlays/`. Product B nominal `productB_sel_mup` is a real directory (`genie_rate`, DENT rolling 80% w=3 + Gauss σ=1); raw DENT overlays at `productB_sel_mup__dent_raw/`; former FSI v1×v3 overlays kept at `productB_sel_mup__FSI_v1v3/`.
 
 ---
 
-## Utilities / tests
+## Utilities
 
 - **`merge_grid_job_dfs.py`** (driver: `run_merge_job_outputs.sh`): merge per-grid-job `.df` outputs.
-- **`test_wgt_df_configs.py`** (driver: repo-root `test_wgt_jobs.sh`): smoke test of the weight df configs on a single CAF.
-- **`run_workflow_test.py`**: integrated multisim + DetVar + selection smoke test with capped file counts.
 
 ---
 

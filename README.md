@@ -92,12 +92,6 @@ tree and **fails loudly** if any are missing).
 Producer scripts (`syst_multisim_aggregate.py`, `syst_detvar_aggregate.py`, cosmics/GENIE drivers)
 each write into their subdirectory under the same root.
 
-**Integrated smoke test** (multisim + DetVar + event selection, capped file counts):
-
-```bash
-python analysis_village/numucc_1p0pi/scripts/run_workflow_test.py -o /path/to/workflow_out --max-files 2
-```
-
 ### Phase 3 — Staged data access (exposure batches)
 
 Policy stages `DataAccessStage` in `exposure_access.py`:

@@ -44,8 +44,8 @@ Stage names in the pipeline use hyphens (`2prong-mup`); CAF `sel_level` uses
 underscores / short names (`mup`, `muX`). Mapping:
 `CAF_SEL_LEVEL_TO_STAGE` in `event_selection_pipeline_def.py`.
 
-The frozen predecessor under `analysis_village/numucc1p0pi-old/` uses different
-thresholds and FV — do not mix it with Gen-1 / per-TPC DFs.
+Cut thresholds and the fiducial volume for this release live in
+`makedf/selections.py`. Do not mix in older selection definitions.
 
 Notebooks:
 
@@ -100,14 +100,8 @@ Interactive Product **B** multisim (notebook production):
 
 - Sum / cov: `scripts/syst_histcounts_stream_sum.py`, `notebooks/systematics-histcounts.ipynb`
 
-### Product A1 (legacy) — existing sel_all weight DFs
-
-If you already built `sel_all` weight tables and need to walk the selection
-pipeline offline, use:
-
-`analysis_village/numucc_1p0pi/legacy_sel_all_syst/`
-
-(wrappers set `MC_DF_STAGE=sel_all`; see that README).
+Product A systematics are the histcounts path above. This branch does not
+carry the older offline sel_all weight-table walker.
 
 ## Package modules (`analysis_village/numucc_1p0pi/`)
 
@@ -125,7 +119,6 @@ pipeline offline, use:
 - `event_selection_pipeline_def.py` — **cut order + stage plots** (`build_pipeline`); CAF / notebook / syst all consume this.
 - `event_selection_batched.py` — batched (≤1 GiB per job) selection orchestrator.
 - `event_selection_batch_core.py` — per-batch selection runner used by the map jobs.
-- `legacy_samples.py` — in-memory `SampleBundle` for small tests (`run_pipeline()` wraps `build_pipeline`).
 - `syst_disk_layout.py` — on-disk layout of the systematics NPZ/pickle tree (`MCstat/`, `Flux/`, `G4/`, `GENIE/`, `Cosmics/`, `Detector/`); canonical consumer roots under `PRL/systematics/product{A,B}_*`.
 - `syst_disk_cc_layout.py` — same for the joint (cross-variable) covariance tree.
 - `syst_multisim_common.py` — shared MCstat/Flux/G4 multisim helpers; **canonical** `combine_indep_knob_cov_packs`.
@@ -138,7 +131,6 @@ pipeline offline, use:
 - `syst_cc_joint_multisim_common.py` — stacked inclusive joint layout (`stacked_mu_p`) and pairwise helpers.
 - `syst_pipeline_walker.py` — walks `build_pipeline` on sel_all dfs (Product A1 / shared fill).
 - `syst_histcounts.py` — Product **A2** histcounts pack/unpack; per-variable HDF keys.
-- `legacy_sel_all_syst/` — Product **A1** runners + notebooks for existing sel_all weight DFs.
 - `syst_category_summary.py` — pack/load per-category systematic summary NPZ.
 - `cc_joint_cov.py` — stacked joint covariance for the conditional (muon → proton) constraint; CategorySummary extras on the diagonal.
 - `genie_flat_helpers.py` — flat-GENIE / generator-comparison cross-section helpers.
@@ -167,15 +159,14 @@ pipeline offline, use:
 - `run_syst_measurement_{multisim,genie,cosmics}.sh` — Product **B** entry points (`MC_DF_STAGE`/`INPUT_STAGE=final`).
 - `run_syst_multisim_chunked.sh` + `syst_multisim_{chunk,parallel,aggregate}.py` — MCstat/Flux/G4 multisim covariances.
 - `run_syst_cosmics_chunked.sh` + `syst_cosmics_{chunk,aggregate}.py`, `get_systematics_cosmics.py` — cosmic-background unisim covariances.
-- `run_syst_genie_chunked.sh`, `run_genie_mp.sh` + `get_systematics_genie.py`, `syst_genie_{parallel,aggregate}.py`, `merge_integrated_genie_into_final.py` — GENIE covariances (rate and cross-section).
-- `run_syst_detvar_chunked.sh` + `syst_detvar_{chunk,aggregate}.py` — detector-variation covariances (legacy chunk path).
-- `run_match_detvars.sh` / `run_match_dent.sh` / `run_match_sce.sh` + `wiremod_match_common_events.py` / `dent_match_common_events.py` / `sce_match_common_events.py` — backends for event matching; prefer `notebooks/systematics-detector-match.ipynb`.
+- `run_syst_genie_chunked.sh`, `run_genie_mp.sh` + `get_systematics_genie.py`, `syst_genie_{parallel,aggregate}.py` — GENIE covariances (rate and cross-section).
+- `run_syst_detvar_chunked.sh` + `syst_detvar_{chunk,aggregate}.py` — detector-variation covariances.
+- `run_match_detvars.sh` / `run_match_dent.sh` + `wiremod_match_common_events.py` / `dent_match_common_events.py` — match CV to WireMod / DENT; `notebooks/systematics-detector-match.ipynb` is the interactive entry.
 - `run_cc_systs.sh`, `run_syst_cc_joint_{multisim,genie}_chunked.sh` + `syst_cc_joint_*` — joint covariances for the conditional constraint.
 - `conditional_constraint_validation.py` — constraint validation plots and diagnostics.
 - `selected_events.py` / `selected_events_cumulative.py` + `run_event_rate_comp*.sh` — data/MC rate comparisons per exposure batch.
-- `unfolding_data.py` — scripted Wiener-SVD unfolding of beam data.
+- `unfold_product_b.py` / `response_matrices_product_b.py` — Product B response matrices and Wiener-SVD unfold.
 - `merge_grid_job_dfs.py` + `run_merge_job_outputs.sh` — merge per-grid-job `.df` outputs.
-- `test_wgt_df_configs.py`, `run_workflow_test.py` — smoke tests for weight configs and the integrated workflow.
 
 ## Notebooks (`notebooks/`)
 
@@ -193,10 +184,10 @@ Event selection and PID:
 
 Data/MC comparison and validation:
 
+- `data_mc_overlay_products.ipynb` — Product A/B data–MC overlays written to `PRL/data_mc_overlays/`.
 - `data_mc_comparison.ipynb` — final-selection data vs MC overlays with uncertainties.
 - `data_mc_comparison-chi2_summary.ipynb` — χ²/ndof summary tables across variables.
 - `data_mc_comparison_gibuu.ipynb` — same overlays with GiBUU as the MC model.
-- `homongeneity.ipynb` — spatial (octant) and temporal homogeneity of the selection.
 - `data_driven_validation.ipynb` — conditional constraint (muon → proton) validation.
 
 Systematics:
@@ -210,25 +201,13 @@ Systematics:
 - `wiremod.ipynb` / `dent.ipynb` — Product **A** (cut-stage) + **B** (measurement) from matched sel_all pipeline walks; WireMod calo envelope / DENT unisim (`syst_detvar_common.py`).
 - `systematics-detector.ipynb` — combine WireMod YZ/XTXW + DENT → `Detector/detector_syst_dict.npz` + overlay plots.
 - `systematics-summary.ipynb` — combine source disks → CategorySummary + total-by-source plots; **Detector** is one source from `systematics-detector.ipynb`.
-- `prl-genie-syst-summary.ipynb` / `total_uncertainty_del_Tp.ipynb` — specialized GENIE / δp_T summaries.
-- `multisigma_to_multisim.ipynb` — multisigma → multisim conversion for GENIE knobs.
-- `notebooks/archive_syst/` — retired near-duplicates (`systematics-genie.FULL`, group/mixed-summary, …).
-- `legacy_sel_all_syst/` — Product **A1** (existing sel_all weight DFs); see that README.
-- `sce.ipynb` — SCE matched-event study (legacy; Detector total now uses WireMod + DENT).
-- `detector_Efield_doubleanode.ipynb` — validation of the in-repo double-anode E-field map.
 
 Unfolding and generators:
 
-- `unfolding-prepare.ipynb` — **PRL Product B step 1:** overlays (OffBeam cosmics) via `scripts/data_mc_overlay_products.py`, then **batched** efficiency/response via `scripts/response_matrices_product_b.py` (streams MC file-by-file; no full-sample DF load) → `PRL/response_matrices/`. Product B responses are **not** precomputed until this step runs (`PRL/response_matrices/` starts empty). Gen1 May responses live only under `RESULTS/DATA_RESULTS/gen1_final_unfold/` and must not be reused for Product B.
-- `unfolding.ipynb` — **PRL Product B step 2:** load response pack + Product B CategorySummary `total_xsec` from `PRL/systematics/productB_sel_mup` (nominal since 2026-09-29: GENIE = **`GENIE_slim_v3`** = base × FSI_v3, MEC knobs → May; DENT = rolling 80% w=3 + Gauss σ=1), MC closure test, data Wiener-SVD (`C_type=2`), save under `PRL/unfolded/`. Raw DENT: `productB_sel_mup__dent_raw` / `PRL/unfolded_dent_raw`.
-- `unfolding-FSI_v1v3.ipynb` — **deprecated former nominal** (GENIE = `GENIE_slim_both` / FSI v1×v3): `PRL/systematics/productB_sel_mup__FSI_v1v3` (was `productB_sel_mup__detfull_smear`; compat symlink kept) → `PRL/unfolded_FSI_v1v3/` (was `PRL/unfolded/`). Legacy slim_v3-only: `productB_sel_mup_legacy_slim_v3` + `PRL/unfolded_legacy_slim_v3`.
-- `unfolding-{MEC_May,GENIE_May,GENIE_May_FSIv3N,FSIv3_MEC_May}.ipynb` — GENIE-covariance variant tests (trees `productB_sel_mup__genie_*`, outputs `PRL/unfolded_genie_*`), each with a §7 comparison against the FSI v1×v3 result. `build_genie_may_test_trees.py` builds the May-archive variants.
-- Detector variant tests (script-driven, `scripts/unfold_product_b.py`): `build_detector_nosmear_test_tree.py` (drop dE/dx smear26 → `productB_sel_mup__det_nosmear`, notebook `unfolding-det_nosmear.ipynb`); `build_dent_smooth_test_trees.py` (DENT unisim σ/N smoothed with the `dent.ipynb` shortlist ported to `dent_smoothing.py`: `th1`, `gauss15`, `mavg3`, `savgol`, `rebin2`, plus conservative `upper80` / `upper80_w3` → `productB_sel_mup__det_dentsmooth_<m>`, unfolds `PRL/unfolded_det_dentsmooth_<m>`). Consumer nominal DENT is `upper80_w3`; the unsmoothed unisim is `productB_sel_mup__dent_raw`. `summarize_dent_smooth_tests.py` → `PRL/unfolded_det_dentsmooth_summary/` (two-sided shortlist) and `PRL/unfolded_det_dentsmooth_upper80_w3_summary/`.
-- `unfolding-fake_data_tests.ipynb` — Product B fake-data unfold (reweights + GiBUU) using the live response / POT / `MC_POT_FIX`; χ² table under `PRL/unfolded/fake_data_tests/`.
-- `unfolding-legacy-gen1.ipynb` — May Gen1 recovered-cov rebuild (`CovRotation` recovery; χ²≈34.5/12 for `tki-del_Tp`). Do not use for the Product B data release.
-- `unfolding-genie-comparison.ipynb` — currently wired to Gen1 ingredients; Old vs New GENIE `total_xsec` extracted xsecs.
-- `generator_comparison.ipynb` — unfolded data vs generator predictions.
-- `notebooks/archive_unfolding/` — retired unfold notebooks (`unfolding-data`, fake-data tests, …).
+- `scripts/data_mc_overlay_products.py` then `scripts/response_matrices_product_b.py` — Product B overlays and batched efficiency/response → `PRL/response_matrices/`.
+- `unfolding.ipynb` — load that response pack + Product B CategorySummary `total_xsec` from `PRL/systematics/productB_sel_mup` (GENIE_slim_v3 + MEC May, with `tki-del_Tp` from v1×v3; DENT = rolling 80% w=3 + Gauss σ=1), MC closure test, data Wiener-SVD (`C_type=2`), save under `PRL/unfolded/`.
+- `unfolding-fake_data_tests.ipynb` — Product B fake-data unfold (reweights + GiBUU); χ² table under `PRL/unfolded/fake_data_tests/`.
+- `generator_comparison.ipynb` / `generator_predictions.ipynb` — unfolded data vs generator predictions.
 
 Style:
 
@@ -276,4 +255,3 @@ Style:
 - `submit_mc_jobs_detvar.sh` — detector-variation dataframe jobs (`sel_all-updatecalo` includes efield).
 - `makedf-lowE.sh` — low-energy dirt sample dataframes.
 - `merge_selection_chunks.sh` — template for aggregating selection chunk outputs.
-- `test_wgt_jobs.sh` — weight-config smoke test on a single CAF.
