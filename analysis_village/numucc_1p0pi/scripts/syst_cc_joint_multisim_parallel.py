@@ -18,7 +18,6 @@ os.environ.setdefault("BLIS_NUM_THREADS", "1")
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 import argparse
-import multiprocessing as mp
 import sys
 import time
 import traceback
@@ -267,9 +266,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     done = 0
     failures = 0
-    ctx = mp.get_context("fork")
-    with ctx.Pool(processes=workers, maxtasksperchild=32) as pool, open(cli.failed_log, "a") as flog:
-        for res in pool.imap_unordered(_worker, payloads, chunksize=1):
+    from analysis_village.numucc_1p0pi.scripts.syst_map_pool import fork_imap
+
+    with open(cli.failed_log, "a") as flog:
+        for res in fork_imap(_worker, payloads, processes=workers, maxtasksperchild=32):
             done += 1
             syst = res["syst"]
             df = res["df_file"]

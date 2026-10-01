@@ -14,13 +14,14 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-import numpy as np
-
 _REPO = Path(__file__).resolve().parents[3]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from analysis_village.numucc_1p0pi.scripts.reprocess_wiremod import _merge_univ_products
+from analysis_village.numucc_1p0pi.scripts.wiremod_walk_common import (
+    merge_cv_products,
+    merge_univ_products,
+)
 from analysis_village.numucc_1p0pi.syst_detvar_common import (
     WIREMOD_ENVELOPE_SHIFTED,
     build_wiremod_detector_dict,
@@ -42,24 +43,6 @@ def _load_acc(path: Path) -> dict:
     if isinstance(state, dict) and "acc" in state:
         return state.get("acc") or {}
     return state
-
-
-def _merge_cv_acc(acc: dict, chunk: dict) -> dict:
-    if not acc:
-        return {
-            "hists_cut": {k: np.asarray(v, dtype=float).copy() for k, v in chunk["hists_cut"].items()},
-            "hists_final": {k: np.asarray(v, dtype=float).copy() for k, v in chunk["hists_final"].items()},
-            "pot": float(chunk["pot"]),
-            "cut_var_names": list(chunk["cut_var_names"]),
-            "final_var_names": list(chunk["final_var_names"]),
-        }
-    acc["pot"] = float(acc["pot"]) + float(chunk["pot"])
-    for key in ("hists_cut", "hists_final"):
-        for var, hist in chunk[key].items():
-            acc[key][var] = np.asarray(acc[key].get(var, 0.0), dtype=float) + np.asarray(
-                hist, dtype=float
-            )
-    return acc
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -89,19 +72,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     for ck in args.yz_shard_ckpts:
         chunk = _load_acc(Path(ck))
         log(f"YZ merge {Path(ck).name} pot={chunk.get('pot', 0):.3e}")
-        yz = _merge_univ_products(yz, chunk)
+        yz = merge_univ_products(yz, chunk)
 
     xtxw: dict = {}
     for ck in args.xtxw_shard_ckpts:
         chunk = _load_acc(Path(ck))
         log(f"XTXW merge {Path(ck).name} pot={chunk.get('pot', 0):.3e}")
-        xtxw = _merge_univ_products(xtxw, chunk)
+        xtxw = merge_univ_products(xtxw, chunk)
 
     cv: dict = {}
     for ck in args.cv_shard_ckpts:
         chunk = _load_acc(Path(ck))
         log(f"CV merge {Path(ck).name} pot={chunk.get('pot', 0):.3e}")
-        cv = _merge_cv_acc(cv, chunk)
+        cv = merge_cv_products(cv, chunk)
 
     by_geom = {"YZ": yz, "XTXW": xtxw}
     pot_by = {

@@ -21,8 +21,17 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from analysis_village.numucc_1p0pi.scripts import dent_compare as dc
-from analysis_village.numucc_1p0pi.scripts.reprocess_wiremod import _merge_univ_products, _rss_gb
-from analysis_village.numucc_1p0pi.syst_detvar_common import accumulate_wiremod_matched_products, log
+from analysis_village.numucc_1p0pi.scripts.wiremod_walk_common import (
+    merge_cv_products,
+    merge_univ_products,
+    rss_gb,
+    shard_files,
+)
+from analysis_village.numucc_1p0pi.syst_detvar_common import (
+    accumulate_matched_sel_all_products,
+    accumulate_wiremod_matched_products,
+    log,
+)
 
 
 def _load_drop_map(path: Optional[Path]) -> Optional[dict]:
@@ -48,6 +57,7 @@ def _walk(
     final_var_defs,
     drop_map: Optional[dict] = None,
     mu_p_candidate_kwargs: Optional[dict] = None,
+    cv: bool = False,
 ) -> dict:
     files = list(files)
     n = len(files)
@@ -65,24 +75,33 @@ def _walk(
         lo = bi * batch_size
         hi = min(n, lo + batch_size)
         batch = files[lo:hi]
-        rss0 = _rss_gb()
+        rss0 = rss_gb()
         log(f"  batch {bi + 1}/{n_batches} files[{lo}:{hi}] rss={rss0:.2f} GiB")
         if rss0 > rss_limit_gb:
             raise RuntimeError(f"RSS {rss0:.2f} GiB exceeds limit {rss_limit_gb:.2f} GiB")
         t0 = time.time()
-        chunk = accumulate_wiremod_matched_products(
-            batch,
-            final_var_defs=final_var_defs,
-            include_cut_stage=True,
-            drop_map=drop_map,
-            mu_p_candidate_kwargs=mu_p_candidate_kwargs,
-        )
-        acc = _merge_univ_products(acc, chunk)
+        if cv:
+            chunk = accumulate_matched_sel_all_products(
+                batch,
+                final_var_defs=final_var_defs,
+                include_cut_stage=True,
+                mu_p_candidate_kwargs=mu_p_candidate_kwargs,
+            )
+            acc = merge_cv_products(acc, chunk)
+        else:
+            chunk = accumulate_wiremod_matched_products(
+                batch,
+                final_var_defs=final_var_defs,
+                include_cut_stage=True,
+                drop_map=drop_map,
+                mu_p_candidate_kwargs=mu_p_candidate_kwargs,
+            )
+            acc = merge_univ_products(acc, chunk)
         del chunk
         gc.collect()
-        rss1 = _rss_gb()
+        rss1 = rss_gb()
         log(f"    pot_acc={acc['pot']:.3e} rss={rss1:.2f} GiB dt={time.time() - t0:.1f}s")
-        if rss1 > rss_limit_gb:
+        if (not cv) and rss1 > rss_limit_gb:
             raise RuntimeError(f"RSS {rss1:.2f} GiB exceeds limit after batch")
         with open(checkpoint, "wb") as fh:
             pickle.dump(
@@ -109,6 +128,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--rss-limit-gb", type=float, default=20.0)
     p.add_argument("--label", default="shard")
     p.add_argument(
+        "--cv",
+        action="store_true",
+        help="Matched CV walk: no calorimetry universes (former wiremod_walk_cv_shard).",
+    )
+    p.add_argument(
         "--drop-map-pkl",
         default=None,
         help="Optional artkey drop map from dedupe_matched_artkeys.py (XTXW)",
@@ -123,21 +147,37 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     with open(args.files_pkl, "rb") as fh:
         all_files = list(pickle.load(fh))
-    if args.n_shards > 1:
-        files = [f for i, f in enumerate(all_files) if i % args.n_shards == args.shard_id]
-    else:
-        files = all_files
+    files = shard_files(all_files, int(args.n_shards), int(args.shard_id))
     pid_kw = {"mu_chi2mu_th": float(args.mu_chi2mu_th)} if args.mu_chi2mu_th is not None else None
-    log(
-        f"[{args.label} s{args.shard_id}/{args.n_shards}] "
-        f"{len(files)}/{len(all_files)} files batch={args.batch_size} "
-        f"mu_chi2mu_th={None if pid_kw is None else pid_kw['mu_chi2mu_th']}"
-    )
+    if args.cv:
+        from analysis_village.numucc_1p0pi.makedf import selections as _sel
+
+        log(
+            f"[CV s{args.shard_id}/{args.n_shards}] {len(files)}/{len(all_files)} files "
+            f"mu_chi2mu_th={None if pid_kw is None else pid_kw['mu_chi2mu_th']} "
+            f"NU_SCORE_TH={_sel.NU_SCORE_TH} MU_CHI2MU_TH={_sel.MU_CHI2MU_TH}"
+        )
+        if float(_sel.NU_SCORE_TH) != 0.45:
+            raise RuntimeError(
+                f"Refuse CV walk with NU_SCORE_TH={_sel.NU_SCORE_TH} "
+                f"(nominal 0.45). Cut-campaign pollution would fake WireMod Product A unc."
+            )
+        if pid_kw is None and int(_sel.MU_CHI2MU_TH) != 30:
+            raise RuntimeError(
+                f"Refuse CV walk with MU_CHI2MU_TH={_sel.MU_CHI2MU_TH} "
+                f"(nominal 30) when --mu-chi2mu-th is unset."
+            )
+    else:
+        log(
+            f"[{args.label} s{args.shard_id}/{args.n_shards}] "
+            f"{len(files)}/{len(all_files)} files batch={args.batch_size} "
+            f"mu_chi2mu_th={None if pid_kw is None else pid_kw['mu_chi2mu_th']}"
+        )
     if not files:
         log("nothing to do")
         return 0
 
-    drop_map = _load_drop_map(Path(args.drop_map_pkl) if args.drop_map_pkl else None)
+    drop_map = None if args.cv else _load_drop_map(Path(args.drop_map_pkl) if args.drop_map_pkl else None)
     final_defs = dc.build_final_var_defs()
     ck = Path(args.checkpoint)
     ck.parent.mkdir(parents=True, exist_ok=True)
@@ -149,8 +189,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         final_var_defs=final_defs,
         drop_map=drop_map,
         mu_p_candidate_kwargs=pid_kw,
+        cv=bool(args.cv),
     )
-    log(f"[{args.label} s{args.shard_id}] done pot={acc.get('pot', 0):.3e} rss={_rss_gb():.2f}")
+    done_tag = "CV" if args.cv else args.label
+    log(f"[{done_tag} s{args.shard_id}] done pot={acc.get('pot', 0):.3e} rss={rss_gb():.2f}")
     return 0
 
 

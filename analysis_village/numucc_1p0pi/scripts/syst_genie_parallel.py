@@ -35,7 +35,6 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 import argparse
 import glob
-import multiprocessing as mp
 import sys
 import time
 import traceback
@@ -325,9 +324,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             for (grp, p) in jobs
         ]
         done = 0
-        ctx = mp.get_context("fork")
-        with ctx.Pool(processes=workers, maxtasksperchild=32) as pool, open(cli.failed_log, "a") as flog:
-            for res in pool.imap_unordered(_worker_chunk_map, payloads, chunksize=1):
+        from analysis_village.numucc_1p0pi.scripts.syst_map_pool import fork_imap
+
+        with open(cli.failed_log, "a") as flog:
+            for res in fork_imap(_worker_chunk_map, payloads, processes=workers, maxtasksperchild=32):
                 done += 1
                 grp = res["group"]
                 df = res["df_file"]
@@ -386,9 +386,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     ]
     merge_failures = 0
     done = 0
-    ctx = mp.get_context("fork")
-    with ctx.Pool(processes=merge_workers) as pool:
-        for res in pool.imap_unordered(_worker_chunk_merge, merge_payloads, chunksize=1):
+    from analysis_village.numucc_1p0pi.scripts.syst_map_pool import fork_imap
+
+    for res in fork_imap(
+        _worker_chunk_merge, merge_payloads, processes=merge_workers, maxtasksperchild=None
+    ):
             done += 1
             grp = res["group"]
             if res["ok"]:

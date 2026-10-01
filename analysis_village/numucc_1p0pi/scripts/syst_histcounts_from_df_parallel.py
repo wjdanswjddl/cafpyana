@@ -18,7 +18,6 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 import argparse
 import glob
-import multiprocessing as mp
 import sys
 import time
 import traceback
@@ -158,10 +157,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     ok = skip = fail = 0
     failed_lines: List[str] = []
-    # fork: import chunk_mod in parent so workers inherit
-    ctx = mp.get_context("fork")
-    with ctx.Pool(processes=n_workers, maxtasksperchild=8) as pool:
-        for i, res in enumerate(pool.imap_unordered(_worker, jobs), start=1):
+    from analysis_village.numucc_1p0pi.scripts.syst_map_pool import fork_imap
+
+    for i, res in enumerate(
+        fork_imap(_worker, jobs, processes=n_workers, maxtasksperchild=8), start=1
+    ):
             if res["ok"]:
                 if res["status"] == "skipped":
                     skip += 1
