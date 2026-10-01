@@ -14,6 +14,11 @@ and the breakdown notebook:
 
 Writes ``<syst-disk-root>/GENIE/cov_mat_dict.pkl`` (see ``syst_disk_layout``).
 
+A ``sel_all`` merge also fills final-stage (Product B) variables. Their xsec
+blocks disagree with the ``sel_mup`` / ``MC_DF_STAGE=final`` matrices, so those
+xsec keys are dropped here. Rate keys and cut-stage rows are kept. The
+``final`` stage is not pruned: that pickle is the Product B source.
+
 Example::
 
     python syst_genie_aggregate.py \\
@@ -54,6 +59,26 @@ from analysis_village.numucc_1p0pi.syst_disk_layout import (  # noqa: E402
     category_out_dir,
     normalized_root,
 )
+
+
+def prune_product_b_xsec(cov_mat_dict: Dict[str, Dict[str, Any]]) -> int:
+    """Drop Product B xsec blocks from a ``sel_all`` GENIE cov dict.
+
+    Rate keys (names ending in ``_rate``) and every cut-stage row stay.
+    Returns how many keys were removed. Mutates ``cov_mat_dict``.
+    """
+    from analysis_village.numucc_1p0pi.syst_pipeline_walker import final_stage_var_configs
+
+    prod_b = {vc.var_save_name for vc in final_stage_var_configs() if vc.var_save_name}
+    n_dropped = 0
+    for var, row in cov_mat_dict.items():
+        if var not in prod_b or not isinstance(row, dict):
+            continue
+        drop = [k for k in list(row) if not str(k).endswith("_rate")]
+        for k in drop:
+            del row[k]
+            n_dropped += 1
+    return n_dropped
 
 
 def _ordered_groups_with_chunks(
@@ -213,6 +238,14 @@ def run_genie_syst_aggregate(
             )
             _accumulate_group_syst(cov_mat_dict, group_syst)
 
+    n_pruned = 0
+    if stage == "sel_all":
+        n_pruned = prune_product_b_xsec(cov_mat_dict)
+        print(
+            "[genie-aggregate] pruned %d Product B xsec keys "
+            "(sel_mup / final stage is the Product B source)" % n_pruned
+        )
+
     with open(out_pkl, "wb") as f:
         pickle.dump(cov_mat_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
     print("[genie-aggregate] wrote", out_pkl)
@@ -225,6 +258,8 @@ def run_genie_syst_aggregate(
         "genie_groups": groups,
         "xsec_unit": float(xsec_unit),
         "output_pkl": out_pkl,
+        "productB_xsec_pruned": bool(stage == "sel_all"),
+        "productB_xsec_keys_dropped": int(n_pruned),
     }
     man_path = path.join(genie_dir, "genie_covariance_manifest.json")
     with open(man_path, "w") as f:

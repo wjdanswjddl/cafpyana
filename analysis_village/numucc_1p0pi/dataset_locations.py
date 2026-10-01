@@ -11,8 +11,8 @@ Edit paths **here only** so drivers stay thin:
   :func:`default_mcstat_syst_work_root`, :func:`default_flux_syst_work_root`,
   :func:`default_g4_syst_work_root`).
 - ``syst_multisim_aggregate.py`` — merge neutrino multisim map outputs into ``MCstat/``, ``Flux/``, ``G4/``.
-- ``syst_detvar_chunk.py`` / ``syst_detvar_aggregate.py`` — WireMod + calo variants;
-  input globs are listed in ``DETVAR_WIREMOD_GLOBS`` / :func:`iter_detvar_chunk_jobs`.
+- Detector systematic: matched WireMod walk (``wiremod_walk_shard.py``) and DENT
+  match. ``DETVAR_WIREMOD_GLOBS`` lists the WireMod sample globs.
 - ``get_systematics_genie.py`` / ``run_syst_genie_chunked.sh`` — GENIE reweights: one glob per
   knob **group** (``GENIE_GROUP_GLOBS``) / :func:`iter_genie_chunk_map_tasks`; ``syst_genie_aggregate.py``
   publishes ``GENIE/cov_mat_dict.pkl`` on the syst disk (phase 3 of the shell driver).
@@ -121,7 +121,7 @@ MULTISIM_SYST_GLOBS_FINAL: Dict[str, str] = {
         / "2026_09_04_173044__sel_mup-wgts_mcstat/*.df"
     ),
     # Current sel_mup Flux/G4 weight DFs (May ``merged_perTPC`` trees are gone).
-    # Same corrected samples as ``systematics-multisim-live.ipynb`` / PRL Product B.
+    # Corrected samples used for PRL Product B Flux / G4 / MCstat.
     "Flux": str(
         Path("/pnfs/sbnd/scratch/users/munjung/cafpyana_out/dfs")
         / "2026_09_03_022028__sel_mup-wgts_flux-corrected/*.df"
@@ -147,7 +147,8 @@ MULTISIM_SYST_GLOBS_SEL_ALL: Dict[str, str] = {
 # -----------------------------------------------------------------------------
 # Detvar (WireMod + calo unisim) — sel_all + updatecalo productions only.
 # Replace SET_ME dirs after submitting ``sel_all-updatecalo.py`` jobs.
-# Prefer notebooks/wiremod.ipynb over the legacy syst_detvar_chunk path.
+# Detector systematic is the matched WireMod walk (notebooks/wiremod.ipynb)
+# plus DENT. These globs are the WireMod sample listing.
 # -----------------------------------------------------------------------------
 DETVAR_DF_GLOB_EXAMPLE_WIREMOD_YZ = str(
     SPRING_GEN1_ROOT / "SET_ME__sel_all-mc-BNB_cosmics-WireModYZ/*.df"
@@ -157,7 +158,7 @@ DETVAR_DF_GLOB_EXAMPLE_WIREMOD_XTXW = str(
 )
 
 # -----------------------------------------------------------------------------
-# DetVar chunked driver — ``(WireMod tag, glob)`` pairs for ``syst_detvar_chunk.py``
+# WireMod sample globs. ``iter_detvar_chunk_jobs`` yields ``(tag, df)`` pairs.
 # -----------------------------------------------------------------------------
 DETVAR_WIREMOD_GLOBS: List[Tuple[str, str]] = [
     ("wiremod_yz", DETVAR_DF_GLOB_EXAMPLE_WIREMOD_YZ),
@@ -259,7 +260,7 @@ GENIE_GROUP_KNOBS["FSI_compare"] = fsi_compare_syst_knobs()
 def iter_detvar_chunk_jobs(
     wiremod_globs: Optional[Sequence[Tuple[str, str]]] = None,
 ) -> Iterator[Tuple[str, str]]:
-    """Yield ``(wiremod_tag, df_path)`` for ``syst_detvar_chunk.py`` (paths sorted per glob)."""
+    """Yield ``(wiremod_tag, df_path)`` from the WireMod sample globs."""
     pairs: Sequence[Tuple[str, str]] = wiremod_globs if wiremod_globs is not None else DETVAR_WIREMOD_GLOBS
     for tag, pattern in pairs:
         for p in sorted_glob(pattern):

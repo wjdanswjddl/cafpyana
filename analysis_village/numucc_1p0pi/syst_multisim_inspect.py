@@ -2,7 +2,7 @@
 
 Shared load → FV/topo prep → bad-weight filter → universe rates → cov packs,
 plus Flux asymmetry side-by-side plots. Chunked production remains in
-``scripts/syst_multisim_*.py``; live walk remains in ``syst_multisim_live.py``.
+``scripts/syst_multisim_*.py``.
 """
 from __future__ import annotations
 

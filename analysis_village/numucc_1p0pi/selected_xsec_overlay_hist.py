@@ -269,8 +269,7 @@ def _final_sel_vlines(var_save_name: str):
     Product B overlays are the *already selected* sample (inside the pμ 0.22–1
     and pp 0.3–1 GeV analysis window). The arrows were copied from cut-stage
     plots that mark those kinematic thresholds on pre-cut distributions; they
-    do not belong on the PRL data–MC overlays. Cut-stage plots still pass
-    ``vline`` via ``selected_xsec_overlay_cut_vars._vlines_for_tag``.
+    do not belong on the PRL data–MC overlays.
     """
     return None
 

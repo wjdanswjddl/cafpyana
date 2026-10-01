@@ -52,6 +52,8 @@ if _REPO_ROOT not in sys.path:
 from analysis_village.numucc_1p0pi.syst_cosmics_common import (
     attach_selected_rate_to_syst_dict,
     build_variable_configs,
+    process_variable_cosmics_from_histograms,
+    save_cosmics_npz,
 )
 from analysis_village.numucc_1p0pi.syst_disk_layout import SUB_COSMICS, SYST_DISK_ENV
 from analysis_village.numucc_1p0pi.syst_pipeline_walker import (
@@ -59,12 +61,6 @@ from analysis_village.numucc_1p0pi.syst_pipeline_walker import (
     FINAL_STAGE_KEY,
     final_stage_var_configs,
 )
-from analysis_village.numucc_1p0pi.scripts.get_systematics_cosmics import (
-    process_variable_cosmics_from_histograms,
-    save_cosmics_npz,
-)
-
-
 # ---------------------------------------------------------------------------
 # Detect & merge chunk pickles
 # ---------------------------------------------------------------------------
@@ -210,7 +206,7 @@ def _load_selected_mc_evt(mc_path: str):
 
 
 def run_aggregate(args: argparse.Namespace) -> None:
-    """Shared entry for CLI and ``get_systematics_cosmics.py aggregate``."""
+    """Merge cosmics chunk pickles and write the Cosmics NPZ."""
     tag = getattr(args, "out_tag", None) or datetime.now().strftime("%Y%m%d")
     chunks_dir = args.chunks_dir
     save_fig_dir = path.join(args.syst_disk_root, SUB_COSMICS)

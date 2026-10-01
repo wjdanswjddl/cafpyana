@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Cosmic background systematic from offbeam data vs intime MC (unisim by default).
 
-**Chunked workflow** (preferred; matches ``syst_multisim_chunk`` / ``syst_detvar_chunk``):
+**Chunked workflow** (the measurement; same map/reduce shape as Flux/G4 and GENIE):
 
 1. Map: ``syst_cosmics_chunk.py`` per ``.df`` from ``dataset_locations.iter_cosmics_chunk_df_paths``
    (offbeam and intime separately) → ``cosmics__<sample>__<stem>.pkl``.
@@ -59,33 +59,18 @@ _REPO_ROOT = path.abspath(path.join(path.dirname(__file__), "..", "..", "..", ".
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from pyanalib.covariance import get_covariance_matrix  # noqa: E402
-
 from analysis_village.numucc_1p0pi.files_config import get_ana_dfs  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_disk_layout import SUB_COSMICS, SYST_DISK_ENV  # noqa: E402
 from analysis_village.numucc_1p0pi.syst_cosmics_common import (  # noqa: E402
-    apply_flat_cosmic_uncertainty,
     attach_selected_rate_to_syst_dict,
     build_variable_configs,
+    process_variable_cosmics_from_histograms,
+    save_cosmics_npz,
 )
-from analysis_village.numucc_1p0pi.utils import dpi, fig_ext, plot_heatmap, plot_univ_hists  # noqa: E402
 try:
     plt.style.use(path.join(path.dirname(__file__), "presentation.mplstyle"))
 except Exception:
     pass
-
-
-def _sanitize_matrix_pack(pack: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
-    cov = np.nan_to_num(np.asarray(pack["cov"], dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
-    cov_frac = np.nan_to_num(np.asarray(pack["cov_frac"], dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
-    corr = np.asarray(pack["corr"], dtype=float)
-    d = np.sqrt(np.maximum(np.diag(cov), 0.0))
-    outer = np.outer(d, d)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        corr = np.where(outer > 0, cov / outer, 0.0)
-    corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
-    np.fill_diagonal(corr, 1.0)
-    return {"cov": cov, "cov_frac": cov_frac, "corr": corr}
 
 
 def cosmic_histograms(
@@ -105,182 +90,6 @@ def cosmic_histograms(
         h_in = np.array([float(np.sum(intime_df["pot_scale"]))])
 
     return h_off.astype(float), h_in.astype(float)
-
-
-def univ_stack_and_cv(h_off: np.ndarray, h_in: np.ndarray, mode: str) -> Tuple[np.ndarray, np.ndarray]:
-    """Return (univ_events, cv_events) for ``get_covariance_matrix``."""
-    mode = mode.strip().lower()
-    h_off = np.asarray(h_off, dtype=float)
-    h_in = np.asarray(h_in, dtype=float)
-    if mode == "offbeam":
-        # CV = data-driven cosmic estimate; intime MC is the single alternate shape
-        return np.stack([h_in], axis=0), h_off.copy()
-    if mode == "intime":
-        return np.stack([h_off], axis=0), h_in.copy()
-    if mode == "mean":
-        return np.stack([h_off, h_in], axis=0), 0.5 * (h_off + h_in)
-    raise ValueError(f"Unknown --cv-mode {mode!r}; use mean|intime|offbeam")
-
-
-def _plot_matrices(
-    ret: Mapping[str, np.ndarray],
-    var_config: Any,
-    save_fig_dir: str,
-    save_plots: bool,
-    prefix: str,
-) -> None:
-    labels = {
-        "cov": "Covariance",
-        "cov_frac": "Fractional covariance",
-        "corr": "Correlation",
-    }
-    for matrix_type in ("cov", "cov_frac", "corr"):
-        save_fig_name = path.join(save_fig_dir, f"{prefix}-{matrix_type}")
-        cmap = "coolwarm" if matrix_type == "corr" else "viridis"
-        plot_heatmap(
-            ret[matrix_type],
-            var_config.bins,
-            plot_labels=[var_config.var_labels[1], var_config.var_labels[1], labels[matrix_type]],
-            plot=False,
-            cmap=cmap,
-            approval="",
-            save_fig=save_plots,
-            save_name=save_fig_name,
-        )
-
-
-def process_variable_cosmics_from_histograms(
-    h_off: np.ndarray,
-    h_in: np.ndarray,
-    var_config: Any,
-    cv_mode: str,
-    save_fig_dir: str,
-    save_plots: bool,
-    flat_uncertainty: bool = True,
-    blow_up_frac_unc_threshold: float = 1.0,
-) -> Dict[str, Any]:
-    """Covariance + optional plots from precomputed offbeam / intime histograms."""
-    h_off = np.asarray(h_off, dtype=float)
-    h_in = np.asarray(h_in, dtype=float)
-    univ_events, cv_events = univ_stack_and_cv(h_off, h_in, cv_mode)
-
-    if save_plots:
-        plt.figure(figsize=(8, 6))
-        mode_l = cv_mode.strip().lower()
-        if mode_l == "offbeam":
-            plt.hist(
-                var_config.bin_centers,
-                weights=h_off,
-                bins=var_config.bins,
-                histtype="step",
-                color="crimson",
-                linewidth=2.0,
-                label="CV (offbeam data)",
-            )
-            plt.hist(
-                var_config.bin_centers,
-                weights=h_in,
-                bins=var_config.bins,
-                histtype="step",
-                color="black",
-                label="Unisim variation (intime MC)",
-            )
-        elif mode_l == "intime":
-            plt.hist(
-                var_config.bin_centers,
-                weights=h_in,
-                bins=var_config.bins,
-                histtype="step",
-                color="black",
-                linewidth=2.0,
-                label="CV (intime MC)",
-            )
-            plt.hist(
-                var_config.bin_centers,
-                weights=h_off,
-                bins=var_config.bins,
-                histtype="step",
-                color="crimson",
-                label="Unisim variation (offbeam data)",
-            )
-        else:
-            plt.hist(
-                var_config.bin_centers,
-                weights=h_off,
-                bins=var_config.bins,
-                histtype="step",
-                color="crimson",
-                label="Offbeam data",
-            )
-            plt.hist(
-                var_config.bin_centers,
-                weights=h_in,
-                bins=var_config.bins,
-                histtype="step",
-                color="black",
-                label="Intime MC (scaled)",
-            )
-            plt.hist(
-                var_config.bin_centers,
-                weights=cv_events,
-                bins=var_config.bins,
-                histtype="step",
-                color="tab:blue",
-                linestyle="--",
-                label="CV (mean)",
-            )
-        plt.xlim(var_config.bins[0], var_config.bins[-1])
-        plt.xlabel(var_config.var_labels[0])
-        plt.ylabel("Events / Bin")
-        plt.legend(frameon=False)
-        plt.savefig(
-            path.join(save_fig_dir, f"{var_config.var_save_name}-cosmics-offbeam-vs-intime{fig_ext}"),
-            bbox_inches="tight",
-            dpi=dpi,
-        )
-        plt.close()
-
-    ret = _sanitize_matrix_pack(get_covariance_matrix(univ_events, cv_events))
-
-    if save_plots:
-        plot_univ_hists(
-            univ_events,
-            cv_events,
-            "Cosmics",
-            var_config,
-            plot=False,
-            ax_titles=[
-                "",
-                "Events / Bin",
-                f"Cosmics ({cv_mode}: CV vs variation, n_univ={univ_events.shape[0]})",
-            ],
-            save_fig=True,
-            save_name=path.join(save_fig_dir, f"{var_config.var_save_name}-cosmics_univ"),
-        )
-        _plot_matrices(
-            ret,
-            var_config,
-            save_fig_dir,
-            True,
-            f"{var_config.var_save_name}-cosmics",
-        )
-
-    pay = {
-        "cov": ret["cov"],
-        "cov_frac": ret["cov_frac"],
-        "corr": ret["corr"],
-        "rate": ret,
-        "univ_offbeam": h_off,
-        "univ_intime": h_in,
-        "cv_mode": cv_mode,
-        "cv_histogram": cv_events,
-        "n_univ": int(univ_events.shape[0]),
-    }
-    if flat_uncertainty:
-        apply_flat_cosmic_uncertainty(
-            pay, blow_up_frac_unc_threshold=blow_up_frac_unc_threshold
-        )
-    return pay
 
 
 def process_variable_cosmics(
@@ -304,11 +113,6 @@ def process_variable_cosmics(
         flat_uncertainty=flat_uncertainty,
         blow_up_frac_unc_threshold=blow_up_frac_unc_threshold,
     )
-
-
-def save_cosmics_npz(syst_dict_by_var: Mapping[str, Any], out_path: str) -> None:
-    np.savez_compressed(out_path, **syst_dict_by_var)
-    logging.info("Wrote %s", out_path)
 
 
 def load_cosmic_samples_ana() -> Tuple[pd.DataFrame, pd.DataFrame]:

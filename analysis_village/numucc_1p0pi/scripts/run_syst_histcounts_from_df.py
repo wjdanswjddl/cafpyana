@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Notebook / CLI launcher for Flux & G4 histcounts-from-DF processing.
 
-Same campaign layout as ``run_syst_histcounts_from_df.sh``, but callable from a
+Callable from a
 Jupyter kernel so workers run on the connected machine (e.g. EAF).
 
 Foreground (blocks, streams logs to the notebook)::

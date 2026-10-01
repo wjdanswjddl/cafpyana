@@ -72,8 +72,6 @@ from analysis_village.flux.raytrace_volume_defs import (  # noqa: E402
     FV_SPLIT_TRUNCY_BOXES,
     RAYTRACE_VOLUME_LABEL,
 )
-from unfolding_data import pack_unfold_results  # noqa: E402
-
 PRL_ROOT = Path("/exp/sbnd/data/users/munjung/xsec/numucc_1p0pi/PRL")
 DEFAULT_RESP = PRL_ROOT / "response_matrices" / "response_matrices.npz"
 DEFAULT_SYST = PRL_ROOT / "systematics" / "productB_sel_mup"
@@ -82,6 +80,32 @@ FLUX_FILE = Path("/exp/sbnd/data/users/munjung/flux/SBND_gsimple_raytrace/Gen1.r
 
 C_TYPE = 2
 NORM_TYPE = 0.0
+
+
+def pack_unfold_results(unfold: dict, var_config) -> dict:
+    """Bin-wise unfold, covariance diagonals, and per-bin-width errors."""
+    bins = var_config.bins
+    bin_widths = np.diff(bins)
+    if len(bins) == 2:
+        bin_widths = np.array([1.0])
+    unfolded = np.asarray(unfold["unfold"], dtype=float)
+    return {
+        "bins": np.asarray(bins, dtype=float),
+        "bin_centers": np.asarray(var_config.bin_centers, dtype=float),
+        "bin_widths": bin_widths,
+        "unfold": unfolded,
+        "unfold_per_bin_width": unfolded / bin_widths,
+        "stat_err": np.sqrt(np.maximum(np.diag(unfold["StatUnfoldCov"]), 0.0)),
+        "syst_err": np.sqrt(np.maximum(np.diag(unfold["SystUnfoldCov"]), 0.0)),
+        "total_err": np.sqrt(np.maximum(np.diag(unfold["UnfoldCov"]), 0.0)),
+        "stat_err_per_bin_width": np.sqrt(np.maximum(np.diag(unfold["StatUnfoldCov"]), 0.0)) / bin_widths,
+        "syst_err_per_bin_width": np.sqrt(np.maximum(np.diag(unfold["SystUnfoldCov"]), 0.0)) / bin_widths,
+        "total_err_per_bin_width": np.sqrt(np.maximum(np.diag(unfold["UnfoldCov"]), 0.0)) / bin_widths,
+        "AddSmear": np.asarray(unfold["AddSmear"], dtype=float),
+        "UnfoldCov": np.asarray(unfold["UnfoldCov"], dtype=float),
+        "StatUnfoldCov": np.asarray(unfold["StatUnfoldCov"], dtype=float),
+        "SystUnfoldCov": np.asarray(unfold["SystUnfoldCov"], dtype=float),
+    }
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:

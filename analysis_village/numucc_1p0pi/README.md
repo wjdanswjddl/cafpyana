@@ -133,7 +133,6 @@ carry the older offline sel_all weight-table walker.
 - `syst_histcounts.py` — Product **A2** histcounts pack/unpack; per-variable HDF keys.
 - `syst_category_summary.py` — pack/load per-category systematic summary NPZ.
 - `cc_joint_cov.py` — stacked joint covariance for the conditional (muon → proton) constraint; CategorySummary extras on the diagonal.
-- `genie_flat_helpers.py` — flat-GENIE / generator-comparison cross-section helpers.
 - `fake_data_test_configs.py` — reweighting configurations for fake-data unfolding tests.
 
 ## Dataframe makers (`makedf/` in this directory)
@@ -159,10 +158,9 @@ carry the older offline sel_all weight-table walker.
 - `run_event_selection_batched.sh` + `event_selection_batch_{survey,map}.py` + `event_selection_aggregate.py` — map/reduce event selection and plotting.
 - `run_syst_measurement_{multisim,genie,cosmics}.sh` — Product **B** entry points (`MC_DF_STAGE`/`INPUT_STAGE=final`).
 - `run_syst_multisim_chunked.sh` + `syst_multisim_{chunk,parallel,aggregate}.py` — MCstat/Flux/G4 multisim covariances.
-- `run_syst_cosmics_chunked.sh` + `syst_cosmics_{chunk,aggregate}.py`, `get_systematics_cosmics.py` — cosmic-background unisim covariances.
-- `run_syst_genie_chunked.sh`, `run_genie_mp.sh` + `get_systematics_genie.py`, `syst_genie_{parallel,aggregate}.py` — GENIE covariances (rate and cross-section).
-- `run_syst_detvar_chunked.sh` + `syst_detvar_{chunk,aggregate}.py` — detector-variation covariances.
-- `run_match_detvars.sh` / `run_match_dent.sh` + `wiremod_match_common_events.py` / `dent_match_common_events.py` — match CV to WireMod / DENT; `notebooks/systematics-detector-match.ipynb` is the interactive entry.
+- `run_syst_cosmics_chunked.sh` + `syst_cosmics_{chunk,aggregate}.py` — cosmic-background unisim covariances. The covariance itself is `syst_cosmics_common.py`. `get_systematics_cosmics.py` is the in-memory notebook loader and calls that same function.
+- `run_syst_genie_chunked.sh` + `get_systematics_genie.py`, `syst_genie_{parallel,aggregate}.py` — GENIE covariances (rate and cross-section). Dataframes: `submit_mc_jobs_GENIE.sh` with `STAGE` and `GROUP` (`slim` is base × FSI v3).
+- `run_match_detvars.sh` / `run_match_dent.sh` + `wiremod_match_common_events.py` / `dent_match_common_events.py` and `wiremod_walk_shard.py` — matched WireMod + DENT detector systematic. `notebooks/wiremod.ipynb`, `dent.ipynb`, and `systematics-detector-match.ipynb` are the interactive entries. Shared histogram helpers live in `syst_detvar_common.py`.
 - `run_cc_systs.sh`, `run_syst_cc_joint_{multisim,genie}_chunked.sh` + `syst_cc_joint_*` — joint covariances for the conditional constraint.
 - `conditional_constraint_validation.py` — constraint validation plots and diagnostics.
 - `selected_events.py` / `selected_events_cumulative.py` + `run_event_rate_comp*.sh` — data/MC rate comparisons per exposure batch.
@@ -186,7 +184,7 @@ Event selection and PID:
 Data/MC comparison and validation:
 
 - `data_mc_overlay_products.ipynb` — Product A/B data–MC overlays written to `PRL/data_mc_overlays/`.
-- `data_mc_comparison.ipynb` — final-selection data vs MC overlays with uncertainties.
+- `data_mc_overlay_products.ipynb` — final-selection data vs MC overlays with uncertainties.
 - `data_mc_comparison-chi2_summary.ipynb` — χ²/ndof summary tables across variables.
 - `data_mc_comparison_gibuu.ipynb` — same overlays with GiBUU as the MC model.
 - `data_driven_validation.ipynb` — conditional constraint (muon → proton) validation.
@@ -195,8 +193,7 @@ Systematics:
 
 - `systematics-histcounts.ipynb` — Product **A2** (default): load/sum per-variable `syst_hists`, build covs.
 - `systematics-genie-inspect.ipynb` — **inspect** GENIE syst-disk outputs (per-knob / per-mode / top-10 plots; rate+xsec).
-- `systematics-mcstat.ipynb` / `systematics-flux.ipynb` / `systematics-g4.ipynb` — Product **B** multisim covariances (helpers in `syst_multisim_inspect.py`). Flux notebook includes integrated asymmetry (former `systematics-flux_asymmetry`).
-- `systematics-multisim-live.ipynb` — quick live walk of final-selected weight dfs (debug / spot-check).
+- `systematics-mcstat.ipynb` / `systematics-flux.ipynb` / `systematics-g4.ipynb` — Product **B** multisim covariances (helpers in `syst_multisim_inspect.py`). The flux notebook includes the integrated asymmetry section.
 - `systematics-cosmic.ipynb` — cosmic-background systematics (`SelectedRate` via `syst_cosmics_common`).
 - `systematics-detector-match.ipynb` — match detector-variation events at **sel_all** by `(E, run, subrun, evt)` (WireMod + DENT).
 - `wiremod.ipynb` / `dent.ipynb` — Product **A** (cut-stage) + **B** (measurement) from matched sel_all pipeline walks; WireMod calo envelope / DENT unisim (`syst_detvar_common.py`).

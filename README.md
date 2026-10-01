@@ -33,8 +33,8 @@ from `syst_multisim_aggregate.py`, and a machine-readable **`covariance_manifest
 | MC statistics | Poisson-style universe weights (`makedf/mcstat.py`) | Folded into Flux/G4 map via `syst_multisim_chunk.py` or dedicated runners |
 | Flux & G4 | Multisim weights from MC CAFs | `scripts/run_syst_multisim_chunked.sh` → `syst_multisim_aggregate.py` |
 | GENIE | Multisim / unisim knobs | `scripts/get_systematics_genie.py` (`chunk-map` / `chunk-merge` isolates rate vs **xsec** paths in code) |
-| Cosmics | Offbeam CV vs intime unisim | `scripts/run_syst_cosmics_chunked.sh` → `syst_cosmics_aggregate.py`, or `get_systematics_cosmics.py` |
-| Detector | DetVar CAFs (WireMod + calo) | `scripts/syst_detvar_chunk.py` → `syst_detvar_aggregate.py` |
+| Cosmics | Offbeam CV vs intime unisim | `scripts/run_syst_cosmics_chunked.sh` → `syst_cosmics_aggregate.py` |
+| Detector | Matched WireMod + DENT | `scripts/wiremod_walk_shard.py`, `scripts/dent_match_common_events.py` |
 
 **Example — Flux/G4/MCstat map + aggregate:**
 
@@ -55,11 +55,11 @@ python get_systematics_genie.py chunk-map --df-file /path/to/MC/file.df --out-di
 python get_systematics_genie.py chunk-merge --chunks-dir ./genie_chunks --out-dir ./genie_cov --npz ./genie_syst_dict.npz
 ```
 
-**Example — cosmics-only NPZ:**
+**Example — cosmics NPZ:**
 
 ```bash
 export NUMUCC_SYST_DISK_ROOT=/path/to/syst_disk
-python get_systematics_cosmics.py
+bash analysis_village/numucc_1p0pi/scripts/run_syst_cosmics_chunked.sh
 ```
 
 Point downstream plotting at precomputed covariances with **`NUMUCC_SYST_DISK_ROOT`**
@@ -89,7 +89,7 @@ Optional: pass `--syst-disk-root` to `event_selection_aggregate.py` if MC-univer
 are not embedded in the pickles (``utils.get_syst_unc`` loads **all** category files from that
 tree and **fails loudly** if any are missing).
 
-Producer scripts (`syst_multisim_aggregate.py`, `syst_detvar_aggregate.py`, cosmics/GENIE drivers)
+Producer scripts (`syst_multisim_aggregate.py`, WireMod/DENT walkers, cosmics/GENIE drivers)
 each write into their subdirectory under the same root.
 
 ### Phase 3 — Staged data access (exposure batches)

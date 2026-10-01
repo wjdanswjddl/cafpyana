@@ -35,14 +35,14 @@ Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `d
 ## Cosmics
 
 - **`syst_cosmics_chunk.py`** → **`syst_cosmics_aggregate.py`** (driver: `run_syst_cosmics_chunked.sh`): chunked off-beam CV vs intime unisim, writes `Cosmics/` under the syst disk root.
-- **`get_systematics_cosmics.py`**: cosmics-only NPZ in one pass. Requires **`--syst-disk-root`** or **`NUMUCC_SYST_DISK_ROOT`**.
+- **`get_systematics_cosmics.py`**: in-memory cosmics load for `systematics-cosmic.ipynb`. The measurement covariance is `syst_cosmics_common.process_variable_cosmics_from_histograms`, also used by `syst_cosmics_aggregate.py`.
 
 ---
 
 ## GENIE multisim
 
 - **`get_systematics_genie.py`**: GENIE knob uncertainties. Requires **`evt`** and **`mcnu`** dataframes and separate **rate** vs **cross-section** covariance logic (see script docstring). Supports monolithic use or **`chunk-map`** / **`chunk-merge`** for HDF-split processing.
-- **`syst_genie_parallel.py`** / **`syst_genie_aggregate.py`** (drivers: `run_syst_genie_chunked.sh`, `run_genie_mp.sh`): parallel chunked orchestration.
+- **`syst_genie_parallel.py`** / **`syst_genie_aggregate.py`** (driver: `run_syst_genie_chunked.sh`): parallel chunked orchestration. A `sel_all` merge drops Product B xsec blocks; the `final` / `sel_mup` pickle is the Product B source.
 
 ---
 
@@ -53,8 +53,7 @@ Shared helpers live in **`../syst_multisim_common.py`** (`build_var_configs`, `d
   calo/efield components on top of WireMod cv; YZ/XTXW distinct DoFs; + DENT.
   Product A overlays consume detector as `diag(u**2)`; Product B keeps full cov
   in CategorySummary.
-- **`syst_detvar_chunk.py`** → **`syst_detvar_aggregate.py`** (driver: `run_syst_detvar_chunked.sh`): WireMod / calorimetry / E-field unisim covariances from DetVar CAF `.df` files.
-- **`wiremod_match_common_events.py`** (driver: `run_match_detvars.sh`): match common events between CV and WireMod samples.
+- **`wiremod_match_common_events.py`** (driver: `run_match_detvars.sh`) and **`wiremod_walk_shard.py`**: match CV to WireMod, then walk the matched sample. Shared accumulators are in `syst_detvar_common.py`.
 - **`dent_match_common_events.py`** (driver: `run_match_dent.sh`): match CV vs DENT at `sel_all` (primary) and `sel_mup`.
 - **`dent_compare.py`**: histogram and efficiency helpers used by `dent.ipynb`, `wiremod.ipynb`, and the WireMod walkers.
 
@@ -103,14 +102,14 @@ Default production writes **one inclusive stacked vector** per universe
 | Goal | Script(s) |
 |------|-----------|
 | Chunked neutrino multisim (MCstat/Flux/G4) → NPZs + plots | `syst_multisim_chunk.py` → `syst_multisim_aggregate.py` (or `run_syst_multisim_chunked.sh`) |
-| Cosmics only | `run_syst_cosmics_chunked.sh` or `get_systematics_cosmics.py` |
+| Cosmics only | `run_syst_cosmics_chunked.sh` |
 | GENIE rate + xsec (with `mcnu`) | `get_systematics_genie.py` (or `run_syst_genie_chunked.sh`) |
-| Detector variations | `run_syst_detvar_chunked.sh` |
+| Detector (WireMod + DENT) | `run_match_detvars.sh`, `wiremod_walk_shard.py`, `run_match_dent.sh` |
 | Joint covariances for the constraint | `run_cc_systs.sh` |
 | Event selection map/reduce + plots | `run_event_selection_batched.sh` |
 | Product B overlays (OffBeam) | `data_mc_overlay_products.py --product B` |
 | Product B response/efficiency (batched) | `response_matrices_product_b.py` |
-| Unfolded cross section from data | `unfolding_data.py` / `notebooks/unfolding.ipynb` |
+| Unfolded cross section from data | `unfold_product_b.py` / `notebooks/unfolding.ipynb` |
 
 ---
 

@@ -864,7 +864,7 @@ if args.do_quadrant_plots:
 
 
 # More final-sample evt vars (same tuple as ``final_selected_evt_vars``; appended to
-# PER_EVT_PLOTS in scripts/syst_detvar_chunk.py for detvar unisim histograms).
+# the final-selection variable list used by the detector and rate plots).
 _FINAL_EVT_VARS_EXTRA = FINAL_SELECTED_EVT_VARIABLE_CONFIGS
 
 var_configs = []
